@@ -904,23 +904,8 @@
   //  ver detectarTemaDelBody más abajo)
 
 
-  // IMÁGENES DE FONDO LIVIANAS: se reducen (máx. 1920 px; 1440 en táctil/ligero) y se guardan como WebP (~5-10x menos peso).
-  // Los GIF no se tocan (perderían la animación). Si algo falla o no resulta más chico, se usa el archivo original.
-  function optimizarYLeer(file, reader) {
-    const directo = () => reader['readAsDataURL'](file);
-    if (!file || !/^image\//i.test(file.type) || /gif|svg/i.test(file.type) || typeof createImageBitmap !== 'function') { directo(); return; }
-    createImageBitmap(file).then((bmp) => {
-      const maxLado = (perfilLigero() || esTactil()) ? 1440 : 1920;
-      const esc = Math.min(1, maxLado / Math.max(bmp.width, bmp.height));
-      const w = Math.max(1, Math.round(bmp.width * esc)), h = Math.max(1, Math.round(bmp.height * esc));
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      c.getContext('2d').drawImage(bmp, 0, 0, w, h);
-      if (bmp.close) bmp.close();
-      if (!c.toBlob) { directo(); return; }
-      c.toBlob((blob) => { if (blob && blob.size < file.size) reader['readAsDataURL'](blob); else directo(); }, 'image/webp', 0.86);
-    }).catch(directo);
-  }
+  // IMÁGENES DE FONDO: se guardan en su calidad y tamaño originales (sin reducir ni recomprimir).
+  function optimizarYLeer(file, reader) { reader['readAsDataURL'](file); }
   // data URL -> blob URL (la regla CSS queda de pocos bytes y el navegador no reparsea megas de texto)
   let ultimoBlobFondo = null;
   function dataUrlABlobUrl(d) {
