@@ -3691,8 +3691,12 @@ p.gds-body-s.ng-star-inserted {
   new MutationObserver((mutaciones) => {
     for (const m of mutaciones) {
       for (const n of m.addedNodes) {
-        if (n.nodeType === 1) loteNodos.push(n);
-        else if (n.nodeType === 3 && n.parentElement && RE_CREANDO_RAPIDO.test(n.data)) loteNodos.push(n.parentElement);
+        if (n.nodeType === 1) {
+          loteNodos.push(n);
+          // menús (ajustes, "+", Tema...): se procesan AL INSTANTE, igual que antes, para que el botón "Personalizar"
+          // y el vidrio estén puestos antes del primer pintado. Los nodos del streaming se ignoran.
+          if (!enMarkdown(n)) { try { buscarMenuAjustes(n); } catch (e) { console.warn('[tg] error en menú:', e); } }
+        } else if (n.nodeType === 3 && n.parentElement && RE_CREANDO_RAPIDO.test(n.data)) loteNodos.push(n.parentElement);
       }
       if (m.removedNodes.length && !enMarkdown(m.target)) loteQuitaron = true; // se quitó una foto / un mensaje
     }
@@ -3709,11 +3713,11 @@ p.gds-body-s.ng-star-inserted {
     for (const n of nodos) {
       if (!n.isConnected || enMarkdown(n)) continue; // texto que llega en streaming: nada que hacer
       hizoAlgo = true;
-      registrarBurbujas(n);
-      ajustarCarruseles(n);
-      buscarMenuAjustes(n);
-      detectarMensajeNuevo(n);
-      if (buscandoCreando || n.tagName === 'THINKING-DOTS-ANIMATION') marcarCreando(n);
+      // cada paso aislado: si uno falla no se pierden los demás ni el resto del lote
+      try { registrarBurbujas(n); } catch (e) { console.warn('[tg] registrarBurbujas:', e); }
+      try { ajustarCarruseles(n); } catch (e) { console.warn('[tg] ajustarCarruseles:', e); }
+      try { detectarMensajeNuevo(n); } catch (e) { console.warn('[tg] detectarMensajeNuevo:', e); }
+      try { if (buscandoCreando || n.tagName === 'THINKING-DOTS-ANIMATION') marcarCreando(n); } catch (e) { console.warn('[tg] marcarCreando:', e); }
       if (!tocoEstructura && (/^(ZERO|MODULAR|USER-QUERY|MODEL-RESPONSE|CHAT-WINDOW|INFINITE)/.test(n.tagName) ||
           (n.classList && n.classList.contains('zero-state-container')))) tocoEstructura = true;
     }
@@ -4570,6 +4574,7 @@ p.gds-body-s.ng-star-inserted {
   cada(function latidoTg() {
     latido++;
     observarLayout(); mantenerLenis(); agregarItemMovil();
+    document.querySelectorAll('.desktop-settings-menu').forEach((m) => { try { if (!m.querySelector('#' + ID_ITEM_PERSONALIZAR)) { marcarCapasMenu(m); agregarItemFondo(m); } } catch (e) { /* menú aún sin dibujar */ } });
     Tareas.marcar('cero');
     if (latido % 3 === 0) { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); }
     if (latido % 4 === 0) Tareas.marcar('tema');
