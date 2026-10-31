@@ -27,6 +27,21 @@
   const PREFS_INICIALES = (function () {
     try { const p = window.TG_PREFS_INICIALES; return p && typeof p === 'object' ? p : {}; } catch (e) { return {}; }
   })();
+  // ============================================================================================
+  // INTERRUPTOR GENERAL "GEMINI VIBES" (Personalizar > arriba del todo)
+  // Apagado = estética normal de Gemini: se desactivan todas las hojas de estilo propias (media="not all"), el bloqueo, las animaciones,
+  // el scroll suave, el fade y los ajustes de posición del header. Se guarda en localStorage (lectura síncrona al cargar) y en las preferencias (geminiVibesActivo).
+  // ============================================================================================
+  const VIBES_CLAVE_LS = 'tg-vibes-activo';
+  let vibesOn = true;
+  (function () {
+    try {
+      const vi = PREFS_INICIALES.geminiVibesActivo;
+      if (vi === true || vi === false || vi === 'true' || vi === 'false') localStorage.setItem(VIBES_CLAVE_LS, (vi === true || vi === 'true') ? '1' : '0');
+      const vg = localStorage.getItem(VIBES_CLAVE_LS);
+      if (vg === '0' || vg === '1') vibesOn = vg === '1';
+    } catch (e) { /* sin localStorage: queda encendido */ }
+  })();
   // el interruptor del bloqueo se lee de forma síncrona al cargar: el valor inyectado se copia antes a localStorage
   (function () {
     const v = PREFS_INICIALES.geminiBloqueoActivo;
@@ -197,7 +212,7 @@
     try { localStorage.setItem(BLOQUEO_CLAVE_LS, v ? '1' : '0'); } catch (e) { /* sin localStorage */ }
     prefsGuardar({ geminiBloqueoActivo: !!v });
   }
-  const MOSTRAR_PANTALLA_BLOQUEO = bloqueoActivoGuardado(); // el cambio se nota la próxima vez que entres a la página
+  const MOSTRAR_PANTALLA_BLOQUEO = bloqueoActivoGuardado() && vibesOn; // el cambio se nota la próxima vez que entres a la página
   const BLOQUEO_OPACIDAD_INICIAL = 0;   // opacidad del body al empezar la transición (termina en 1)
   const BLOQUEO_ESCALA_INICIAL = 1.3;   // escala del body al empezar la transición (termina en 1)
   const BLOQUEO_DURACION_MS = 300;     // duración de la subida de la pantalla y de la entrada del body
@@ -825,7 +840,7 @@
     // ALT + L: vuelve a bloquear la pantalla (solo si no está ya bloqueada)
     window.addEventListener('keydown', (e) => {
       if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === 'KeyL' || (e.key || '').toLowerCase() === 'l')) {
-        if (bloqueado) return;
+        if (bloqueado || !vibesOn) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         bloquear(true);
@@ -953,6 +968,7 @@
     if (!styleTag) {
       styleTag = document.createElement('style');
       styleTag.id = 'gemini-custom-bg-style';
+      if (!vibesOn) styleTag.setAttribute('media', 'not all');
       document.head.appendChild(styleTag);
     }
     styleTag.textContent = `
@@ -2004,12 +2020,49 @@ p.gds-body-s.ng-star-inserted {
     `;
   }
 
+  const VIBES_ESTILOS = ['tg-ligero-style', 'tg-bloqueo-style', 'gemini-custom-bg-style', 'tg-burbuja-style', 'tg-vp-style',
+    'tg-puntos-retraso-style', 'tg-fade-style', 'tg-fondo-cero-style', 'tg-lenis-style', 'tg-menus-style'];
+  function aplicarVibes() {
+    document.documentElement.classList.toggle('tg-vibes-off', !vibesOn);
+    VIBES_ESTILOS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (vibesOn) el.removeAttribute('media'); else el.setAttribute('media', 'not all');
+    });
+    try {
+      if (!vibesOn) {
+        destruirLenis();
+        document.querySelectorAll('[data-tg-burbuja]').forEach((e) => e.style.removeProperty('translate'));
+        document.querySelectorAll('video.tg-medio-video').forEach((v) => { if (v.closest('#tg-fondo-video')) v.pause(); });
+      } else {
+        registrarBurbujas(document.body);
+        mantenerLenis();
+        document.querySelectorAll('#tg-fondo-video video.tg-medio-video').forEach((v) => { const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); });
+      }
+      Tareas.marcar('layout'); Tareas.marcar('cero'); Tareas.marcar('menuLateral');
+    } catch (e) { /* aún no está todo creado: se vuelve a llamar al final de la carga */ }
+  }
+  function cambiarVibes(v) {
+    vibesOn = !!v;
+    try { localStorage.setItem(VIBES_CLAVE_LS, vibesOn ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiVibesActivo: vibesOn });
+    aplicarVibes();
+  }
+
   // Aplica preferencias (las guardadas, las inyectadas por Dart al inicio o las que Dart mande después con tgAplicarPreferencias).
   // Acepta valores parciales: solo toca lo que viene en el objeto.
   function aplicarPreferencias(result) {
     if (!result || typeof result !== 'object') return;
     if (result.geminiPinBloqueo) {
       bloqueoPinHash = String(result.geminiPinBloqueo);
+    }
+    if (result.geminiVibesActivo === true || result.geminiVibesActivo === false || result.geminiVibesActivo === 'true' || result.geminiVibesActivo === 'false') {
+      const nv = result.geminiVibesActivo === true || result.geminiVibesActivo === 'true';
+      if (nv !== vibesOn) {
+        vibesOn = nv;
+        try { localStorage.setItem(VIBES_CLAVE_LS, nv ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+        aplicarVibes();
+      }
     }
     const activo = result.geminiBloqueoActivo;
     if (activo === true || activo === false || activo === 'true' || activo === 'false') {
@@ -2065,7 +2118,7 @@ p.gds-body-s.ng-star-inserted {
   };
 
   // Cargar preferencias guardadas / inyectadas
-  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiPerfil', 'geminiLenis'], aplicarPreferencias);
+  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiPerfil', 'geminiLenis', 'geminiVibesActivo'], aplicarPreferencias);
 
   // Evento al seleccionar imagen o video
   const esVideoArchivo = (f) => !!f && (/^video\//i.test(f.type) || /\.(mp4|webm|mov|m4v|ogv)$/i.test(f.name || ''));
@@ -2343,7 +2396,7 @@ p.gds-body-s.ng-star-inserted {
   function prepararSalidaDesdeInput(el) {
     if (!ultimoEnvio || ultimoEnvio.usado || performance.now() - ultimoEnvio.t > 6000) return;
     if (!el.matches('.user-query-bubble-with-background')) return;
-    if (sinMovimiento()) return; // sin animaciones: entra con la animación normal (o sin ninguna)
+    if (!vibesOn || sinMovimiento()) return; // sin animaciones: entra con la animación normal (o sin ninguna)
     // solo la burbuja del ÚLTIMO mensaje (al cargar mensajes viejos arriba no debe volar nada)
     const mensaje = el.closest('user-query');
     if (mensaje) {
@@ -2484,7 +2537,7 @@ p.gds-body-s.ng-star-inserted {
   }, { threshold: 0 });
 
   function registrarBurbujas(raiz) {
-    if (!raiz.querySelectorAll) return;
+    if (!vibesOn || !raiz.querySelectorAll) return;
     const lista = raiz.matches && raiz.matches(SELECTOR_BURBUJAS)
       ? [raiz, ...raiz.querySelectorAll(SELECTOR_BURBUJAS)]
       : raiz.querySelectorAll(SELECTOR_BURBUJAS);
@@ -2619,7 +2672,7 @@ p.gds-body-s.ng-star-inserted {
     function animarApertura(panel) {
       cerrando = false;
       const desde = origenRect;
-      if (!desde || sinMovimiento()) return;
+      if (!desde || !vibesOn || sinMovimiento()) return;
       panel.style.setProperty('visibility', 'hidden'); // se muestra al arrancar la animación (sin parpadeo)
       let intentos = 0;
       const lanzar = () => {
@@ -2648,7 +2701,7 @@ p.gds-body-s.ng-star-inserted {
     // ---- CIERRE: escala inversa hacia la miniatura y luego se deja que Gemini cierre de verdad ----
     function pedirCierre(accionOriginal) {
       const panel = document.querySelector(SEL_PANEL);
-      if (!panel || sinMovimiento()) { accionOriginal(); return; }
+      if (!panel || !vibesOn || sinMovimiento()) { accionOriginal(); return; }
       if (cerrando) return;
       cerrando = true;
       const objetivo = objetivoDe(panel);
@@ -3188,6 +3241,29 @@ p.gds-body-s.ng-star-inserted {
     }
   `;
   document.head.appendChild(ESTILO_PERSONALIZAR);
+  (function () {
+    // la parte de los menús flotantes va en su propia hoja para poder apagarla; el panel Personalizar queda siempre disponible
+    const t = ESTILO_PERSONALIZAR.textContent;
+    const i = t.indexOf('/* ===== PANEL PERSONALIZAR');
+    if (i > 0) {
+      const m = document.createElement('style');
+      m.id = 'tg-menus-style';
+      m.textContent = t.slice(0, i);
+      ESTILO_PERSONALIZAR.textContent = t.slice(i);
+      document.head.appendChild(m);
+    }
+    // base: siempre activo (incluso con Vibes apagado)
+    const b = document.createElement('style');
+    b.id = 'tg-vibes-base-style';
+    b.textContent = `
+      html.tg-vibes-off #tg-fondo-video, html.tg-vibes-off #tg-fade-chat { display: none !important; }
+      .desktop-settings-menu .tg-menu-ico { display: inline-flex !important; align-items: center; justify-content: center; font-size: 0 !important; }
+      .desktop-settings-menu .tg-menu-ico::before, .desktop-settings-menu .tg-menu-ico::after { content: none !important; }
+      .desktop-settings-menu .tg-menu-ico svg { width: 100%; height: 100%; min-width: 20px; min-height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      #tg-personalizar-panel.tg-vibes-apagado .tg-p-seccion:not(.tg-p-seccion-vibes) { opacity: 0.5; }
+    `;
+    document.head.appendChild(b);
+  })();
 
   function cerrarMenuAjustes() {
     const fondo = document.querySelector('.cdk-overlay-backdrop');
@@ -3335,6 +3411,21 @@ p.gds-body-s.ng-star-inserted {
           h('h2', { class: 'tg-p-header' }, 'Personalizar'),
           h('button', { class: 'tg-p-cerrar', type: 'button', 'aria-label': 'Cerrar' }, SVG_CERRAR())
         ),
+        h('section', { class: 'tg-p-seccion tg-p-seccion-vibes' },
+          h('div', { class: 'tg-p-toggle' },
+            h('span', { class: 'tg-p-toggle-txt' },
+              h('span', { class: 'tg-p-toggle-tit' }, 'Gemini Vibes'),
+              h('span', { class: 'tg-p-toggle-sub' }, 'Apágalo para volver a la estética normal de Gemini')
+            ),
+            h('button', { class: 'tg-p-switch', type: 'button', role: 'switch', 'aria-checked': 'true', 'aria-label': 'Activar o desactivar Gemini Vibes', 'data-r': 'sw-vibes' },
+              h('span', { class: 'tg-p-sw-track' }),
+              h('span', { class: 'tg-p-sw-handle' },
+                hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' },
+                  hs('path', { d: 'M19.69 5.23 8.96 15.96l-4.23-4.23L2.96 13.5l6 6L21.46 7z' }))
+              )
+            )
+          )
+        ),
         h('section', { class: 'tg-p-seccion' },
           h('h3', { class: 'tg-p-titulo' }, 'Burbuja de tus mensajes'),
           h('p', { class: 'tg-p-sub' }, 'Elige el color, qué tan oscuro o claro es y cuánto se transparenta.'),
@@ -3425,6 +3516,17 @@ p.gds-body-s.ng-star-inserted {
 
     const q = (r) => backdrop.querySelector('[data-r="' + r + '"]');
     const panel = backdrop.querySelector('#tg-personalizar-panel');
+
+    // ---- interruptor general Gemini Vibes ----
+    (function () {
+      const swV = q('sw-vibes');
+      const pintarVibes = () => {
+        swV.setAttribute('aria-checked', vibesOn ? 'true' : 'false');
+        panel.classList.toggle('tg-vibes-apagado', !vibesOn);
+      };
+      swV.addEventListener('click', () => { cambiarVibes(!vibesOn); pintarVibes(); });
+      pintarVibes();
+    })();
 
     // ---- rendimiento ----
     (function () {
@@ -3622,6 +3724,7 @@ p.gds-body-s.ng-star-inserted {
   }
 
   function marcarCapasMenu(menu) {
+    if (!vibesOn) return;
     actualizarFondoMenuLateral();
     const panel = (menu.closest && menu.closest('.mat-mdc-menu-panel')) || menu;
     const capas = new Set([menu]);
@@ -3732,7 +3835,7 @@ p.gds-body-s.ng-star-inserted {
 
   // vidrio: una sola capa con blur (el propio menú); los contenedores que lo envuelven quedan transparentes
   function marcarMenuFlotante(el) {
-    if (!el || el._tgRegistrado) return;
+    if (!el || el._tgRegistrado || !vibesOn) return;
     if (el.tagName !== 'GEM-MENU' && !el.closest('.cdk-overlay-pane')) return;
     el._tgRegistrado = true;
     actualizarFondoMenuLateral();
@@ -4005,7 +4108,7 @@ p.gds-body-s.ng-star-inserted {
   let usuarioMovioScroll = false;
   let envioParaScroll = 0;
   function respuestaPendiente() {
-    return AUTO_SCROLL && !usuarioMovioScroll && envioParaScroll && performance.now() - envioParaScroll < 10 * 60 * 1000;
+    return AUTO_SCROLL && vibesOn && !usuarioMovioScroll && envioParaScroll && performance.now() - envioParaScroll < 10 * 60 * 1000;
   }
   function seguirSinReactivar(el) {
     if (usuarioMovioScroll) return;
@@ -4013,13 +4116,13 @@ p.gds-body-s.ng-star-inserted {
   }
 
   function activarAjuste() {
-    if (!AUTO_SCROLL) return;
+    if (!AUTO_SCROLL || !vibesOn) return;
     desdeEstable = 0;
     if (!cuadroScroll) cuadroScroll = requestAnimationFrame(cuadroAjuste);
   }
 
   function seguirMensaje(el) {
-    if (!AUTO_SCROLL) return;
+    if (!AUTO_SCROLL || !vibesOn) return;
     if (!el || el === mensajeSeguido) return;
     mensajeSeguido = el;
     siguiendoMensaje = true;
@@ -4081,6 +4184,7 @@ p.gds-body-s.ng-star-inserted {
   }
 
   function marcarPuntosCarga() {
+    if (!vibesOn) return;
     // casi siempre no hay nada cargando: salida barata (antes recorría el DOM 3 veces por segundo)
     if (!puntosRetrasados.size &&
         !document.querySelector('thinking-dots-animation, [data-tg-puntos], [data-tg-burbuja], [data-tg-creando-caja]')) {
@@ -4161,7 +4265,7 @@ p.gds-body-s.ng-star-inserted {
   // "CREANDO TU IMAGEN…": busca ese texto en lo que Gemini va añadiendo y marca el texto y su contenedor
   const RE_CREANDO = /^\s*(Creando|Generando)\b[^\n]{0,40}$/i;
   function marcarCreando(nodo) {
-    if (!nodo || nodo.nodeType !== 1 || nodo.hasAttribute('data-tg-creando-texto')) return;
+    if (!vibesOn || !nodo || nodo.nodeType !== 1 || nodo.hasAttribute('data-tg-creando-texto')) return;
     const largo = (nodo.textContent || '').length;
     if (largo > 400) { // un nodo grande: se mira dentro de él sin recorrer todo el chat
       if (nodo.querySelectorAll) nodo.querySelectorAll('div, span, p').forEach((h) => {
@@ -4403,6 +4507,7 @@ p.gds-body-s.ng-star-inserted {
   let fadeLigero = null;
   function asegurarFadeChat() {
     if (!FADE_CHAT) return;
+    if (!vibesOn) { const apagado = document.getElementById('tg-fade-chat'); if (apagado) apagado.style.display = 'none'; return; }
     if (fadeLigero !== perfilLigero()) { // cambió el perfil: se reconstruyen las capas del fade
       fadeLigero = perfilLigero();
       const viejo = document.getElementById('tg-fade-chat'); if (viejo) viejo.remove();
@@ -4565,7 +4670,7 @@ p.gds-body-s.ng-star-inserted {
     // botones de la derecha (3 puntitos, chat temporal, nuevo chat...): se buscan por componente, no por una sola ruta frágil
     const botonesDer = Array.from(document.querySelectorAll(
       'top-bar-actions .right-section button, top-bar-actions conversation-actions-icon button, top-bar-actions temp-chat-button button, top-bar-actions new-chat-button button'));
-    const angostaH = !!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches);
+    const angostaH = vibesOn && !!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches);
     if (!angostaH && !headerTocado) return; // vista ancha y nunca se tocó: no hay nada que limpiar ni medir
     headerTocado = angostaH;
     const hamb = angostaH ? document.querySelector('.side-nav-menu-button button') : null;
@@ -4629,7 +4734,7 @@ p.gds-body-s.ng-star-inserted {
     if (Math.abs(dx) > 0.5) b.style.setProperty('translate', dx + 'px 0', 'important');
   }
   function alinearMultimedia() {
-    const angosta = window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches;
+    const angosta = vibesOn && window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches;
     if (!angosta && !multimediaTocada) return;
     multimediaTocada = angosta;
     const carrs = Array.from(document.querySelectorAll('user-query[data-tg-media]'))
@@ -4785,7 +4890,7 @@ p.gds-body-s.ng-star-inserted {
     lenis = null; lenisScroller = null; lenisAlto = 0;
   }
   function mantenerLenis() {
-    if (!LENIS_ACTIVO || !lenisUsuario) { if (lenis) destruirLenis(); return; }
+    if (!LENIS_ACTIVO || !lenisUsuario || !vibesOn) { if (lenis) destruirLenis(); return; }
     if (typeof Lenis === 'undefined') { // falta lenis.min.js en el manifest: no se rompe nada, solo no hay scroll suave
       if (!lenisAvisado) { lenisAvisado = true; console.warn('[tg] Lenis no está cargado: agrega lenis.min.js al manifest, ANTES de content.js.'); }
       return;
@@ -4895,4 +5000,5 @@ p.gds-body-s.ng-star-inserted {
   }
 
   revisarTemaBody();
+  aplicarVibes(); // deja todo en el estado guardado (encendido/apagado) una vez creadas todas las hojas de estilo
 })();
