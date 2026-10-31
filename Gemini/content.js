@@ -120,7 +120,7 @@
       }
       html.tg-ligero .query-file-carousel user-query-file-preview .file-preview-container { transition: none !important; }
       html.tg-ligero #tg-pin .tg-pin-fondo { filter: blur(14px) brightness(0.5) saturate(1.1) !important; inset: -30px !important; }
-      html.tg-ligero #tg-personalizar-panel { -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+      html.tg-ligero #tg-personalizar-panel { -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
       html.tg-ligero #tg-personalizar-backdrop { -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); }
     `;
     (document.head || document.documentElement).appendChild(est);
@@ -293,7 +293,7 @@
         t.setAttribute('role', 'status');
         t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:2147483647;max-width:min(90vw,520px);' +
           'padding:12px 18px;border-radius:14px;background:rgba(0,0,0,0.82);color:#fff;font:14px/1.35 "Google Sans","Segoe UI",system-ui,sans-serif;' +
-          'text-align:center;pointer-events:none;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);';
+          'text-align:center;pointer-events:none;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);';
         (document.body || document.documentElement).appendChild(t);
       }
       t.textContent = texto;
@@ -1121,14 +1121,14 @@
       /* EFECTO BLUR EN LA BARRA LATERAL (SIDENAV) */
       bard-sidenav, side-navigation-content, .sidenav-with-history-container {
         background-color: var(--tg-sidebar-bg) !important;
-        backdrop-filter: blur(20px) !important;
-        -webkit-backdrop-filter: blur(20px) !important;
+        backdrop-filter: blur(14px) !important;
+        -webkit-backdrop-filter: blur(14px) !important;
       }
 
       .user-query-bubble-with-background {
         background-color: rgba(0, 89, 255, 0.7) !important;
-        backdrop-filter: blur(12px) saturate(1.4) !important;
-        -webkit-backdrop-filter: blur(12px) !important;
+        backdrop-filter: blur(8px) !important;
+        -webkit-backdrop-filter: blur(8px) !important;
         border-radius: 18px 18px 4px 18px !important;
 
         margin-left: auto !important;
@@ -1145,8 +1145,8 @@
 
       .response-container {
         background-color: var(--tg-resp-bg) !important;
-        backdrop-filter: blur(12px) !important;
-        -webkit-backdrop-filter: blur(12px) !important;
+        backdrop-filter: blur(8px) !important;
+        -webkit-backdrop-filter: blur(8px) !important;
         border-radius: 18px 18px 18px 4px !important;
         max-width: 800px !important;
         margin: 16px auto 16px 0 !important;
@@ -1202,8 +1202,8 @@
       input-area-v2 .input-area-fieldset > .text-input-field {
         background: var(--tg-input-bg) !important;
         background-color: var(--tg-input-bg) !important;
-        backdrop-filter: blur(16px) saturate(1.2) !important;
-        -webkit-backdrop-filter: blur(16px) saturate(1.2) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
         border-radius: 28px !important;
         box-shadow: none !important;
       }
@@ -1456,8 +1456,8 @@ chat-app-side-nav-menu-button:not(.lm-enabled) button.mat-mdc-icon-button:not(.l
   border-radius: 50% !important;
   background: var(--tg-input-bg) !important;
   background-color: var(--tg-input-bg) !important;
-  backdrop-filter: blur(16px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
   box-shadow: none !important;
   overflow: hidden !important;
   align-items: center !important;
@@ -1493,8 +1493,8 @@ top-bar-actions .center-section button.mat-mdc-button {
   border-radius: 9999px !important;
   background: var(--tg-input-bg) !important;
   background-color: var(--tg-input-bg) !important;
-  backdrop-filter: blur(16px) saturate(1.2) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.2) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
   box-shadow: none !important;
   overflow: hidden !important;
   transition: transform 0.2s ease !important;
@@ -1533,8 +1533,8 @@ bard-mode-switcher:not(:is(input-area-v2 *)) button
   background: var(--tg-input-bg) !important;
   background-color: var(--tg-input-bg) !important;
   background-image: none !important;
-  backdrop-filter: blur(16px) saturate(1.2) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.2) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
   box-shadow: none !important;
   overflow: hidden !important;
   transition: transform 0.2s ease !important;
@@ -1586,8 +1586,8 @@ mat-sidenav,
   background: var(--tg-sidebar-bg) !important;
   background-color: var(--tg-sidebar-bg) !important;
   background-image: none !important;
-  -webkit-backdrop-filter: blur(20px) !important;
-  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  backdrop-filter: blur(14px) !important;
 }
 /* una sola capa con blur: las de dentro quedan sin fondo (un blur dentro de otro no ve la imagen de fondo) */
 .mat-drawer.mat-sidenav .mat-drawer-inner-container,
@@ -1729,8 +1729,8 @@ thinking-dots-animation:not(.response-container-header *) {
   box-sizing: border-box !important;
   border-radius: 18px 18px 18px 4px !important;
   background: var(--tg-resp-bg) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
   color: var(--tg-texto) !important;
 }
 [data-tg-puntos] {
@@ -1770,8 +1770,8 @@ thinking-dots-animation:not(.response-container-header *) {
   box-sizing: border-box !important;
   border-radius: 18px 18px 18px 4px !important;
   background: var(--tg-resp-bg) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
   color: var(--tg-texto) !important;
   white-space: nowrap !important;
   flex-wrap: nowrap !important;
@@ -1865,8 +1865,8 @@ gem-icon-button[data-test-id="prompt-edit-button"] {
   border-radius: 50% !important;
   background: var(--tg-input-bg) !important;
   background-color: var(--tg-input-bg) !important;
-  backdrop-filter: blur(16px) saturate(1.2) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.2) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
   box-shadow: none !important;
   overflow: hidden !important;
   transition: transform 0.2s ease !important;
@@ -1913,8 +1913,8 @@ gem-icon-button[data-test-id="prompt-edit-button"] :where(mat-icon, gem-icon) {
   box-sizing: border-box !important;
   border-radius: 18px 18px 18px 4px !important;
   background: var(--tg-resp-bg) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
   color: var(--tg-texto) !important;
 }
 /* con la burbuja de los puntitos ya identificada: la caja no pinta nada y la burbuja contiene punto(s) + texto en una línea */
@@ -1942,8 +1942,8 @@ gem-icon-button[data-test-id="prompt-edit-button"] :where(mat-icon, gem-icon) {
   border-radius: 18px 18px 18px 4px !important;
   background: var(--tg-resp-bg) !important;
   background-color: var(--tg-resp-bg) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
   box-shadow: none !important;
   color: var(--tg-texto) !important;
 }
@@ -2324,7 +2324,7 @@ p.gds-body-s.ng-star-inserted {
       } else {
         const bfBlur = Math.max(0, L(aBF.blur, bBF.blur));
         const extra = bBF.extra || aBF.extra || '';
-        backdropFilterVal = `blur(${bfBlur.toFixed(2)}px)${extra ? ' ' + extra : ''}`;
+        backdropFilterVal = `blur(${Math.round(bfBlur)}px)${extra ? ' ' + extra : ''}`; // entero: cambia menos veces => menos re-rasterizados
       }
     }
 
@@ -2391,12 +2391,13 @@ p.gds-body-s.ng-star-inserted {
         fijar('width', w + 'px'); fijar('height', h + 'px');
       }
       const st = vueloEstado(p, origen.x - (destino.left + w / 2), origen.y - (destino.top + h / 2), w, h, origBF);
-      fijar(
-        'transform',
-        `translate(${(destino.left + st.x).toFixed(2)}px, ${(destino.top + st.y).toFixed(2)}px) scaleX(${st.scaleX.toFixed(4)}) scaleY(${st.scaleY.toFixed(4)})`
-      );
-      fijar('filter', `blur(${st.blur.toFixed(2)}px)`);
-      if (st.backdropFilter !== undefined) {
+      // solo se escribe lo que cambió respecto al fotograma anterior
+      const tr = `translate(${(destino.left + st.x).toFixed(2)}px, ${(destino.top + st.y).toFixed(2)}px) scaleX(${st.scaleX.toFixed(4)}) scaleY(${st.scaleY.toFixed(4)})`;
+      if (tr !== g._tgTr) { g._tgTr = tr; fijar('transform', tr); }
+      const fl = `blur(${st.blur.toFixed(1)}px)`;
+      if (fl !== g._tgFl) { g._tgFl = fl; fijar('filter', fl); }
+      if (st.backdropFilter !== undefined && st.backdropFilter !== g._tgBf) {
+        g._tgBf = st.backdropFilter;
         fijar('backdrop-filter', st.backdropFilter);
         fijar('-webkit-backdrop-filter', st.backdropFilter);
       }
@@ -2555,7 +2556,7 @@ p.gds-body-s.ng-star-inserted {
         display: inline-flex !important; align-items: center !important; justify-content: center !important;
         border-radius: 50% !important;
         background: var(--tg-input-bg) !important;
-        -webkit-backdrop-filter: blur(16px) saturate(1.2) !important; backdrop-filter: blur(16px) saturate(1.2) !important;
+        -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important;
         box-shadow: none !important; overflow: hidden !important;
         transition: transform 0.2s ease !important;
       }
@@ -2570,7 +2571,7 @@ p.gds-body-s.ng-star-inserted {
         height: 50px !important; padding: 0 22px 0 16px !important;
         border-radius: 9999px !important;
         background: var(--tg-input-bg) !important;
-        -webkit-backdrop-filter: blur(16px) saturate(1.2) !important; backdrop-filter: blur(16px) saturate(1.2) !important;
+        -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important;
         box-shadow: none !important;
         color: var(--tg-texto) !important; font-size: 18px !important;
         max-width: min(60vw, 520px) !important; box-sizing: border-box !important;
@@ -2746,10 +2747,23 @@ p.gds-body-s.ng-star-inserted {
         animarApertura(panel);
       }
     }
-    new MutationObserver((muts) => {
-      muts.forEach((m) => m.addedNodes.forEach(buscarPanel));
-    }).observe(document.body, { childList: true, subtree: true });
-    buscarPanel(document.body);
+    // solo se vigila el contenedor de overlays de Angular (.cdk-overlay-container), no todo el body
+    const moPanel = new MutationObserver((muts) => {
+      for (const m of muts) m.addedNodes.forEach(buscarPanel);
+    });
+    let overlayVigilado = null;
+    function vigilarOverlay() {
+      const c = document.querySelector('.cdk-overlay-container');
+      if (!c || c === overlayVigilado) return;
+      overlayVigilado = c;
+      moPanel.observe(c, { childList: true, subtree: true });
+      buscarPanel(c);
+    }
+    vigilarOverlay();
+    if (!overlayVigilado) { // el contenedor se crea la primera vez que se abre algo: se espera solo a hijos directos del body
+      const moBody = new MutationObserver(() => { vigilarOverlay(); if (overlayVigilado) moBody.disconnect(); });
+      moBody.observe(document.body, { childList: true });
+    }
   })();
 
 
@@ -2879,8 +2893,8 @@ p.gds-body-s.ng-star-inserted {
       background: var(--tg-sidebar-efectivo, var(--tg-sidebar-bg, rgba(0, 0, 0, 0.45))) !important;
       background-color: var(--tg-sidebar-efectivo, var(--tg-sidebar-bg, rgba(0, 0, 0, 0.45))) !important;
       background-image: none !important;
-      -webkit-backdrop-filter: blur(20px) !important;
-      backdrop-filter: blur(20px) !important;
+      -webkit-backdrop-filter: blur(14px) !important;
+      backdrop-filter: blur(14px) !important;
       border: 0 !important;
       border-radius: 18px !important;
       box-shadow: none !important;
@@ -2991,7 +3005,7 @@ p.gds-body-s.ng-star-inserted {
       border: 0;
       border-radius: 28px;
       box-shadow: 0 24px 80px var(--p-sombra);
-      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
       color: var(--p-texto);
       padding: 24px 28px 26px;
       transform: translateY(14px) scale(0.98);
@@ -3006,7 +3020,7 @@ p.gds-body-s.ng-star-inserted {
     .tg-p-cerrar {
       width: 44px; height: 44px; flex: none; padding: 0; border: 0; border-radius: 50%;
       display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
-      background: var(--p-card); backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+      background: var(--p-card); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       color: var(--p-texto); transition: transform 0.2s ease;
     }
     .tg-p-cerrar:hover { transform: scale(1.08); }
@@ -3020,7 +3034,7 @@ p.gds-body-s.ng-star-inserted {
     .tg-p-controles { display: flex; flex-direction: column; gap: 10px; }
     .tg-p-fila {
       background: var(--p-card); border: 1px solid var(--p-borde); border-radius: 18px; padding: 14px 16px;
-      backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     }
     .tg-p-fila-cab { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 15px; font-weight: 500; }
     .tg-p-valor { font-size: 13px; font-weight: 400; color: var(--p-suave) !important; font-variant-numeric: tabular-nums; }
@@ -3073,20 +3087,20 @@ p.gds-body-s.ng-star-inserted {
     .tg-p-msg-usuario {
       align-self: flex-end; border-radius: 18px 18px 4px 18px;
       background: var(--tg-pers-bg, rgba(0, 89, 255, 0.7)); color: var(--tg-pers-texto, #fff) !important;
-      backdrop-filter: blur(12px) saturate(1.4); -webkit-backdrop-filter: blur(12px) saturate(1.4);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
       transition: background-color 0.15s ease;
     }
     .tg-p-msg-usuario * { color: inherit !important; }
     .tg-p-msg-ia {
       align-self: flex-start; border-radius: 18px 18px 18px 4px;
-      background: var(--p-ia); color: var(--p-texto) !important; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      background: var(--p-ia); color: var(--p-texto) !important; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     }
 
     .tg-p-acciones { display: flex; justify-content: flex-end; margin-top: 12px; }
     .tg-p-btn {
       display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px; border-radius: 9999px; cursor: pointer;
       border: 1px solid var(--p-borde); background: var(--p-card); color: var(--p-texto) !important; font: inherit; font-size: 14px;
-      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: transform 0.2s ease, background 0.15s ease;
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); transition: transform 0.2s ease, background 0.15s ease;
     }
     .tg-p-btn:hover { transform: scale(1.04); background: var(--p-hover); }
     .tg-p-btn[hidden] { display: none; }
@@ -3116,7 +3130,7 @@ p.gds-body-s.ng-star-inserted {
     .tg-p-toggle {
       display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px 0 16px;
       background: var(--p-card); border: 1px solid var(--p-borde); border-radius: 18px;
-      backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     }
     .tg-p-toggle-txt { display: flex; flex-direction: column; min-width: 0; text-align: left; }
     .tg-p-toggle-tit { font-size: 15px; font-weight: 500; line-height: 1.25; }
@@ -3809,8 +3823,11 @@ p.gds-body-s.ng-star-inserted {
     });
   }
 
+  const SEL_RAPIDO = '.mobile-settings-and-help-menu, .desktop-settings-menu, .mat-mdc-menu-panel, mat-card.lm-menu-theme, gem-menu, mat-bottom-sheet-container, gem-bottom-sheet';
   function buscarMenuAjustes(nodo) {
     if (!nodo || nodo.nodeType !== 1) return;
+    // salida barata: casi todos los nodos nuevos no tienen nada que ver con menús (una sola consulta en vez de ~6)
+    if (!nodo.closest('.cdk-overlay-container, ' + SEL_RAPIDO) && !nodo.querySelector(SEL_RAPIDO)) return;
     if ((nodo.matches && nodo.matches('mat-bottom-sheet-container, gem-bottom-sheet, .mobile-settings-and-help-menu')) ||
         (nodo.querySelector && nodo.querySelector('.mobile-settings-and-help-menu')) ||
         (nodo.closest && nodo.closest('.mobile-settings-and-help-menu'))) {
@@ -4138,7 +4155,7 @@ p.gds-body-s.ng-star-inserted {
     marcadoPendiente = true;
     requestAnimationFrame(() => { marcadoPendiente = false; marcarPuntosCarga(); });
   }
-  cada(marcarPuntosCarga, 600); // el observer ya lo dispara al instante cuando aparece algo
+  cada(marcarPuntosCarga, 1000); // el observer ya lo dispara al instante cuando aparece algo
   marcarPuntosCarga();
 
   // "CREANDO TU IMAGEN…": busca ese texto en lo que Gemini va añadiendo y marca el texto y su contenedor
@@ -4269,8 +4286,8 @@ p.gds-body-s.ng-star-inserted {
   // caja de escribir (que están después en el DOM / con más z-index). Ajustes rápidos: FADE_CHAT (apagar), FADE_CAPAS (suavidad),
   // y las variables --tg-fade-tinte / --tg-fade-rgb.
   const FADE_CHAT = true;
-  const FADE_CAPAS = 3;
-  const FADE_BLURS = [2, 6, 14]; // px por capa (3 capas se ven casi igual que 6)
+  const FADE_CAPAS = 2;
+  const FADE_BLURS = [4, 10]; // px por capa (menos capas = menos pasadas de backdrop-filter por fotograma)
   (function () {
     if (!FADE_CHAT) return;
     const est = document.createElement('style');
@@ -4537,6 +4554,7 @@ p.gds-body-s.ng-star-inserted {
   // todo el header en la misma línea (centro a 12px + mitad del botón del borde de arriba), 12px de margen a ambos lados
   // y mínimo 12px de aire entre el botón de menú y la píldora "Gemini Automático".
   let headerTocado = false;
+  let firmaHeader = null;
   let multimediaTocada = false;
   function alinearHeaderAngosto() {
     const grupos = [document.querySelector('.side-nav-menu-button'), document.querySelector('top-bar-actions .right-section')].filter(Boolean);
@@ -4545,10 +4563,19 @@ p.gds-body-s.ng-star-inserted {
     const angostaH = !!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches);
     if (!angostaH && !headerTocado) return; // vista ancha y nunca se tocó: no hay nada que limpiar ni medir
     headerTocado = angostaH;
+    const hamb = angostaH ? document.querySelector('.side-nav-menu-button button') : null;
+    const mas = angostaH ? (document.querySelector('top-bar-actions conversation-actions-icon button') || document.querySelector('top-bar-actions .right-section button:last-of-type')) : null;
+    if (angostaH) {
+      // firma de lo que afecta a la posición (offsetWidth no se ve alterado por translate): si nada cambió, no se toca el DOM
+      const elems = [grupos[0] || null, grupos[1] || null, pildora, nuevo, hamb, mas];
+      const clave = [window.innerWidth, document.documentElement.clientWidth, alturaAreaSuperior(), headerSubirPx,
+        pildora ? pildora.offsetWidth + ':' + (pildora.textContent || '').trim() : '', hamb ? hamb.offsetWidth : 0,
+        mas ? mas.offsetWidth : 0, nuevo ? nuevo.offsetWidth : 0].join('|');
+      if (firmaHeader && firmaHeader.clave === clave && firmaHeader.elems.every((e, i) => e === elems[i])) return;
+      firmaHeader = { clave, elems };
+    } else firmaHeader = null;
     [...grupos, pildora, nuevo].forEach((e) => { if (e && e.style.translate) e.style.removeProperty('translate'); });
     if (!angostaH) return;
-    const hamb = document.querySelector('.side-nav-menu-button button');
-    const mas = document.querySelector('top-bar-actions conversation-actions-icon button') || document.querySelector('top-bar-actions .right-section button:last-of-type');
     const MARGEN = 12;
     const objetivoY = MARGEN + 24 + alturaAreaSuperior() - headerSubirPx; // centro de los botones: baja lo que mida la barra de estado y sube headerSubirPx
     const ver = (b) => { if (!b) return null; const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
@@ -4568,8 +4595,6 @@ p.gds-body-s.ng-star-inserted {
           der.style.setProperty('translate', ((m ? parseFloat(m[1]) : 0) + resto) + 'px ' + (objetivoY - (rm.top + rm.height / 2)) + 'px', 'important');
         }
       }
-      const key = [window.innerWidth, document.documentElement.clientWidth, Math.round(circ.right), Math.round(rm.right)].join('|');
-      if (der._tgLog !== key) { der._tgLog = key; console.log('[tg] header derecha: innerWidth=' + window.innerWidth + ' clientWidth=' + document.documentElement.clientWidth + ' circulo.right=' + Math.round(circ.right) + ' boton.right=' + Math.round(rm.right) + ' translate=' + der.style.getPropertyValue('translate')); }
     }
     // los dos botones de la derecha: exactamente 12px entre "nuevo chat" y "más opciones"
     const bnuevo = nuevo && nuevo.querySelector('button');
@@ -4799,7 +4824,7 @@ p.gds-body-s.ng-star-inserted {
     Tareas.marcar('cero');
     if (latido % 3 === 0) { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); }
     if (latido % 4 === 0) Tareas.marcar('tema');
-  }, 1500);
+  }, 2000);
 
   // TEMA AUTOMÁTICO SEGÚN EL COLOR DEL BODY
   // Fondo del body claro -> modo claro. Fondo oscuro -> modo oscuro.
@@ -4841,14 +4866,14 @@ p.gds-body-s.ng-star-inserted {
     prefsGuardar({ geminiTema: tema });
   }
 
-  let revisionPendiente = false;
+  let revisionTimer = null;
   function programarRevision() {
-    if (revisionPendiente) return;
-    revisionPendiente = true;
-    requestAnimationFrame(() => {
-      revisionPendiente = false;
-      revisarTemaBody();
-    });
+    // Lenis y la propia extensión cambian clases/estilos de <html> muy seguido: se agrupa y se revisa como mucho ~3 veces por segundo
+    if (revisionTimer) return;
+    revisionTimer = setTimeout(() => {
+      revisionTimer = null;
+      requestAnimationFrame(revisarTemaBody);
+    }, 300);
   }
 
   // Cambios de clase/estilo en body y html (así Gemini cambia su tema)
