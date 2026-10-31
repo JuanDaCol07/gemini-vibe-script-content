@@ -1594,8 +1594,8 @@ bard-mode-switcher:not(:is(input-area-v2 *)) :is(.mdc-button__label, .logo-pill-
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-/* MENÚ LATERAL: estas reglas SOLO aplican en escritorio; en vista angosta (9:16) no se toca el menú lateral */
-@media (min-width: 960px) {
+/* MENÚ LATERAL (escritorio y vista angosta/Android): una sola capa translúcida con blur; las capas opacas de Gemini quedan transparentes */
+@media all {
 .mat-drawer.mat-sidenav,
 mat-sidenav,
 [data-tg-capa="blur"] {
@@ -2021,7 +2021,7 @@ p.gds-body-s.ng-star-inserted {
   }
 
   const VIBES_ESTILOS = ['tg-ligero-style', 'tg-bloqueo-style', 'gemini-custom-bg-style', 'tg-burbuja-style', 'tg-vp-style',
-    'tg-puntos-retraso-style', 'tg-fade-style', 'tg-fondo-cero-style', 'tg-lenis-style', 'tg-menus-style'];
+    'tg-puntos-retraso-style', 'tg-fade-style', 'tg-fondo-cero-style', 'tg-menus-style']; // (tg-lenis-style NO va aquí: el scroll suave no depende de Vibes)
   function aplicarVibes() {
     document.documentElement.classList.toggle('tg-vibes-off', !vibesOn);
     VIBES_ESTILOS.forEach((id) => {
@@ -2030,13 +2030,12 @@ p.gds-body-s.ng-star-inserted {
       if (vibesOn) el.removeAttribute('media'); else el.setAttribute('media', 'not all');
     });
     try {
+      destruirLenis(); mantenerLenis(); // el scroller real cambia según Vibes: se vuelve a elegir (Lenis depende solo de su propio interruptor)
       if (!vibesOn) {
-        destruirLenis();
         document.querySelectorAll('[data-tg-burbuja]').forEach((e) => e.style.removeProperty('translate'));
         document.querySelectorAll('video.tg-medio-video').forEach((v) => { if (v.closest('#tg-fondo-video')) v.pause(); });
       } else {
         registrarBurbujas(document.body);
-        mantenerLenis();
         document.querySelectorAll('#tg-fondo-video video.tg-medio-video').forEach((v) => { const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); });
       }
       Tareas.marcar('layout'); Tareas.marcar('cero'); Tareas.marcar('menuLateral');
@@ -3556,7 +3555,7 @@ p.gds-body-s.ng-star-inserted {
           h('span', { class: 'tg-p-toggle-tit' }, 'Scroll suave (Lenis)'),
           h('span', { class: 'tg-p-toggle-sub' }, 'Apágalo para usar el scroll nativo. En pantallas táctiles ya no se usa.')),
         swL);
-      panel.appendChild(h('section', { class: 'tg-p-seccion' },
+      panel.appendChild(h('section', { class: 'tg-p-seccion tg-p-seccion-vibes' },
         h('h3', { class: 'tg-p-titulo' }, 'Rendimiento'),
         h('p', { class: 'tg-p-sub' }, 'Automático reduce los efectos de desenfoque solo si tu equipo va a tirones. Máximo los deja siempre al tope.'),
         fila,
@@ -4365,11 +4364,7 @@ p.gds-body-s.ng-star-inserted {
     });
   }
   function marcarCapasMenuLateral() {
-    if (window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches) {
-      // vista angosta: el menú lateral no se modifica (se limpian marcas de cuando la ventana era ancha)
-      document.querySelectorAll('[data-tg-capa]').forEach((e) => e.removeAttribute('data-tg-capa'));
-      return;
-    }
+    if (!vibesOn) return; // con Vibes apagado las hojas propias están desactivadas
     const contenido = document.querySelector('side-navigation-content');
     if (!contenido) return;
     const opacas = [];
@@ -4913,13 +4908,21 @@ p.gds-body-s.ng-star-inserted {
     lenis = null; lenisScroller = null; lenisAlto = 0;
   }
   function mantenerLenis() {
-    if (!LENIS_ACTIVO || !lenisUsuario || !vibesOn) { if (lenis) destruirLenis(); return; }
+    if (!LENIS_ACTIVO || !lenisUsuario) { if (lenis) destruirLenis(); return; }
     if (typeof Lenis === 'undefined') { // falta lenis.min.js en el manifest: no se rompe nada, solo no hay scroll suave
       if (!lenisAvisado) { lenisAvisado = true; console.warn('[tg] Lenis no está cargado: agrega lenis.min.js al manifest, ANTES de content.js.'); }
       return;
     }
     if (sinMovimiento() || esTactil()) { destruirLenis(); return; } // respeta "reducir movimiento"; en táctil el scroll nativo ya es fluido
-    const scroller = document.querySelector('infinite-scroller.chat-history') || document.querySelector('infinite-scroller');
+    let scroller = document.querySelector('infinite-scroller.chat-history') || document.querySelector('infinite-scroller');
+    if (!vibesOn) {
+      // sin Vibes el CSS propio (que deja a <infinite-scroller> como único scroller) está apagado: se busca el contenedor que realmente hace scroll
+      const cand = [document.querySelector('infinite-scroller.chat-history'), document.querySelector('infinite-scroller'),
+        document.querySelector('.chat-history-scroll-container'), document.querySelector('#chat-history')];
+      const real = cand.find((e) => e && /auto|scroll/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1) ||
+                   cand.find((e) => e && /auto|scroll/.test(getComputedStyle(e).overflowY));
+      if (real) scroller = real;
+    }
     if (!scroller || !scroller.isConnected) { destruirLenis(); return; }
     if (lenis && lenisScroller === scroller) return;
     destruirLenis();
