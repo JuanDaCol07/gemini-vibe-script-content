@@ -19,7 +19,7 @@ class _ContentScreenState extends State<ContentScreen> {
     final prefs = await SharedPreferences.getInstance();
 
     const String urlScript =
-        'https://raw.githubusercontent.com/JuanDaCol07/gemini-vibe-script-content/refs/heads/main/content.js';
+        'https://raw.githubusercontent.com/JuanDaCol07/gemini-vibe-script-content/refs/heads/main/Gemini/content.js';
 
     try {
       final response = await http
