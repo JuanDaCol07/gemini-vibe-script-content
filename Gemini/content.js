@@ -1178,6 +1178,7 @@ user-query-file-preview {
       El JS (ajustarCarruseles) calcula --tam para cada carrusel según cuántas fotos
       tiene y cuánto ancho hay disponible. Si aun así no caben, bajan de línea. */
 .query-file-carousel user-query-file-preview .file-preview-container {
+  max-width: calc(100vw - 24px) !important;
   width: var(--tam, 168px) !important;
   height: var(--tam, 168px) !important;
   border-radius: 16px !important;
@@ -2199,6 +2200,7 @@ p.gds-body-s.ng-star-inserted {
       if (todos.length && todos[todos.length - 1] !== mensaje) return;
     }
     if (!(el.textContent || '').trim()) return; // aún sin contenido: se reintenta (el clon saldría vacío)
+    if (window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches) alinearBurbujaUsuario(el);
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return;
     ultimoEnvio.usado = true;
@@ -2609,8 +2611,9 @@ p.gds-body-s.ng-star-inserted {
   const ALTO_VENTANA_UNICA = 0.55; // fracción del alto de la ventana
   function ajustarCarrusel(area) {
     const carrusel = area.closest('.query-file-carousel') || area;
-    const ancho = carrusel.clientWidth || area.clientWidth;
-    if (!ancho) return; // aún no tiene layout; el ResizeObserver lo reintenta
+    // nunca más ancha que la pantalla (12px de aire a cada lado)
+    const ancho = Math.min(carrusel.clientWidth || area.clientWidth, document.documentElement.clientWidth - 24);
+    if (!(ancho > 0)) return; // aún no tiene layout; el ResizeObserver lo reintenta
     const n = Math.max(area.children.length, 1);
     const tope = TOPES_FOTO[Math.min(n, TOPES_FOTO.length) - 1];
     const cabeEnUnaFila = (ancho - (n - 1) * GAP_FOTO) / n;
@@ -3729,6 +3732,7 @@ p.gds-body-s.ng-star-inserted {
       try { ajustarCarruseles(n); } catch (e) { console.warn('[tg] ajustarCarruseles:', e); }
       try { detectarMensajeNuevo(n); } catch (e) { console.warn('[tg] detectarMensajeNuevo:', e); }
       try { if (buscandoCreando || n.tagName === 'THINKING-DOTS-ANIMATION') marcarCreando(n); } catch (e) { console.warn('[tg] marcarCreando:', e); }
+      if (n.matches && (n.matches('user-query, .query-file-carousel, .user-query-bubble-with-background') || n.querySelector('.user-query-bubble-with-background, .query-file-carousel'))) Tareas.marcar('layout');
       if (!tocoEstructura && (/^(ZERO|MODULAR|USER-QUERY|MODEL-RESPONSE|CHAT-WINDOW|INFINITE)/.test(n.tagName) ||
           (n.classList && n.classList.contains('zero-state-container')))) tocoEstructura = true;
     }
@@ -4390,31 +4394,44 @@ p.gds-body-s.ng-star-inserted {
     }
   }
   // MULTIMEDIA ALINEADA CON EL MENSAJE (vista angosta): la imagen/video del mensaje termina en el mismo borde derecho que la burbuja de texto
+  const MARGEN_DERECHO_MOVIL = 12; // px entre el borde de la pantalla y tus mensajes / multimedia (igual que el header)
+  // mueve UNA burbuja de usuario para que su borde derecho quede exactamente a MARGEN_DERECHO_MOVIL del borde de la pantalla
+  function alinearBurbujaUsuario(b) {
+    if (b.style.translate) b.style.removeProperty('translate');
+    const r = b.getBoundingClientRect();
+    if (r.width < 1) return;
+    const dx = (document.documentElement.clientWidth - MARGEN_DERECHO_MOVIL) - r.right;
+    if (Math.abs(dx) > 0.5) b.style.setProperty('translate', dx + 'px 0', 'important');
+  }
   function alinearMultimedia() {
     const angosta = window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches;
     if (!angosta && !multimediaTocada) return;
     multimediaTocada = angosta;
-    const carrs = [];
-    document.querySelectorAll('user-query[data-tg-media]').forEach((q) => {
-      const carr = q.querySelector('user-query-file-carousel, .query-file-carousel');
-      if (carr) carrs.push([q, carr]);
-    });
+    const carrs = Array.from(document.querySelectorAll('user-query[data-tg-media]'))
+      .map((q) => q.querySelector('user-query-file-carousel, .query-file-carousel')).filter(Boolean);
+    const burbujas = Array.from(document.querySelectorAll('.user-query-bubble-with-background'));
     // 1) escrituras: se quitan todos los desplazamientos
-    carrs.forEach(([, c]) => { if (c.style.translate) c.style.removeProperty('translate'); });
+    carrs.forEach((c) => { if (c.style.translate) c.style.removeProperty('translate'); });
+    burbujas.forEach((b) => { if (b.style.translate) b.style.removeProperty('translate'); });
     if (!angosta) return;
-    // 2) lecturas: un solo layout para todos
+    const objetivo = document.documentElement.clientWidth - MARGEN_DERECHO_MOVIL;
+    // 2) lecturas (un solo layout)
     const cambios = [];
-    carrs.forEach(([q, carr]) => {
-      const burbuja = q.querySelector('.user-query-bubble-with-background');
-      const item = carr.querySelector('.scrollable-area > *') || carr.querySelector('user-query-file-preview') || carr;
-      if (!burbuja || !item) return;
-      const rb = burbuja.getBoundingClientRect(), ri = item.getBoundingClientRect();
-      if (rb.width < 1 || ri.width < 1) return;
-      const dx = rb.right - ri.right;
+    carrs.forEach((carr) => {
+      let derecha = -Infinity;
+      carr.querySelectorAll('.scrollable-area > *').forEach((it) => { const r = it.getBoundingClientRect(); if (r.width > 0) derecha = Math.max(derecha, r.right); });
+      if (derecha === -Infinity) return;
+      const dx = objetivo - derecha;
       if (Math.abs(dx) > 0.5) cambios.push([carr, dx]);
     });
+    burbujas.forEach((b) => {
+      const r = b.getBoundingClientRect();
+      if (r.width < 1) return;
+      const dx = objetivo - r.right;
+      if (Math.abs(dx) > 0.5) cambios.push([b, dx]);
+    });
     // 3) escrituras
-    cambios.forEach(([carr, dx]) => carr.style.setProperty('translate', dx + 'px 0', 'important'));
+    cambios.forEach(([el, dx]) => el.style.setProperty('translate', dx + 'px 0', 'important'));
   }
   // FONDO DIFUMINADO EN LA PANTALLA DE INICIO ("¿Por dónde empezamos?", chat nuevo sin mensajes)
   // SIN crear ninguna capa ni fondo nuevo: se usa tu mismo fondo del body.
