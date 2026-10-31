@@ -1832,10 +1832,20 @@ gem-icon-button[data-test-id="prompt-edit-button"] :where(mat-icon, gem-icon) {
 
 /* VISTA ANGOSTA: la burbuja de respuesta no debe quedar pegada a los bordes */
 @media (max-width: 959.98px) {
+  /* ANCHO MÁXIMO DE LAS BURBUJAS EN VISTA ANGOSTA (cambia estos dos números para ajustarlo) */
+  :root {
+    --tg-ancho-usuario: 76%;   /* tus mensajes: % del ancho del chat */
+    --tg-ancho-ia: 86%;        /* respuestas de la IA */
+  }
   .response-container {
-    margin: 16px 12px !important;          /* aire a izquierda y derecha */
-    max-width: calc(100% - 24px) !important;
+    margin: 16px auto 16px 12px !important; /* pegada a la izquierda con 12px de aire */
+    max-width: var(--tg-ancho-ia) !important;
     padding: 18px !important;              /* un poco menos de relleno interno */
+  }
+  /* tus mensajes: más angostos y con el mismo aire de 12px a la derecha que el header */
+  .user-query-bubble-with-background {
+    max-width: var(--tg-ancho-usuario) !important;
+    margin-right: 12px !important;
   }
   /* la burbuja de los tres puntitos también con su margen izquierdo */
   thinking-dots-animation:not(.response-container-header *) {
