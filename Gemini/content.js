@@ -1,4 +1,5 @@
 (function () {
+  window.__tgCargado = 'opt-2'; // marcador: Flutter lo lee para confirmar qué versión del script se inyectó
   // PANTALLA DE BLOQUEO (se muestra al cargar la página; ESPACIO la sube y el body entra con zoom;
   // ALT + L la vuelve a bajar para bloquear de nuevo)
   // Se activa/desactiva con el interruptor del panel Personalizar. Se guarda en chrome.storage (geminiBloqueoActivo) y se

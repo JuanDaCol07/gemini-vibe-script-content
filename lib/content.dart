@@ -170,6 +170,14 @@ class _ContentScreenState extends State<ContentScreen> {
       false; // el WebView NO se crea hasta tener scripts y preferencias listos
   bool _avisoMostrado = false;
 
+  // ---- AJUSTES DE DESARROLLO ----
+  // true  = usa SIEMPRE el content.js de los assets (Gemini/content.js) y NO el de GitHub.
+  //         Úsalo mientras pruebas cambios locales: si no, el script de GitHub (y su caché) GANA sobre tu archivo local.
+  // false = flujo normal: GitHub -> caché -> assets.
+  static const bool _soloAssetLocal = false;
+
+  String _origenScript = 'ninguno'; // 'github' | 'cache' | 'asset' | 'ninguno'
+
   static const String _urlScript =
       'https://raw.githubusercontent.com/JuanDaCol07/gemini-vibe-script-content/refs/heads/main/Gemini/content.js';
 
@@ -241,9 +249,23 @@ class _ContentScreenState extends State<ContentScreen> {
     bool actualizado = false;
     final almacen = AlmacenPrefs.instancia;
 
+    if (_soloAssetLocal) {
+      try {
+        final local = await rootBundle.loadString('Gemini/content.js');
+        _origenScript = 'asset';
+        return _ResultadoScript(local, false);
+      } catch (e) {
+        debugPrint('[tg] _soloAssetLocal: no se pudo leer el asset: $e');
+      }
+    }
+
     try {
+      // el parámetro t evita que la CDN de GitHub (≈5 min de caché) te devuelva una versión vieja
+      final uri = Uri.parse(
+        '$_urlScript?t=${DateTime.now().millisecondsSinceEpoch}',
+      );
       final response = await http
-          .get(Uri.parse(_urlScript))
+          .get(uri, headers: const {'Cache-Control': 'no-cache'})
           .timeout(const Duration(seconds: 6));
 
       // validación básica: que no sea una página de error / HTML
@@ -252,6 +274,7 @@ class _ContentScreenState extends State<ContentScreen> {
       if (response.statusCode == 200 && pareceJs) {
         final viejo = await almacen.leerScriptCache();
         scriptFinal = cuerpo;
+        _origenScript = 'github';
         if (viejo != cuerpo) {
           await almacen.guardarScriptCache(cuerpo);
           actualizado = true;
@@ -263,16 +286,59 @@ class _ContentScreenState extends State<ContentScreen> {
 
     if (scriptFinal.isEmpty) {
       scriptFinal = await almacen.leerScriptCache() ?? '';
+      if (scriptFinal.isNotEmpty) _origenScript = 'cache';
     }
 
     if (scriptFinal.isEmpty) {
       try {
         scriptFinal = await rootBundle.loadString('Gemini/content.js');
+        _origenScript = 'asset';
       } catch (e) {
         debugPrint('[tg] Error crítico cargando respaldo local: $e');
       }
     }
     return _ResultadoScript(scriptFinal, actualizado);
+  }
+
+  // Confirma que content.js realmente corrió; si no, lo inyecta a mano (respaldo)
+  Future<void> _verificarInyeccion(
+    InAppWebViewController controller,
+    WebUri? url,
+  ) async {
+    try {
+      // da un momento a que los UserScripts AT_DOCUMENT_END terminen
+      await Future.delayed(const Duration(milliseconds: 600));
+      final host = url?.host ?? '';
+      if (!host.contains('gemini.google.com')) return;
+
+      Future<Map<String, dynamic>> estado() async {
+        final r = await controller.evaluateJavascript(
+          source:
+              "JSON.stringify({marca: window.__tgCargado || null, lenis: typeof Lenis, bridge: !!(window.flutter_inappwebview && window.flutter_inappwebview.callHandler)})",
+        );
+        return r is String ? (jsonDecode(r) as Map<String, dynamic>) : {};
+      }
+
+      var e = await estado();
+      debugPrint(
+        '[tg] origen del script=$_origenScript (${_contentJs.length} caracteres) | estado en la página: $e',
+      );
+
+      if (e['marca'] == null && _contentJs.isNotEmpty) {
+        debugPrint(
+          '[tg] content.js NO se inyectó como UserScript: inyectando a mano',
+        );
+        if (e['lenis'] == 'undefined' && _lenis.isNotEmpty) {
+          await controller.evaluateJavascript(source: _lenis);
+        }
+        await controller.evaluateJavascript(source: _prefsInicialesJs);
+        await controller.evaluateJavascript(source: _contentJs);
+        e = await estado();
+        debugPrint('[tg] tras inyección manual: $e');
+      }
+    } catch (err) {
+      debugPrint('[tg] _verificarInyeccion falló: $err');
+    }
   }
 
   void _mostrarAvisoOta() {
@@ -366,8 +432,17 @@ class _ContentScreenState extends State<ContentScreen> {
               },
             );
           },
+          // todo lo que content.js escriba en la consola ([tg]...) o cualquier error de JS aparece en la consola de Flutter
+          onConsoleMessage: (controller, msg) {
+            final t = msg.message;
+            if (t.contains('[tg]') ||
+                msg.messageLevel == ConsoleMessageLevel.ERROR) {
+              debugPrint('[web:${msg.messageLevel}] $t');
+            }
+          },
           onLoadStop: (controller, url) async {
             _mostrarAvisoOta();
+            await _verificarInyeccion(controller, url);
           },
           // si el proceso del WebView muere, no se cierra la app: se recarga
           onRenderProcessGone: (controller, detail) async {
