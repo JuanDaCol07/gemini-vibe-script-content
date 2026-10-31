@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini Custom Background",
+  "version": "1.0",
+  "description": "Cambia el fondo de Gemini cargando una imagen desde tus archivos locales.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "https://gemini.google.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["lenis.min.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["img/bloqueo.png"],
+      "matches": ["https://gemini.google.com/*"]
+    }
+  ]
+}

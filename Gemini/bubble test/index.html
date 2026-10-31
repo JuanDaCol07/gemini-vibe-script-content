@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba de burbujas</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            background-color: #131314;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            color: #e3e3e3;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            transition: background-image 0.3s ease;
+        }
+
+        .chat-container {
+            flex: 1;
+            width: min(100%, 850px);
+            margin: 0 auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
+
+        .query-bubble-with-status {
+            width: 100%;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .user-query-bubble-with-background {
+            max-width: min(85%, 640px);
+            padding: 12px 16px;
+            border-radius: 18px 18px 4px 18px;
+            background: rgba(0, 89, 255, 0.7);
+            color: #fff;
+            overflow-wrap: anywhere;
+            backdrop-filter: blur(12px) saturate(1.4);
+            -webkit-backdrop-filter: blur(12px);
+           
+            transform-origin: bottom right;
+            transition: transform 0.25s ease, box-shadow 0.25s ease,
+                background-color 0.25s ease;
+        }
+
+        .response-container {
+            align-self: flex-start;
+            width: fit-content;
+            max-width: min(85%, 640px);
+            padding: 12px 16px;
+            border-radius: 18px 18px 18px 4px;
+            background: rgba(30, 31, 34, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            color: #e3e3e3;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+            transform-origin: bottom left;
+            transition: transform 0.3s ease, box-shadow 0.3s ease,
+                background-color 0.3s ease;
+        }
+
+        /* Elementos fuera de pantalla: esperan a que vuelvan a entrar. */
+        [data-anim="wait"] {
+            opacity: 0;
+        }
+
+        /* entró a pantalla durante el envío de un prompt: aparece sin repetir su animación */
+        body [data-anim][data-sin-anim] {
+            animation: none !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+
+        @keyframes burbujaUsuarioEntrada {
+            0% {
+                opacity: 0;
+                transform: translateX(40px) scale(0.85);
+            }
+            60% {
+                transform: translateX(-4px) scale(1.02);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0) scale(1);
+            }
+        }
+
+        @keyframes burbujaRespuestaEntrada {
+            0% {
+                opacity: 0;
+                transform: translateX(-40px) scale(0.85);
+            }
+            60% {
+                transform: translateX(4px) scale(1.02);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0) scale(1);
+            }
+        }
+
+        .user-query-bubble-with-background[data-anim="in"] {
+            animation: burbujaUsuarioEntrada 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both !important;
+        }
+
+        /* Tu mensaje RECIÉN ENVIADO: ya NO se anima con CSS; sale volando un clon desde la caja de escribir (ver volarDesdeInput en el JS) */
+
+        .response-container[data-anim="in"] {
+            animation: burbujaRespuestaEntrada 0.55s
+                cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+        }
+
+        .input-panel {
+            width: min(100%, 850px);
+            margin: 0 auto;
+            padding: 12px 24px 20px;
+            display: flex;
+            gap: 12px;
+        }
+
+        .input-panel input {
+            min-width: 0;
+            flex: 1;
+            padding: 14px 20px;
+            border: 1px solid #393939;
+            border-radius: 24px;
+            outline: none;
+            background: #1e1f22;
+            color: #fff;
+            font: inherit;
+        }
+
+        .input-panel input:focus {
+            border-color: #0059ff;
+        }
+
+        .input-panel button {
+            padding: 0 24px;
+            border: 0;
+            border-radius: 24px;
+            background: #0059ff;
+            color: #fff;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .input-panel button:hover {
+            background: #0044cc;
+        }
+
+        .top-bar {
+            width: min(100%, 850px);
+            margin: 0 auto;
+            padding: 14px 24px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .top-bar-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #8e8e93;
+            letter-spacing: 0.5px;
+        }
+
+        .top-bar-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .action-btn {
+            background: #1e1f22;
+            border: 1px solid #393939;
+            color: #e3e3e3;
+            padding: 6px 14px;
+            border-radius: 16px;
+            font-size: 13px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s, border-color 0.2s, transform 0.1s;
+        }
+
+        .action-btn:hover {
+            background: #2a2b2f;
+            border-color: #555;
+        }
+
+        .action-btn:active {
+            transform: scale(0.97);
+        }
+
+        .action-btn-secondary {
+            padding: 6px 10px;
+            color: #aaa;
+        }
+
+        .action-btn-secondary:hover {
+            color: #ff6b6b;
+            border-color: #ff6b6b;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            [data-anim="wait"] {
+                opacity: 1;
+            }
+
+            .user-query-bubble-with-background,
+            .response-container {
+                animation: none !important;
+                transition: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="top-bar">
+        <span class="top-bar-title">Prueba de animaciones</span>
+        <div class="top-bar-actions">
+            <input type="file" id="fondoInput" accept="image/*" style="display: none;">
+            <button type="button" id="btnCambiarFondo" class="action-btn">🖼️ Cambiar fondo</button>
+            <button type="button" id="btnQuitarFondo" class="action-btn action-btn-secondary" title="Restaurar fondo por defecto" style="display: none;">✕</button>
+        </div>
+    </header>
+    <main class="chat-container" id="chatContainer" aria-live="polite">
+        <div class="response-container">
+            ¡Hola! Escribí un mensaje para probar las animaciones de las burbujas.
+        </div>
+        
+    </main>
+    
+    
+    
+
+    <form class="input-panel" id="inputForm">
+        <input
+            id="userInput"
+            type="text"
+            placeholder="Escribí un mensaje..."
+            autocomplete="off"
+            aria-label="Mensaje"
+        >
+        <button type="submit">Enviar</button>
+    </form>
+
+    <script src="../animacion_volar.js"></script>
+    <script>
+        const chatContainer = document.getElementById("chatContainer");
+        const inputForm = document.getElementById("inputForm");
+        const userInput = document.getElementById("userInput");
+
+        const SELECTOR_BURBUJAS =
+            ".user-query-bubble-with-background, .response-container";
+        const REANIMAR_AL_ENTRAR = true;
+        const DURACION_ENVIO_MS = 2200;
+        let envioHasta = 0;
+        const enEnvio = () => performance.now() < envioHasta;
+        const ESPERA_VISIBLE_MS = 150;
+        const temporizadores = new WeakMap();
+
+        let ultimoEnvio = null;
+
+        const VUELO_MS = 1400;                        // duración total del vuelo (ms)
+        const VUELO_EASING = [0.34, 1.56, 0.64, 1];   // cubic-bezier que se aplica ENTRE cada par de keyframes (igual que en CSS)
+        const VUELO_Z = '2147482000';                 // por encima del chat, del fade y de la caja de escribir
+        // VUELO_KEYFRAMES se carga desde ../animacion_volar.js
+
+        const sinMovimiento = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        function cubicBezier(x1, y1, x2, y2) {
+            const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+            const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+            const X = (s) => ((ax * s + bx) * s + cx) * s;
+            const Y = (s) => ((ay * s + by) * s + cy) * s;
+            const dX = (s) => (3 * ax * s + 2 * bx) * s + cx;
+            return (x) => {
+                if (x <= 0) return 0;
+                if (x >= 1) return 1;
+                let s = x;
+                for (let i = 0; i < 8; i++) {
+                    const e = X(s) - x;
+                    if (Math.abs(e) < 1e-6) return Y(s);
+                    const d = dX(s);
+                    if (Math.abs(d) < 1e-6) break;
+                    s -= e / d;
+                }
+                let lo = 0, hi = 1;
+                for (let i = 0; i < 30; i++) {
+                    s = (lo + hi) / 2;
+                    if (X(s) < x) lo = s; else hi = s;
+                }
+                return Y(s);
+            };
+        }
+        const vueloEase = cubicBezier(VUELO_EASING[0], VUELO_EASING[1], VUELO_EASING[2], VUELO_EASING[3]);
+
+        function vueloEstado(t, vx, vy, w, h, origBF) {
+            const K = (typeof VUELO_KEYFRAMES !== 'undefined' ? VUELO_KEYFRAMES : window.VUELO_KEYFRAMES) || [];
+            let i = 0;
+            while (i < K.length - 2 && t > K[i + 1].t) i++;
+            const a = K[i], b = K[i + 1];
+            const e = vueloEase(Math.min(1, Math.max(0, (t - a.t) / ((b.t - a.t) || 1))));
+            const pos = (k) => {
+                if (k.origen) {
+                    return {
+                        x: vx + (k.dx ? k.dx * w : 0),
+                        y: vy + (k.dy ? k.dy * h : 0)
+                    };
+                }
+                return {
+                    x: (k.dx || 0) * w,
+                    y: (k.dy || 0) * h
+                };
+            };
+            const pa = pos(a), pb = pos(b);
+            const L = (u, v) => u + (v - u) * e;
+            const getSX = (k) => k.scaleX ?? k.escalaX ?? k.scale ?? k.escala ?? 1;
+            const getSY = (k) => k.scaleY ?? k.escalaY ?? k.scale ?? k.escala ?? 1;
+            const sX = L(getSX(a), getSX(b));
+            const sY = L(getSY(a), getSY(b));
+
+            // Control de backdropFilter / backdrop-filter
+            let backdropFilterVal = undefined;
+            const hasBF = K.some((k) => k.backdropFilter !== undefined || k['backdrop-filter'] !== undefined || k.backdropBlur !== undefined);
+            if (hasBF) {
+                const parseBF = (val, fbBlur, fbExtra) => {
+                    if (val === undefined || val === null) return { blur: fbBlur, extra: fbExtra };
+                    if (typeof val === 'number') return { blur: val, extra: fbExtra };
+                    const s = String(val).trim();
+                    if (!s || s === 'none') return { blur: 0, extra: '', isNone: true };
+                    const m = s.match(/blur\(\s*([\d.]+)\s*px\s*\)/i);
+                    if (m) {
+                        const r = s.replace(/blur\(\s*[\d.]+\s*px\s*\)/i, '').trim();
+                        return { blur: parseFloat(m[1]), extra: r || fbExtra };
+                    }
+                    return { blur: fbBlur, extra: s };
+                };
+                const defBF = parseBF(origBF, 0, '');
+                const aBF = parseBF(a.backdropFilter ?? a['backdrop-filter'] ?? a.backdropBlur, defBF.blur, defBF.extra);
+                const bBF = parseBF(b.backdropFilter ?? b['backdrop-filter'] ?? b.backdropBlur, defBF.blur, defBF.extra);
+                if (aBF.isNone && bBF.isNone) {
+                    backdropFilterVal = 'none';
+                } else {
+                    const bfBlur = Math.max(0, L(aBF.blur, bBF.blur));
+                    const extra = bBF.extra || aBF.extra || '';
+                    backdropFilterVal = `blur(${bfBlur.toFixed(2)}px)${extra ? ' ' + extra : ''}`;
+                }
+            }
+
+            return {
+                x: L(pa.x, pb.x),
+                y: L(pa.y, pb.y),
+                scaleX: sX,
+                scaleY: sY,
+                escalaX: sX,
+                escalaY: sY,
+                blur: Math.max(0, L(a.blur ?? 0, b.blur ?? 0)),
+                backdropFilter: backdropFilterVal
+            };
+        }
+
+        function prepararSalidaDesdeInput(el) {
+            if (!ultimoEnvio || ultimoEnvio.usado || performance.now() - ultimoEnvio.t > 6000) return;
+            if (!el.matches(".user-query-bubble-with-background")) return;
+            if (sinMovimiento()) return;
+            const mensaje = el.closest(".query-bubble-with-status");
+            if (mensaje) {
+                const todos = document.querySelectorAll(".query-bubble-with-status");
+                if (todos.length && todos[todos.length - 1] !== mensaje) return;
+            }
+            if (!(el.textContent || "").trim()) return;
+            const r = el.getBoundingClientRect();
+            if (r.width < 1 || r.height < 1) return;
+            ultimoEnvio.usado = true;
+            el.setAttribute("data-origen", "input");
+            volarDesdeInput(el, r, ultimoEnvio);
+        }
+
+        function volarDesdeInput(el, r0, origen) {
+            const g = el.cloneNode(true);
+            ["id", "data-anim", "data-origen", "data-sin-anim", "style"].forEach((a) => g.removeAttribute(a));
+            g.querySelectorAll("[id]").forEach((e) => e.removeAttribute("id"));
+            g.querySelectorAll("[data-anim], [data-sin-anim]").forEach((e) => { e.removeAttribute("data-anim"); e.removeAttribute("data-sin-anim"); });
+            g.setAttribute("aria-hidden", "true");
+            g.inert = true;
+            const cs = getComputedStyle(el);
+            const origBF = cs.getPropertyValue("backdrop-filter") || cs.getPropertyValue("-webkit-backdrop-filter") || "";
+            const fijar = (k, v) => g.style.setProperty(k, v, "important");
+            fijar("position", "fixed"); fijar("left", "0"); fijar("top", "0"); fijar("right", "auto"); fijar("bottom", "auto");
+            fijar("margin", "0"); fijar("box-sizing", "border-box"); fijar("max-width", "none"); fijar("max-height", "none");
+            fijar("width", r0.width + "px"); fijar("height", r0.height + "px");
+            fijar("z-index", VUELO_Z); fijar("pointer-events", "none");
+            fijar("transform-origin", "center center"); fijar("transition", "none"); fijar("animation", "none");
+            fijar("will-change", "transform, filter, backdrop-filter");
+            ["font-family", "font-size", "font-weight", "line-height", "letter-spacing", "color"].forEach((p) => fijar(p, cs.getPropertyValue(p)));
+
+            let w = r0.width, h = r0.height;
+            let destino = r0;
+            function pintar(p) {
+                const rt = el.getBoundingClientRect();
+                if (rt.width >= 1 && rt.height >= 1) destino = rt;
+                if (Math.abs(destino.width - w) > 0.5 || Math.abs(destino.height - h) > 0.5) {
+                    w = destino.width; h = destino.height;
+                    fijar("width", w + "px"); fijar("height", h + "px");
+                }
+                const st = vueloEstado(p, origen.x - (destino.left + w / 2), origen.y - (destino.top + h / 2), w, h, origBF);
+                fijar(
+                    "transform",
+                    `translate(${(destino.left + st.x).toFixed(2)}px, ${(destino.top + st.y).toFixed(2)}px) scaleX(${st.scaleX.toFixed(4)}) scaleY(${st.scaleY.toFixed(4)})`
+                );
+                fijar("filter", `blur(${st.blur.toFixed(2)}px)`);
+                if (st.backdropFilter !== undefined) {
+                    fijar("backdrop-filter", st.backdropFilter);
+                    fijar("-webkit-backdrop-filter", st.backdropFilter);
+                }
+            }
+            pintar(0);
+            document.documentElement.appendChild(g);
+
+            el._vuelo = g;
+            const t0 = performance.now();
+
+            function aterrizar() {
+                if (el._vuelo !== g) return;
+                el._vuelo = null;
+                g.remove();
+                if (!el.isConnected) return;
+                el._animado = true;
+                el.setAttribute("data-sin-anim", "");
+                el.setAttribute("data-anim", "in");
+            }
+            function cuadro(ahora) {
+                if (el._vuelo !== g) { g.remove(); return; }
+                if (!el.isConnected) { el._vuelo = null; g.remove(); return; }
+                const p = Math.min(1, Math.max(0, (ahora - t0) / VUELO_MS));
+                pintar(p);
+                if (p >= 1) { aterrizar(); return; }
+                requestAnimationFrame(cuadro);
+            }
+            requestAnimationFrame(cuadro);
+            setTimeout(aterrizar, VUELO_MS + 1500);
+        }
+
+        const observadorVisibilidad = new IntersectionObserver((entradas) => {
+            entradas.forEach((entrada) => {
+                const el = entrada.target;
+                if (!el.isConnected) {
+                    if (temporizadores.has(el)) {
+                        clearTimeout(temporizadores.get(el));
+                        temporizadores.delete(el);
+                    }
+                    observadorVisibilidad.unobserve(el);
+                    return;
+                }
+                if (entrada.isIntersecting) {
+                    el._visto = true;
+                    if (el._vuelo) return;
+                    if (temporizadores.has(el) || el.getAttribute("data-anim") === "in") return;
+                    temporizadores.set(el, setTimeout(() => {
+                        temporizadores.delete(el);
+                        prepararSalidaDesdeInput(el);
+                        if (el._vuelo) return;
+
+                        const activarAnimacion = () => {
+                            temporizadores.delete(el);
+                            if (!el.isConnected || el.getAttribute("data-anim") !== "wait") return;
+
+                            if (enEnvio() && el._animado && !el.hasAttribute("data-origen")) {
+                                el.setAttribute("data-sin-anim", "");
+                            }
+
+                            el._animado = true;
+                            el.setAttribute("data-anim", "in");
+                        };
+
+                        activarAnimacion();
+                    }, ESPERA_VISIBLE_MS));
+                } else {
+                    if (temporizadores.has(el)) {
+                        clearTimeout(temporizadores.get(el));
+                        temporizadores.delete(el);
+                    }
+                    if (el._vuelo) return;
+                    if (!REANIMAR_AL_ENTRAR || enEnvio()) return;
+                    if (el.hasAttribute("data-origen") && !el._visto) return;
+                    if (el.getAttribute("data-anim") === "in") {
+                        el.removeAttribute("data-origen");
+                        el.removeAttribute("data-sin-anim");
+                        el._visto = false;
+                        el.setAttribute("data-anim", "wait");
+                    }
+                }
+            });
+        }, { threshold: 0 });
+
+        function registrarBurbujas(raiz) {
+            if (!raiz.querySelectorAll && !raiz.matches) return;
+            const lista = raiz.matches && raiz.matches(SELECTOR_BURBUJAS)
+                ? [raiz, ...raiz.querySelectorAll(SELECTOR_BURBUJAS)]
+                : (raiz.querySelectorAll ? raiz.querySelectorAll(SELECTOR_BURBUJAS) : []);
+            lista.forEach((el) => {
+                if (el.hasAttribute("data-anim")) return;
+                el.setAttribute("data-anim", "wait");
+                observadorVisibilidad.observe(el);
+                if (ultimoEnvio && !ultimoEnvio.usado && el.matches(".user-query-bubble-with-background")) {
+                    prepararSalidaDesdeInput(el);
+                }
+            });
+        }
+        
+        function bajarHistorial() {
+            chatContainer.scrollTo({
+                top: chatContainer.scrollHeight,
+                behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                    ? "instant"
+                    : "smooth"
+            });
+        }
+
+        function enviarMensaje(texto) {
+            const origen = userInput.getBoundingClientRect();
+            envioHasta = performance.now() + DURACION_ENVIO_MS;
+            ultimoEnvio = {
+                t: performance.now(),
+                x: origen.left + Math.min(180, origen.width / 3),
+                y: origen.top + origen.height / 2,
+                usado: false
+            };
+
+            const wrapper = document.createElement("div");
+            wrapper.className = "query-bubble-with-status";
+
+            const burbuja = document.createElement("span");
+            burbuja.className = "user-query-bubble-with-background";
+
+            const textoBurbuja = document.createElement("span");
+            textoBurbuja.textContent = texto;
+
+            burbuja.appendChild(textoBurbuja);
+            wrapper.appendChild(burbuja);
+            chatContainer.appendChild(wrapper);
+            // primero el scroll (la burbuja ya queda en su sitio final) y después se mide para la animación
+            bajarHistorial();
+            registrarBurbujas(wrapper);
+
+            userInput.value = "";
+            userInput.focus();
+
+            setTimeout(() => {
+                const respuesta = document.createElement("div");
+                respuesta.className = "response-container";
+                respuesta.textContent = `Recibí tu mensaje: “${texto}”`;
+
+                chatContainer.appendChild(respuesta);
+                bajarHistorial();
+                registrarBurbujas(respuesta);
+            }, 600);
+        }
+
+        inputForm.addEventListener("submit", (evento) => {
+            evento.preventDefault();
+            const texto = userInput.value.trim();
+            if (!texto) return;
+            enviarMensaje(texto);
+        });
+
+        registrarBurbujas(chatContainer);
+
+        // Control del fondo de pantalla
+        const fondoInput = document.getElementById("fondoInput");
+        const btnCambiarFondo = document.getElementById("btnCambiarFondo");
+        const btnQuitarFondo = document.getElementById("btnQuitarFondo");
+
+        function aplicarFondo(url) {
+            if (url) {
+                document.body.style.backgroundImage = `url("${url}")`;
+                btnQuitarFondo.style.display = "inline-flex";
+            } else {
+                document.body.style.backgroundImage = "";
+                btnQuitarFondo.style.display = "none";
+            }
+        }
+
+        const fondoGuardado = localStorage.getItem("bubble_test_bg");
+        if (fondoGuardado) {
+            aplicarFondo(fondoGuardado);
+        }
+
+        btnCambiarFondo.addEventListener("click", () => fondoInput.click());
+
+        fondoInput.addEventListener("change", (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const dataUrl = evt.target.result;
+                aplicarFondo(dataUrl);
+                try {
+                    localStorage.setItem("bubble_test_bg", dataUrl);
+                } catch (err) {
+                    console.warn("No se pudo guardar fondo en localStorage:", err);
+                }
+            };
+            reader.readAsDataURL(file);
+        });
+
+        btnQuitarFondo.addEventListener("click", () => {
+            localStorage.removeItem("bubble_test_bg");
+            fondoInput.value = "";
+            aplicarFondo("");
+        });
+
+        window.addEventListener("dragover", (e) => e.preventDefault());
+        window.addEventListener("drop", (e) => {
+            e.preventDefault();
+            const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (file && file.type.startsWith("image/")) {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const dataUrl = evt.target.result;
+                    aplicarFondo(dataUrl);
+                    try { localStorage.setItem("bubble_test_bg", dataUrl); } catch (_) {}
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    </script>
+</body>
+</html>
