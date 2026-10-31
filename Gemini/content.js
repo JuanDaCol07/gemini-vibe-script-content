@@ -58,6 +58,21 @@
   function perfilLigero() { return perfilModo === 'ligero' || (perfilModo === 'auto' && perfilAutoLigero); }
   function esTactil() { return !!(window.matchMedia && window.matchMedia('(hover: none)').matches); }
   function aplicarPerfil() { document.documentElement.classList.toggle('tg-ligero', perfilLigero()); }
+  // LENIS (scroll suave): se puede apagar del todo desde Personalizar > Rendimiento (clave geminiLenis; por defecto encendido)
+  const LENIS_CLAVE_LS = 'tg-lenis';
+  let lenisUsuario = true;
+  try {
+    const lg = localStorage.getItem(LENIS_CLAVE_LS);
+    const li = PREFS_INICIALES.geminiLenis;
+    if (lg === '0' || lg === '1') lenisUsuario = lg === '1';
+    else if (li === false || li === 'false') lenisUsuario = false;
+  } catch (e) { /* sin localStorage */ }
+  function cambiarLenis(v) {
+    lenisUsuario = !!v;
+    try { localStorage.setItem(LENIS_CLAVE_LS, lenisUsuario ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiLenis: lenisUsuario });
+    if (lenisUsuario) mantenerLenis(); else destruirLenis();
+  }
   function cambiarPerfil(modo) {
     perfilModo = modo;
     try { localStorage.setItem(PERFIL_CLAVE_LS, modo); } catch (e) { /* sin localStorage */ }
@@ -423,7 +438,9 @@
       #tg-pin.tg-pin-visible .tg-pin-contenido { transform: scale(1); }
       #tg-pin .tg-pin-sub { font-size: 15px; opacity: 0.75; }
       #tg-pin .tg-pin-titulo { margin: 0; font-size: clamp(26px, 4.4vw, 48px); font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; }
-      #tg-pin .tg-pin-cajas { display: flex; gap: 8px; margin-top: 14px; }
+      #tg-pin .tg-pin-cajas { position: relative; display: flex; gap: 8px; margin-top: 14px; }
+      /* input real e invisible sobre las cajas: recibe el foco (abre el teclado numérico del móvil) y un toque en las cajas lo vuelve a enfocar */
+      #tg-pin .tg-pin-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; outline: 0; background: transparent; color: transparent; caret-color: transparent; font-size: 16px; opacity: 0.01; z-index: 2; -webkit-appearance: none; appearance: none; }
       #tg-pin .tg-pin-caja {
         width: 56px; height: 72px; box-sizing: border-box; border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.4); background: rgba(0, 0, 0, 0.4);
@@ -531,7 +548,8 @@
         h('div', { class: 'tg-pin-contenido' },
           h('div', { class: 'tg-pin-sub' }),
           h('h1', { class: 'tg-pin-titulo' }),
-          h('div', { class: 'tg-pin-cajas' }, Array.from({ length: BLOQUEO_PIN_LARGO }, () => h('span', { class: 'tg-pin-caja' }))),
+          h('div', { class: 'tg-pin-cajas' }, Array.from({ length: BLOQUEO_PIN_LARGO }, () => h('span', { class: 'tg-pin-caja' })),
+            h('input', { class: 'tg-pin-input', type: 'tel', inputmode: 'numeric', pattern: '[0-9]*', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', maxlength: BLOQUEO_PIN_LARGO, 'aria-label': 'Código PIN' })),
           h('div', { class: 'tg-pin-msg', role: 'alert' })
         ),
         h('button', { type: 'button', class: 'tg-pin-olvido' }, '¿Olvidaste el PIN?')
@@ -552,6 +570,7 @@
       const elTitulo = pin.querySelector('.tg-pin-titulo');
       const elCajas = pin.querySelector('.tg-pin-cajas');
       const cajas = [...pin.querySelectorAll('.tg-pin-caja')];
+      const inputPin = pin.querySelector('.tg-pin-input');
       const elMsg = pin.querySelector('.tg-pin-msg');
       const elOlvido = pin.querySelector('.tg-pin-olvido');
 
@@ -566,6 +585,7 @@
         else if (modo === 'crear1') { elSub.textContent = 'Aún no tienes un PIN.'; elTitulo.textContent = 'Crea un código PIN de ' + BLOQUEO_PIN_LARGO + ' dígitos.'; }
         else { elSub.textContent = 'Un último paso.'; elTitulo.textContent = 'Confirma tu código PIN.'; }
         elOlvido.style.display = modo === 'ingresar' ? '' : 'none';
+        if (inputPin.value !== digitos) inputPin.value = digitos; // el input refleja los dígitos (borrar en el teclado del móvil funciona solo)
         cajas.forEach((c, i) => {
           c.classList.toggle('tg-llena', i < digitos.length);
           c.classList.toggle('tg-activa', i === digitos.length);
@@ -604,6 +624,8 @@
         }
       }
       function tecla(e) {
+        // teclados de móvil (IME): no mandan teclas reales; los dígitos llegan por el evento 'input' del campo
+        if (e.target === inputPin && (e.key === 'Unidentified' || e.keyCode === 229)) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         if (ocupado || cerrado) return;
@@ -628,7 +650,19 @@
         }
       });
       window.addEventListener('keydown', tecla, true);
+      inputPin.addEventListener('input', () => {
+        if (ocupado || cerrado) { inputPin.value = digitos; return; }
+        digitos = inputPin.value.replace(/\D/g, '').slice(0, BLOQUEO_PIN_LARGO);
+        elMsg.textContent = '';
+        pintar();
+        if (digitos.length === BLOQUEO_PIN_LARGO) { ocupado = true; setTimeout(() => { ocupado = false; evaluar(); }, 160); }
+      });
+      // un toque en cualquier parte de la pantalla de PIN (salvo "¿Olvidaste el PIN?") devuelve el foco al campo
+      pin.addEventListener('pointerup', (e) => { if (!cerrado && !(e.target.closest && e.target.closest('.tg-pin-olvido'))) inputPin.focus({ preventScroll: true }); });
       pintar();
+      // el foco se pide ya mismo (sigue dentro del gesto del usuario: deslizar o Espacio) para que el teclado salga solo
+      try { inputPin.focus({ preventScroll: true }); } catch (e) { /* sin foco */ }
+      requestAnimationFrame(() => { if (!cerrado) { try { inputPin.focus({ preventScroll: true }); } catch (e) { /* sin foco */ } } });
       requestAnimationFrame(() => requestAnimationFrame(() => pin.classList.add('tg-pin-visible')));
 
       return {
@@ -2004,6 +2038,14 @@ p.gds-body-s.ng-star-inserted {
       try { localStorage.setItem(PERFIL_CLAVE_LS, perfilModo); } catch (e) { /* sin localStorage */ }
       aplicarPerfil();
     }
+    if (result.geminiLenis === true || result.geminiLenis === false || result.geminiLenis === 'true' || result.geminiLenis === 'false') {
+      const v = result.geminiLenis === true || result.geminiLenis === 'true';
+      if (v !== lenisUsuario) {
+        lenisUsuario = v;
+        try { localStorage.setItem(LENIS_CLAVE_LS, v ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+        if (!v) { try { destruirLenis(); } catch (e) { /* aún no iniciado */ } }
+      }
+    }
     let b = result.geminiBurbuja;
     if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = null; } } // Dart puede mandarla como texto JSON
     if (b && typeof b === 'object') {
@@ -2038,7 +2080,7 @@ p.gds-body-s.ng-star-inserted {
   };
 
   // Cargar preferencias guardadas / inyectadas
-  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiPerfil'], aplicarPreferencias);
+  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiPerfil', 'geminiLenis'], aplicarPreferencias);
 
   // Evento al seleccionar imagen o video
   const esVideoArchivo = (f) => !!f && (/^video\//i.test(f.type) || /\.(mp4|webm|mov|m4v|ogv)$/i.test(f.name || ''));
@@ -3400,10 +3442,21 @@ p.gds-body-s.ng-star-inserted {
       function pintarPerfil() {
         botones.forEach((b) => { const on = b.getAttribute('data-perfil') === perfilModo; b.style.background = on ? 'var(--p-hover)' : ''; b.style.outline = on ? '2px solid var(--p-texto)' : ''; });
       }
+      const swL = h('button', { class: 'tg-p-switch', type: 'button', role: 'switch', 'aria-checked': lenisUsuario ? 'true' : 'false', 'aria-label': 'Scroll suave (Lenis)' },
+        h('span', { class: 'tg-p-sw-track' }),
+        h('span', { class: 'tg-p-sw-handle' },
+          hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', { d: 'M19.69 5.23 8.96 15.96l-4.23-4.23L2.96 13.5l6 6L21.46 7z' }))));
+      swL.addEventListener('click', () => { cambiarLenis(!lenisUsuario); swL.setAttribute('aria-checked', lenisUsuario ? 'true' : 'false'); });
+      const filaLenis = h('div', { class: 'tg-p-toggle', style: 'margin-top:12px' },
+        h('span', { class: 'tg-p-toggle-txt' },
+          h('span', { class: 'tg-p-toggle-tit' }, 'Scroll suave (Lenis)'),
+          h('span', { class: 'tg-p-toggle-sub' }, 'Apágalo para usar el scroll nativo. En pantallas táctiles ya no se usa.')),
+        swL);
       panel.appendChild(h('section', { class: 'tg-p-seccion' },
         h('h3', { class: 'tg-p-titulo' }, 'Rendimiento'),
         h('p', { class: 'tg-p-sub' }, 'Automático reduce los efectos de desenfoque solo si tu equipo va a tirones. Máximo los deja siempre al tope.'),
-        fila));
+        fila,
+        filaLenis));
       pintarPerfil();
     })();
 
@@ -4715,7 +4768,7 @@ p.gds-body-s.ng-star-inserted {
     lenis = null; lenisScroller = null; lenisAlto = 0;
   }
   function mantenerLenis() {
-    if (!LENIS_ACTIVO) return;
+    if (!LENIS_ACTIVO || !lenisUsuario) { if (lenis) destruirLenis(); return; }
     if (typeof Lenis === 'undefined') { // falta lenis.min.js en el manifest: no se rompe nada, solo no hay scroll suave
       if (!lenisAvisado) { lenisAvisado = true; console.warn('[tg] Lenis no está cargado: agrega lenis.min.js al manifest, ANTES de content.js.'); }
       return;
