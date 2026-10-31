@@ -3261,6 +3261,9 @@ p.gds-body-s.ng-star-inserted {
       .desktop-settings-menu .tg-menu-ico::before, .desktop-settings-menu .tg-menu-ico::after { content: none !important; }
       .desktop-settings-menu .tg-menu-ico svg { width: 100%; height: 100%; min-width: 20px; min-height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
       #tg-personalizar-panel.tg-vibes-apagado .tg-p-seccion:not(.tg-p-seccion-vibes) { opacity: 0.5; }
+      /* ÁREA SEGURA (barra de estado de Android) EN LA BARRA LATERAL: siempre activo, con o sin Gemini Vibes.
+         --tg-safe-top lo calcula el JS (env(safe-area-inset-top) o el valor de tgSetSafeArea) */
+      .sidenav-with-history-container.mobile { padding-top: var(--tg-safe-top, 0px) !important; box-sizing: border-box !important; }
     `;
     document.head.appendChild(b);
   })();
@@ -3980,7 +3983,7 @@ p.gds-body-s.ng-star-inserted {
   // setInterval que no trabaja con la pestaña oculta
   const cada = (fn, ms) => setInterval(() => { if (!document.hidden) { try { fn(); } catch (e) { console.warn('[tg] ' + fn.name + ':', e); } } }, ms);
 
-  Tareas.registrar('layout', () => { limpiarCapasEtiqueta(); alinearHeaderAngosto(); alinearMultimedia(); asegurarFadeChat(); });
+  Tareas.registrar('layout', () => { actualizarVarSafeTop(); limpiarCapasEtiqueta(); alinearHeaderAngosto(); alinearMultimedia(); asegurarFadeChat(); });
   Tareas.registrar('menuLateral', () => { marcarCapasMenuLateral(); actualizarFondoMenuLateral(); });
   Tareas.registrar('cero', () => actualizarFondoCero());
   Tareas.registrar('tema', () => revisarTemaBody());
@@ -4632,7 +4635,7 @@ p.gds-body-s.ng-star-inserted {
   window.tgSetSafeArea = (top) => {
     safeTopManual = Math.max(0, Number(top) || 0);
     try { localStorage.setItem('tg-safe-top', String(safeTopManual)); } catch (e) { /* sin localStorage */ }
-    try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
+    try { actualizarVarSafeTop(); Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
   };
   // Cuántos px se SUBE el header y sus botones respecto a la posición calculada (ajustable: window.tgSetHeaderOffset(12))
   let headerSubirPx = 8;
@@ -4642,6 +4645,13 @@ p.gds-body-s.ng-star-inserted {
     try { localStorage.setItem('tg-header-subir', String(headerSubirPx)); } catch (e) { /* sin localStorage */ }
     try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
   };
+  let ultimoSafeVar = -1;
+  function actualizarVarSafeTop() {
+    const v = Math.round(alturaAreaSuperior());
+    if (v === ultimoSafeVar) return;
+    ultimoSafeVar = v;
+    document.documentElement.style.setProperty('--tg-safe-top', v + 'px');
+  }
   let sondaSafeTop = null;
   function alturaAreaSuperior() {
     let valor = 0;
@@ -4670,9 +4680,12 @@ p.gds-body-s.ng-star-inserted {
     // botones de la derecha (3 puntitos, chat temporal, nuevo chat...): se buscan por componente, no por una sola ruta frágil
     const botonesDer = Array.from(document.querySelectorAll(
       'top-bar-actions .right-section button, top-bar-actions conversation-actions-icon button, top-bar-actions temp-chat-button button, top-bar-actions new-chat-button button'));
-    const angostaH = vibesOn && !!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches);
-    if (!angostaH && !headerTocado) return; // vista ancha y nunca se tocó: no hay nada que limpiar ni medir
-    headerTocado = angostaH;
+    const estrechaH = !!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches);
+    const angostaH = vibesOn && estrechaH;
+    const soloSafe = !vibesOn && estrechaH; // Vibes apagado: el header queda como el de Gemini, pero bajado por la barra de estado
+    if (!angostaH && !soloSafe && !headerTocado) return; // vista ancha y nunca se tocó: no hay nada que limpiar ni medir
+    headerTocado = angostaH || soloSafe;
+    const barraH = document.querySelector('top-bar-actions');
     const hamb = angostaH ? document.querySelector('.side-nav-menu-button button') : null;
     const cuenta = angostaH && gb ? gb.querySelector('a[href*="SignOutOptions"], a[aria-label*="Cuenta de Google"], a[aria-label*="Google Account"]') : null;
     if (angostaH) {
@@ -4685,7 +4698,17 @@ p.gds-body-s.ng-star-inserted {
       firmaHeader = { clave, elems };
     } else firmaHeader = null;
     // ESCRITURAS de limpieza (una sola tanda) y después TODAS las lecturas juntas: así el navegador calcula el layout una sola vez
-    [izq, pildora, gb].concat(botonesDer).forEach((e) => { if (e && e.style.translate) e.style.removeProperty('translate'); });
+    [izq, pildora, gb, barraH].concat(botonesDer).forEach((e) => { if (e && e.style.translate) e.style.removeProperty('translate'); });
+    if (soloSafe) {
+      const safe = alturaAreaSuperior();
+      if (safe > 0) {
+        const tops = [izq, barraH, gb].filter(Boolean);
+        // si uno contiene a otro solo se mueve el externo (así no se suma dos veces)
+        tops.filter((e) => !tops.some((o) => o !== e && o.contains(e)))
+          .forEach((e) => e.style.setProperty('translate', '0 ' + safe + 'px', 'important'));
+      }
+      return;
+    }
     if (!angostaH) return;
     const MARGEN = 12;
     const GAP = 8; // aire entre los botones de la derecha
@@ -5000,5 +5023,6 @@ p.gds-body-s.ng-star-inserted {
   }
 
   revisarTemaBody();
+  try { actualizarVarSafeTop(); } catch (e) { /* sin área segura */ }
   aplicarVibes(); // deja todo en el estado guardado (encendido/apagado) una vez creadas todas las hojas de estilo
 })();
