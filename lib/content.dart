@@ -14,10 +14,11 @@ class ContentScreen extends StatefulWidget {
 class _ContentScreenState extends State<ContentScreen> {
   InAppWebViewController? webViewController;
 
-  // Función para descargar o cargar el script de content.js
-  Future<Map<String, dynamic>> _loadContentScript() async {
+  // Función para descargar o cargar la lógica/script de forma remota
+  Future<Map<String, dynamic>> _loadRemoteScript() async {
     final prefs = await SharedPreferences.getInstance();
 
+    // URL directa al archivo en tu repositorio de GitHub
     const String urlScript =
         'https://raw.githubusercontent.com/JuanDaCol07/gemini-vibe-script-content/refs/heads/main/Gemini/content.js';
 
@@ -28,34 +29,34 @@ class _ContentScreenState extends State<ContentScreen> {
 
       if (response.statusCode == 200) {
         String nuevoScript = response.body;
-
-        String? scriptViejo = prefs.getString('cached_content_js');
+        String? scriptViejo = prefs.getString('cached_content_script');
         bool esNuevaActualizacion = (scriptViejo != nuevoScript);
 
         if (esNuevaActualizacion) {
-          await prefs.setString('cached_content_js', nuevoScript);
-          print("¡Script actualizado desde internet exitosamente!");
+          await prefs.setString('cached_content_script', nuevoScript);
+          print("¡Script actualizado desde GitHub exitosamente!");
           return {'script': nuevoScript, 'actualizado': true};
         } else {
           return {'script': nuevoScript, 'actualizado': false};
         }
       }
     } catch (e) {
-      print("No se pudo conectar a internet para actualizar el script: $e");
+      print("No se pudo conectar a internet para actualizar: $e");
     }
 
-    String? scriptGuardado = prefs.getString('cached_content_js');
+    // Respaldo local si no hay conexión
+    String? scriptGuardado = prefs.getString('cached_content_script');
     if (scriptGuardado != null && scriptGuardado.isNotEmpty) {
       print("Cargando script desde el caché local...");
       return {'script': scriptGuardado, 'actualizado': false};
     }
 
     try {
-      print("Cargando script de emergencia desde assets locales...");
+      print("Cargando de emergencia desde assets locales...");
       String assetScript = await rootBundle.loadString('Gemini/content.js');
       return {'script': assetScript, 'actualizado': false};
     } catch (e) {
-      print("Error cargando el script local de emergencia: $e");
+      print("Error cargando respaldo local: $e");
       return {'script': "", 'actualizado': false};
     }
   }
@@ -86,61 +87,22 @@ class _ContentScreenState extends State<ContentScreen> {
           ),
           onWebViewCreated: (controller) {
             webViewController = controller;
-
-            controller.addJavaScriptHandler(
-              handlerName: 'guardarPreferencia',
-              callback: (args) async {
-                if (args.isEmpty) return {"status": "error"};
-                String clave = args[0];
-                dynamic valor = args[1];
-
-                final prefs = await SharedPreferences.getInstance();
-                if (valor is bool) {
-                  await prefs.setBool(clave, valor);
-                } else if (valor is String) {
-                  await prefs.setString(clave, valor);
-                } else if (valor is int) {
-                  await prefs.setInt(clave, valor);
-                } else if (valor is double) {
-                  await prefs.setDouble(clave, valor);
-                }
-
-                print("Preferencia guardada desde JS -> $clave: $valor");
-                return {"status": "ok"};
-              },
-            );
           },
           onLoadStop: (controller, url) async {
-            final prefs = await SharedPreferences.getInstance();
-            int burbujaHue = prefs.getInt('burbuja_h') ?? 221;
-            bool bloqueoActivo = prefs.getBool('tg-bloqueo-activo') ?? false;
-
-            double safeTop = MediaQuery.of(context).padding.top;
-
-            await controller.evaluateJavascript(
-              source:
-                  """
-                if (window.tgSetSafeArea) {
-                  window.tgSetSafeArea($safeTop);
-                }
-              """,
-            );
-
-            // 1. Cargamos e inyectamos Lenis primero desde los assets locales
+            // 1. Inyectar Lenis local para el scroll suave
             try {
               String lenisCode = await rootBundle.loadString(
                 'Gemini/lenis.min.js',
               );
               if (lenisCode.isNotEmpty) {
                 await controller.evaluateJavascript(source: lenisCode);
-                print("Lenis inyectado correctamente desde assets.");
               }
             } catch (e) {
-              print("No se pudo cargar lenis.min.js desde assets: $e");
+              print("Error cargando Lenis: $e");
             }
 
-            // 2. Cargamos e inyectamos el content.js (de internet o caché)
-            Map<String, dynamic> resultado = await _loadContentScript();
+            // 2. Cargar e inyectar el script remoto (GitHub o Caché)
+            Map<String, dynamic> resultado = await _loadRemoteScript();
             String jsCode = resultado['script'];
             bool fueActualizado = resultado['actualizado'];
 
@@ -148,7 +110,7 @@ class _ContentScreenState extends State<ContentScreen> {
               await controller.evaluateJavascript(source: jsCode);
             }
 
-            // 3. Mostramos aviso si se actualizó automáticamente
+            // 3. Notificar si hubo actualización automática
             if (fueActualizado && mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -158,7 +120,7 @@ class _ContentScreenState extends State<ContentScreen> {
                       SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          "Se ha actualizado Gemini Vibes de forma automática",
+                          "Gemini Vibes se actualizó desde la nube",
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w500,

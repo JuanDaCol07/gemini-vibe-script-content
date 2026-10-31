@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'content.dart'; // Aquí jalamos tu archivo de contenido
+import 'content.dart'; // Tu archivo que ahora gestionará la lógica remota
 
 void main() {
   runApp(const MainApp());
