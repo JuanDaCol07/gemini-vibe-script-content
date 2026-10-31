@@ -34,6 +34,83 @@
       try { localStorage.setItem(BLOQUEO_CLAVE_LS, (v === true || v === 'true') ? '1' : '0'); } catch (e) { /* sin localStorage */ }
     }
   })();
+
+  // ============================================================================================
+  // PERFIL DE RENDIMIENTO (auto / máximo / ligero)
+  // - "ligero" (clase html.tg-ligero) baja los radios de blur ~35 %, quita saturate(), usa 2 capas de fade y quita transiciones de layout.
+  // - "auto": arranca ligero en equipos flojos (poca RAM / pocos núcleos) o si ya se midió lentitud antes; además mide los fotogramas
+  //   REALES durante el vuelo de la burbuja (la animación más pesada) y, si va a tirones, pasa a ligero y lo recuerda.
+  // - Se elige a mano en Personalizar > Rendimiento (se guarda con el puente de preferencias: clave geminiPerfil).
+  // ============================================================================================
+  const PERFIL_CLAVE_LS = 'tg-perfil';
+  const PERFIL_AUTO_LS = 'tg-perfil-auto-ligero';
+  let perfilModo = 'auto';
+  try {
+    const pg = localStorage.getItem(PERFIL_CLAVE_LS) || PREFS_INICIALES.geminiPerfil;
+    if (pg === 'auto' || pg === 'maximo' || pg === 'ligero') perfilModo = pg;
+  } catch (e) { /* sin localStorage */ }
+  function equipoFlojo() {
+    const m = navigator.deviceMemory, c = navigator.hardwareConcurrency;
+    return !!((m && m <= 4) || (c && c <= 4));
+  }
+  let perfilAutoLigero = false;
+  try { perfilAutoLigero = localStorage.getItem(PERFIL_AUTO_LS) === '1' || equipoFlojo(); } catch (e) { perfilAutoLigero = equipoFlojo(); }
+  function perfilLigero() { return perfilModo === 'ligero' || (perfilModo === 'auto' && perfilAutoLigero); }
+  function esTactil() { return !!(window.matchMedia && window.matchMedia('(hover: none)').matches); }
+  function aplicarPerfil() { document.documentElement.classList.toggle('tg-ligero', perfilLigero()); }
+  function cambiarPerfil(modo) {
+    perfilModo = modo;
+    try { localStorage.setItem(PERFIL_CLAVE_LS, modo); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiPerfil: modo });
+    aplicarPerfil();
+  }
+  // muestreo de fotogramas durante el vuelo de la burbuja
+  let fpsPrev = 0, fpsN = 0, fpsLentos = 0;
+  function muestrearFps(t) {
+    if (fpsPrev) { fpsN++; if (t - fpsPrev > 26) fpsLentos++; }
+    fpsPrev = t;
+  }
+  function finMuestreoFps() {
+    if (perfilModo === 'auto' && !perfilAutoLigero && fpsN >= 15 && fpsLentos / fpsN > 0.25) {
+      perfilAutoLigero = true;
+      try { localStorage.setItem(PERFIL_AUTO_LS, '1'); } catch (e) { /* sin localStorage */ }
+      aplicarPerfil();
+      console.log('[tg] perfil ligero activado automáticamente (' + fpsLentos + '/' + fpsN + ' fotogramas lentos)');
+    }
+    fpsPrev = 0; fpsN = 0; fpsLentos = 0;
+  }
+  (function () {
+    const est = document.createElement('style');
+    est.id = 'tg-ligero-style';
+    est.textContent = `
+      html.tg-ligero .user-query-bubble-with-background,
+      html.tg-ligero .response-container,
+      html.tg-ligero thinking-dots-animation:not(.response-container-header *),
+      html.tg-ligero [data-tg-puntos][data-tg-burbuja],
+      html.tg-ligero [data-tg-creando-burbuja],
+      html.tg-ligero [data-tg-creando-caja]:not([data-tg-creando-unica]) {
+        -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
+      }
+      html.tg-ligero input-area-v2 .text-input-field,
+      html.tg-ligero input-area-v2 .input-area-fieldset > .text-input-field,
+      html.tg-ligero top-bar-actions button.mat-mdc-icon-button,
+      html.tg-ligero .side-nav-menu-button button.mat-mdc-icon-button,
+      html.tg-ligero chat-app-side-nav-menu-button button.mat-mdc-icon-button,
+      html.tg-ligero top-bar-actions .left-section button.mat-mdc-button,
+      html.tg-ligero top-bar-actions .center-section button.mat-mdc-button,
+      html.tg-ligero bard-mode-switcher:not(:is(input-area-v2 *)) button,
+      html.tg-ligero gem-icon-button[data-test-id="prompt-copy-button"],
+      html.tg-ligero gem-icon-button[data-test-id="prompt-edit-button"] {
+        -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important;
+      }
+      html.tg-ligero .query-file-carousel user-query-file-preview .file-preview-container { transition: none !important; }
+      html.tg-ligero #tg-pin .tg-pin-fondo { filter: blur(14px) brightness(0.5) saturate(1.1) !important; inset: -30px !important; }
+      html.tg-ligero #tg-personalizar-panel { -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+      html.tg-ligero #tg-personalizar-backdrop { -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); }
+    `;
+    (document.head || document.documentElement).appendChild(est);
+  })();
+  aplicarPerfil();
   const puenteFlutter = (function () {
     const pendientes = new Map();
     let temporizador = null;
@@ -302,9 +379,10 @@
         -webkit-backdrop-filter: blur(var(--tg-bloqueo-blur, 0px));
         backdrop-filter: blur(var(--tg-bloqueo-blur, 0px));
         transition: transform ${BLOQUEO_DURACION_MS}ms cubic-bezier(0.7, 0, 0.2, 1), -webkit-backdrop-filter ${BLOQUEO_DURACION_MS}ms ease, backdrop-filter ${BLOQUEO_DURACION_MS}ms ease;
-        will-change: transform; user-select: none; cursor: grab; touch-action: none;
+        user-select: none; cursor: grab; touch-action: none;
       }
       #tg-bloqueo.tg-subiendo { --tg-bloqueo-blur: 12px; transform: translateY(-100%); }
+      #tg-bloqueo.tg-subiendo, #tg-bloqueo.tg-arrastrando { will-change: transform; }
       #tg-bloqueo.tg-arrastrando { transition: none; cursor: grabbing; }
       #tg-bloqueo-fondo {
         position: fixed; inset: 0; z-index: -1; pointer-events: none;
@@ -590,7 +668,9 @@
         elFecha.textContent = fecha.charAt(0).toUpperCase() + fecha.slice(1);
       }
       actualizarReloj();
-      const relojId = setInterval(actualizarReloj, 1000);
+      let relojId = null; // el reloj solo muestra HH:MM: despierta una vez por minuto, no cada segundo
+      const programarReloj = () => { relojId = setTimeout(() => { actualizarReloj(); programarReloj(); }, 60000 - (Date.now() % 60000) + 50); };
+      programarReloj();
 
       // mientras está bloqueado, la página de atrás no recibe clics ni teclas
       const ponerInert = (v) => { if (document.body) document.body.inert = v; };
@@ -654,7 +734,7 @@
         window.removeEventListener('keydown', alTeclear, true);
         window.removeEventListener('keyup', bloquearTecla, true);
         window.removeEventListener('keypress', bloquearTecla, true);
-        clearInterval(relojId);
+        clearTimeout(relojId);
         ponerInert(false);
         if (pinUI) { pinUI.cerrar(true); pinUI = null; }
         animarBody(BLOQUEO_ESCALA_INICIAL, 1, BLOQUEO_OPACIDAD_INICIAL, 1, quitarBodyInicial);
@@ -789,10 +869,49 @@
   // (el tema ya no tiene botón propio: se sigue automáticamente desde el menú "Tema" de Gemini,
   //  ver detectarTemaDelBody más abajo)
 
+
+  // IMÁGENES DE FONDO LIVIANAS: se reducen (máx. 1920 px; 1440 en táctil/ligero) y se guardan como WebP (~5-10x menos peso).
+  // Los GIF no se tocan (perderían la animación). Si algo falla o no resulta más chico, se usa el archivo original.
+  function optimizarYLeer(file, reader) {
+    const directo = () => reader['readAsDataURL'](file);
+    if (!file || !/^image\//i.test(file.type) || /gif|svg/i.test(file.type) || typeof createImageBitmap !== 'function') { directo(); return; }
+    createImageBitmap(file).then((bmp) => {
+      const maxLado = (perfilLigero() || esTactil()) ? 1440 : 1920;
+      const esc = Math.min(1, maxLado / Math.max(bmp.width, bmp.height));
+      const w = Math.max(1, Math.round(bmp.width * esc)), h = Math.max(1, Math.round(bmp.height * esc));
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+      if (bmp.close) bmp.close();
+      if (!c.toBlob) { directo(); return; }
+      c.toBlob((blob) => { if (blob && blob.size < file.size) reader['readAsDataURL'](blob); else directo(); }, 'image/webp', 0.86);
+    }).catch(directo);
+  }
+  // data URL -> blob URL (la regla CSS queda de pocos bytes y el navegador no reparsea megas de texto)
+  let ultimoBlobFondo = null;
+  function dataUrlABlobUrl(d) {
+    try {
+      const coma = d.indexOf(',');
+      const mime = (d.slice(5, coma).split(';')[0]) || 'image/png';
+      const bin = atob(d.slice(coma + 1));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+      if (ultimoBlobFondo) { const vieja = ultimoBlobFondo; setTimeout(() => URL.revokeObjectURL(vieja), 3000); }
+      ultimoBlobFondo = url;
+      return url;
+    } catch (e) { return null; }
+  }
+
   // Función para aplicar el fondo y ordenar los mensajes
-  function aplicarFondo(base64Data, tipo) {
+  function aplicarFondo(base64Data, tipo, sinBlob) {
     tipo = tipo === 'video' ? 'video' : 'imagen';
-    fondoGeminiActual = base64Data;
+    let urlImg = base64Data;
+    if (tipo === 'imagen' && !sinBlob && typeof base64Data === 'string' && base64Data.indexOf('data:') === 0) {
+      const b = dataUrlABlobUrl(base64Data);
+      if (b) { urlImg = b; const sonda = new Image(); sonda.onerror = () => aplicarFondo(base64Data, 'imagen', true); sonda.src = b; } // si la página bloquea blob:, vuelve al data URL
+    }
+    fondoGeminiActual = urlImg;
     fondoGeminiTipo = tipo;
     gestionarVideoGemini(base64Data, tipo);
     avisarCambioFondos();
@@ -806,7 +925,7 @@
       }`
       : `
       body, .mat-app-background, .main-container {
-        background-image: url('${base64Data}') !important;
+        background-image: url('${urlImg}') !important;
         background-size: cover !important;
         background-position: center !important;
         background-repeat: no-repeat !important;
@@ -902,7 +1021,7 @@
       /* Tu mensaje: entra desde la derecha con un pequeño rebote */
       .user-query-bubble-with-background {
         transform-origin: bottom right !important;
-        transition: transform 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease !important;
+        transition: transform 0.25s ease, background-color 0.25s ease !important;
       }
       .user-query-bubble-with-background[data-anim="in"] {
         animation: burbujaUsuarioEntrada 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both !important;
@@ -937,7 +1056,7 @@
       /* Respuesta: sube suavemente desde abajo */
       .response-container {
         transform-origin: bottom left !important;
-        transition: transform 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease !important;
+        transition: transform 0.3s ease, background-color 0.3s ease !important;
       }
       .response-container[data-anim="in"] {
         animation: burbujaRespuestaEntrada 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both !important;
@@ -1880,6 +1999,11 @@ p.gds-body-s.ng-star-inserted {
     if (result.geminiTema === 'claro' || result.geminiTema === 'oscuro') {
       aplicarTema(result.geminiTema);
     }
+    if (result.geminiPerfil === 'auto' || result.geminiPerfil === 'maximo' || result.geminiPerfil === 'ligero') {
+      perfilModo = result.geminiPerfil;
+      try { localStorage.setItem(PERFIL_CLAVE_LS, perfilModo); } catch (e) { /* sin localStorage */ }
+      aplicarPerfil();
+    }
     let b = result.geminiBurbuja;
     if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = null; } } // Dart puede mandarla como texto JSON
     if (b && typeof b === 'object') {
@@ -1914,7 +2038,7 @@ p.gds-body-s.ng-star-inserted {
   };
 
   // Cargar preferencias guardadas / inyectadas
-  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo'], aplicarPreferencias);
+  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiPerfil'], aplicarPreferencias);
 
   // Evento al seleccionar imagen o video
   const esVideoArchivo = (f) => !!f && (/^video\//i.test(f.type) || /\.(mp4|webm|mov|m4v|ogv)$/i.test(f.name || ''));
@@ -1974,7 +2098,7 @@ p.gds-body-s.ng-star-inserted {
       }
     };
     reader.onerror = () => console.error('Error al leer la imagen de fondo seleccionada:', reader.error);
-    reader.readAsDataURL(file);
+    optimizarYLeer(file, reader);
   });
 
   bloqueoFileInput.addEventListener('change', (e) => {
@@ -2005,7 +2129,7 @@ p.gds-body-s.ng-star-inserted {
       }
     };
     reader.onerror = () => console.error('Error al leer la imagen del fondo de bloqueo:', reader.error);
-    reader.readAsDataURL(file);
+    optimizarYLeer(file, reader);
   });
 
   // ANIMAR BURBUJAS CADA VEZ QUE ENTRAN EN PANTALLA
@@ -2184,7 +2308,7 @@ p.gds-body-s.ng-star-inserted {
       scaleY: sY,
       escalaX: sX,
       escalaY: sY,
-      blur: Math.max(0, L(a.blur ?? 0, b.blur ?? 0)),
+      blur: Math.max(0, L(a.blur ?? 0, b.blur ?? 0)) * (perfilLigero() ? 0.5 : 1),
       backdropFilter: backdropFilterVal
     };
   }
@@ -2260,6 +2384,7 @@ p.gds-body-s.ng-star-inserted {
     function aterrizar() {
       if (el._vuelo !== g) return;
       el._vuelo = null;
+      finMuestreoFps();
       el._aterrizoEn = performance.now(); // las fotos del mismo mensaje esperan a este momento (ver retrasoPorBurbuja)
       g.remove();
       if (!el.isConnected) return;
@@ -2271,6 +2396,7 @@ p.gds-body-s.ng-star-inserted {
       if (el._vuelo !== g) { g.remove(); return; }
       if (!el.isConnected) { el._vuelo = null; g.remove(); return; }
       const p = Math.min(1, Math.max(0, (ahora - t0) / VUELO_MS));
+      muestrearFps(ahora);
       pintar(p);
       if (p >= 1) { aterrizar(); return; }
       requestAnimationFrame(cuadro);
@@ -3259,6 +3385,28 @@ p.gds-body-s.ng-star-inserted {
     const q = (r) => backdrop.querySelector('[data-r="' + r + '"]');
     const panel = backdrop.querySelector('#tg-personalizar-panel');
 
+    // ---- rendimiento ----
+    (function () {
+      const OPC = [
+        { v: 'auto', t: 'Automático' }, { v: 'maximo', t: 'Máximo' }, { v: 'ligero', t: 'Ligero' }
+      ];
+      const fila = h('div', { class: 'tg-p-colores' });
+      const botones = OPC.map((o) => {
+        const b = h('button', { class: 'tg-p-btn', type: 'button', 'data-perfil': o.v }, o.t);
+        b.addEventListener('click', () => { cambiarPerfil(o.v); pintarPerfil(); });
+        fila.appendChild(b);
+        return b;
+      });
+      function pintarPerfil() {
+        botones.forEach((b) => { const on = b.getAttribute('data-perfil') === perfilModo; b.style.background = on ? 'var(--p-hover)' : ''; b.style.outline = on ? '2px solid var(--p-texto)' : ''; });
+      }
+      panel.appendChild(h('section', { class: 'tg-p-seccion' },
+        h('h3', { class: 'tg-p-titulo' }, 'Rendimiento'),
+        h('p', { class: 'tg-p-sub' }, 'Automático reduce los efectos de desenfoque solo si tu equipo va a tirones. Máximo los deja siempre al tope.'),
+        fila));
+      pintarPerfil();
+    })();
+
     // ---- burbuja ----
     const contColores = q('colores');
     const sliderTono = q('tono');
@@ -3952,7 +4100,7 @@ p.gds-body-s.ng-star-inserted {
     marcadoPendiente = true;
     requestAnimationFrame(() => { marcadoPendiente = false; marcarPuntosCarga(); });
   }
-  cada(marcarPuntosCarga, 300);
+  cada(marcarPuntosCarga, 600); // el observer ya lo dispara al instante cuando aparece algo
   marcarPuntosCarga();
 
   // "CREANDO TU IMAGEN…": busca ese texto en lo que Gemini va añadiendo y marca el texto y su contenedor
@@ -4177,13 +4325,15 @@ p.gds-body-s.ng-star-inserted {
   function crearCajaFade(clase, dir) {
     const caja = document.createElement('div');
     caja.className = 'tg-fade-caja tg-fade-' + clase;
-    const n = FADE_CAPAS, s = 100 / (n + 1);
+    const ligeroF = perfilLigero();
+    const n = ligeroF ? 2 : FADE_CAPAS, s = 100 / (n + 1);
+    const blurs = ligeroF ? [3, 10] : FADE_BLURS;
     const pos = (v) => (Math.round(v * 100) / 100) + '%';
     for (let k = 1; k <= n; k++) {
       // cada capa difumina una franja; la franja de blur más fuerte queda en el borde de la pantalla
       const tramos = k < n ? [[(k - 1) * s, 0], [k * s, 1], [(k + 1) * s, 1], [(k + 2) * s, 0]] : [[(k - 1) * s, 0], [k * s, 1], [100, 1]];
       const mascara = 'linear-gradient(to ' + dir + ', ' + tramos.map((t) => 'rgba(0,0,0,' + t[1] + ') ' + pos(t[0])).join(', ') + ')';
-      const blur = 'blur(' + (FADE_BLURS[k - 1] || 14) + 'px)';
+      const blur = 'blur(' + (blurs[k - 1] || 14) + 'px)';
       const capa = document.createElement('i');
       capa.style.cssText = '-webkit-backdrop-filter:' + blur + ';backdrop-filter:' + blur + ';-webkit-mask-image:' + mascara + ';mask-image:' + mascara + ';';
       caja.appendChild(capa);
@@ -4195,8 +4345,13 @@ p.gds-body-s.ng-star-inserted {
     return caja;
   }
 
+  let fadeLigero = null;
   function asegurarFadeChat() {
     if (!FADE_CHAT) return;
+    if (fadeLigero !== perfilLigero()) { // cambió el perfil: se reconstruyen las capas del fade
+      fadeLigero = perfilLigero();
+      const viejo = document.getElementById('tg-fade-chat'); if (viejo) viejo.remove();
+    }
     const hist = document.querySelector('#chat-history');
     const contenido = hist && hist.closest('chat-window-content');
     let raiz = document.getElementById('tg-fade-chat');
@@ -4565,7 +4720,7 @@ p.gds-body-s.ng-star-inserted {
       if (!lenisAvisado) { lenisAvisado = true; console.warn('[tg] Lenis no está cargado: agrega lenis.min.js al manifest, ANTES de content.js.'); }
       return;
     }
-    if (sinMovimiento()) { destruirLenis(); return; } // respeta "reducir movimiento" del sistema
+    if (sinMovimiento() || esTactil()) { destruirLenis(); return; } // respeta "reducir movimiento"; en táctil el scroll nativo ya es fluido
     const scroller = document.querySelector('infinite-scroller.chat-history') || document.querySelector('infinite-scroller');
     if (!scroller || !scroller.isConnected) { destruirLenis(); return; }
     if (lenis && lenisScroller === scroller) return;
@@ -4602,7 +4757,7 @@ p.gds-body-s.ng-star-inserted {
   cada(function latidoTg() {
     latido++;
     observarLayout(); mantenerLenis(); agregarItemMovil();
-    document.querySelectorAll('.desktop-settings-menu').forEach((m) => { try { if (!m.querySelector('#' + ID_ITEM_PERSONALIZAR)) { marcarCapasMenu(m); agregarItemFondo(m); } } catch (e) { /* menú aún sin dibujar */ } });
+    if (!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches)) document.querySelectorAll('.desktop-settings-menu').forEach((m) => { try { if (!m.querySelector('#' + ID_ITEM_PERSONALIZAR)) { marcarCapasMenu(m); agregarItemFondo(m); } } catch (e) { /* menú aún sin dibujar */ } });
     Tareas.marcar('cero');
     if (latido % 3 === 0) { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); }
     if (latido % 4 === 0) Tareas.marcar('tema');
