@@ -413,8 +413,10 @@ class _ContentScreenState extends State<ContentScreen> {
           initialSettings: InAppWebViewSettings(
             isInspectable: kDebugMode, // solo depuración
             mediaPlaybackRequiresUserGesture: false,
-            transparentBackground: false,
+            transparentBackground: true,
             preferredContentMode: UserPreferredContentMode.MOBILE,
+            hardwareAcceleration: true,
+            supportZoom: false,
           ),
           onWebViewCreated: (controller) {
             webViewController = controller;
