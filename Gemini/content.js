@@ -4557,59 +4557,64 @@ p.gds-body-s.ng-star-inserted {
   let firmaHeader = null;
   let multimediaTocada = false;
   function alinearHeaderAngosto() {
-    const grupos = [document.querySelector('.side-nav-menu-button'), document.querySelector('top-bar-actions .right-section')].filter(Boolean);
+    const izq = document.querySelector('.side-nav-menu-button');
     const pildora = document.querySelector('bard-mode-switcher:not(:is(input-area-v2 *))');
-    const nuevo = document.querySelector('top-bar-actions new-chat-button');
+    const gb = document.getElementById('gb'); // barra de Google (avatar de la cuenta): vive FUERA de top-bar-actions
+    // botones de la derecha (3 puntitos, chat temporal, nuevo chat...): se buscan por componente, no por una sola ruta frágil
+    const botonesDer = Array.from(document.querySelectorAll(
+      'top-bar-actions .right-section button, top-bar-actions conversation-actions-icon button, top-bar-actions temp-chat-button button, top-bar-actions new-chat-button button'));
     const angostaH = !!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches);
     if (!angostaH && !headerTocado) return; // vista ancha y nunca se tocó: no hay nada que limpiar ni medir
     headerTocado = angostaH;
     const hamb = angostaH ? document.querySelector('.side-nav-menu-button button') : null;
-    const mas = angostaH ? (document.querySelector('top-bar-actions conversation-actions-icon button') || document.querySelector('top-bar-actions .right-section button:last-of-type')) : null;
+    const cuenta = angostaH && gb ? gb.querySelector('a[href*="SignOutOptions"], a[aria-label*="Cuenta de Google"], a[aria-label*="Google Account"]') : null;
     if (angostaH) {
-      // firma de lo que afecta a la posición (offsetWidth no se ve alterado por translate): si nada cambió, no se toca el DOM
-      const elems = [grupos[0] || null, grupos[1] || null, pildora, nuevo, hamb, mas];
+      // firma de lo que afecta a la posición (offsetWidth/Height no se ven alterados por translate): si nada cambió, no se toca el DOM
+      const elems = [izq, pildora, hamb, gb, cuenta].concat(botonesDer);
       const clave = [window.innerWidth, document.documentElement.clientWidth, alturaAreaSuperior(), headerSubirPx,
         pildora ? pildora.offsetWidth + ':' + (pildora.textContent || '').trim() : '', hamb ? hamb.offsetWidth : 0,
-        mas ? mas.offsetWidth : 0, nuevo ? nuevo.offsetWidth : 0].join('|');
-      if (firmaHeader && firmaHeader.clave === clave && firmaHeader.elems.every((e, i) => e === elems[i])) return;
+        cuenta ? cuenta.offsetWidth : 0].concat(botonesDer.map((e) => e.offsetWidth + 'x' + e.offsetHeight)).join('|');
+      if (firmaHeader && firmaHeader.clave === clave && firmaHeader.elems.length === elems.length && firmaHeader.elems.every((e, i) => e === elems[i])) return;
       firmaHeader = { clave, elems };
     } else firmaHeader = null;
-    [...grupos, pildora, nuevo].forEach((e) => { if (e && e.style.translate) e.style.removeProperty('translate'); });
+    // ESCRITURAS de limpieza (una sola tanda) y después TODAS las lecturas juntas: así el navegador calcula el layout una sola vez
+    [izq, pildora, gb].concat(botonesDer).forEach((e) => { if (e && e.style.translate) e.style.removeProperty('translate'); });
     if (!angostaH) return;
     const MARGEN = 12;
-    const objetivoY = MARGEN + 24 + alturaAreaSuperior() - headerSubirPx; // centro de los botones: baja lo que mida la barra de estado y sube headerSubirPx
-    const ver = (b) => { if (!b) return null; const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
-    const izq = document.querySelector('.side-nav-menu-button');
-    const der = document.querySelector('top-bar-actions .right-section');
-    const rh = ver(hamb), rm = ver(mas);
-    if (izq && rh) izq.style.setProperty('translate', (MARGEN - rh.left) + 'px ' + (objetivoY - (rh.top + rh.height / 2)) + 'px', 'important');
-    if (der && rm) {
-      const circ = ver(mas.closest('gem-icon-button')) || rm; // el círculo que se ve (puede ser más grande que el <button>)
-      der.style.setProperty('translate', ((document.documentElement.clientWidth - MARGEN) - circ.right) + 'px ' + (objetivoY - (rm.top + rm.height / 2)) + 'px', 'important');
-      // verificación: se mide otra vez y se corrige lo que haya faltado
-      const c2 = ver(mas.closest('gem-icon-button')) || ver(mas);
-      if (c2) {
-        const resto = (document.documentElement.clientWidth - MARGEN) - c2.right;
-        if (Math.abs(resto) > 0.5) {
-          const m = /(-?[\d.]+)px/.exec(der.style.getPropertyValue('translate'));
-          der.style.setProperty('translate', ((m ? parseFloat(m[1]) : 0) + resto) + 'px ' + (objetivoY - (rm.top + rm.height / 2)) + 'px', 'important');
-        }
-      }
+    const GAP = 8; // aire entre los botones de la derecha
+    const objetivoY = MARGEN + 24 + alturaAreaSuperior() - headerSubirPx; // centro de TODOS los botones: baja lo que mida la barra de estado y sube headerSubirPx
+    const ver = (e) => { if (!e) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+    const ancho = document.documentElement.clientWidth;
+    const centroY = (r) => r.top + r.height / 2;
+    // --- lecturas ---
+    const rh = ver(hamb), rp = ver(pildora);
+    const der = [];
+    if (cuenta) { const rc = ver(cuenta); if (rc) der.push({ el: gb, r: rc, c: rc }); }
+    botonesDer.forEach((bt) => {
+      const r = ver(bt);
+      if (r) der.push({ el: bt, r, c: ver(bt.closest('gem-icon-button')) || r }); // c = el círculo que se ve (puede ser más grande que el <button>)
+    });
+    der.sort((x, y) => y.c.right - x.c.right); // de derecha a izquierda según su posición natural
+    // --- cálculos (sin tocar el DOM) ---
+    const dxL = rh ? MARGEN - rh.left : 0, dyL = rh ? objetivoY - centroY(rh) : 0;
+    let cursor = ancho - MARGEN; // borde derecho disponible para el siguiente botón
+    const mover = der.map((o) => {
+      const dx = cursor - o.c.right;
+      cursor = o.c.right + dx - o.c.width - GAP;
+      return [o.el, dx, objetivoY - centroY(o.r)];
+    });
+    let pil = null;
+    if (pildora && rh && rp) {
+      const dentro = izq && izq.contains(pildora); // si la píldora va dentro del grupo izquierdo, ya se mueve con él
+      const px = rp.left + (dentro ? dxL : 0), py = centroY(rp) + (dentro ? dyL : 0);
+      const dx = Math.max(0, (rh.right + dxL + MARGEN) - px);
+      const dy = objetivoY - py;
+      if (dx > 0.5 || Math.abs(dy) > 0.5) pil = [dx, dy];
     }
-    // los dos botones de la derecha: exactamente 12px entre "nuevo chat" y "más opciones"
-    const bnuevo = nuevo && nuevo.querySelector('button');
-    const rn = ver(bnuevo), rm2 = ver(mas);
-    if (nuevo && rn && rm2) {
-      const dxn = (rm2.left - rn.right) - 4; // 4px entre los dos botones de la derecha
-      if (Math.abs(dxn) > 0.5) nuevo.style.setProperty('translate', dxn + 'px 0', 'important');
-    }
-    // aire entre el menú y la píldora, y píldora centrada en la misma línea
-    const h2 = ver(hamb), rp = ver(pildora);
-    if (pildora && h2 && rp) {
-      const dx = Math.max(0, (h2.right + MARGEN) - rp.left);
-      const dy = (h2.top + h2.height / 2) - (rp.top + rp.height / 2);
-      if (dx > 0.5 || Math.abs(dy) > 0.5) pildora.style.setProperty('translate', dx + 'px ' + dy + 'px', 'important');
-    }
+    // --- escrituras ---
+    if (izq && rh) izq.style.setProperty('translate', dxL + 'px ' + dyL + 'px', 'important');
+    mover.forEach((m) => { if (Math.abs(m[1]) > 0.5 || Math.abs(m[2]) > 0.5) m[0].style.setProperty('translate', m[1] + 'px ' + m[2] + 'px', 'important'); });
+    if (pil) pildora.style.setProperty('translate', pil[0] + 'px ' + pil[1] + 'px', 'important');
   }
   // MULTIMEDIA ALINEADA CON EL MENSAJE (vista angosta): la imagen/video del mensaje termina en el mismo borde derecho que la burbuja de texto
   const MARGEN_DERECHO_MOVIL = 12; // px entre el borde de la pantalla y tus mensajes / multimedia (igual que el header)
