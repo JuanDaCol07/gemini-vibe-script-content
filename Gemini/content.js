@@ -141,6 +141,41 @@
     (document.head || document.documentElement).appendChild(est);
   })();
   aplicarPerfil();
+  // ============================================================================================
+  // SIN DESENFOQUE (Personalizar > Rendimiento > "Desactivar desenfoque", clave geminiSinBlur; por defecto apagado)
+  // Quita TODOS los backdrop-filter (cristal translúcido) y los blur() de la extensión: menús, burbujas, caja de escribir, fade,
+  // bloqueo, PIN y la animación de la burbuja al enviar. Es independiente de Gemini Vibes y del perfil de rendimiento.
+  // ============================================================================================
+  const SINBLUR_CLAVE_LS = 'tg-sin-blur';
+  let sinBlur = false;
+  try {
+    const sg = localStorage.getItem(SINBLUR_CLAVE_LS);
+    const si = PREFS_INICIALES.geminiSinBlur;
+    if (sg === '0' || sg === '1') sinBlur = sg === '1';
+    else if (si === true || si === 'true') sinBlur = true;
+  } catch (e) { /* sin localStorage */ }
+  function aplicarSinBlur() { document.documentElement.classList.toggle('tg-sin-blur', sinBlur); }
+  function cambiarSinBlur(v) {
+    sinBlur = !!v;
+    try { localStorage.setItem(SINBLUR_CLAVE_LS, sinBlur ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiSinBlur: sinBlur });
+    aplicarSinBlur();
+    try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
+  }
+  (function () {
+    const est = document.createElement('style');
+    est.id = 'tg-sin-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
+    est.textContent = `
+      html.tg-sin-blur *, html.tg-sin-blur *::before, html.tg-sin-blur *::after {
+        -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+      }
+      html.tg-sin-blur #tg-pin .tg-pin-fondo { filter: brightness(0.5) saturate(1.1) !important; inset: 0 !important; }
+      html.tg-sin-blur body [data-tg-puntos-retraso="oculto"] { filter: none !important; }
+      html.tg-sin-blur #tg-fade-chat { display: none !important; }
+    `;
+    (document.head || document.documentElement).appendChild(est);
+  })();
+  aplicarSinBlur();
   const puenteFlutter = (function () {
     const pendientes = new Map();
     let temporizador = null;
@@ -2075,6 +2110,11 @@ p.gds-body-s.ng-star-inserted {
       try { localStorage.setItem(PERFIL_CLAVE_LS, perfilModo); } catch (e) { /* sin localStorage */ }
       aplicarPerfil();
     }
+    if (result.geminiSinBlur === true || result.geminiSinBlur === false || result.geminiSinBlur === 'true' || result.geminiSinBlur === 'false') {
+      sinBlur = result.geminiSinBlur === true || result.geminiSinBlur === 'true';
+      try { localStorage.setItem(SINBLUR_CLAVE_LS, sinBlur ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+      aplicarSinBlur();
+    }
     if (result.geminiLenis === true || result.geminiLenis === false || result.geminiLenis === 'true' || result.geminiLenis === 'false') {
       const v = result.geminiLenis === true || result.geminiLenis === 'true';
       if (v !== lenisUsuario) {
@@ -2117,7 +2157,7 @@ p.gds-body-s.ng-star-inserted {
   };
 
   // Cargar preferencias guardadas / inyectadas
-  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiPerfil', 'geminiLenis', 'geminiVibesActivo'], aplicarPreferencias);
+  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiPerfil', 'geminiLenis', 'geminiSinBlur', 'geminiVibesActivo'], aplicarPreferencias);
 
   // Evento al seleccionar imagen o video
   const esVideoArchivo = (f) => !!f && (/^video\//i.test(f.type) || /\.(mp4|webm|mov|m4v|ogv)$/i.test(f.name || ''));
@@ -2387,8 +2427,8 @@ p.gds-body-s.ng-star-inserted {
       scaleY: sY,
       escalaX: sX,
       escalaY: sY,
-      blur: Math.max(0, L(a.blur ?? 0, b.blur ?? 0)) * (perfilLigero() ? 0.5 : 1),
-      backdropFilter: backdropFilterVal
+      blur: sinBlur ? 0 : Math.max(0, L(a.blur ?? 0, b.blur ?? 0)) * (perfilLigero() ? 0.5 : 1),
+      backdropFilter: sinBlur ? 'none' : backdropFilterVal
     };
   }
 
@@ -3555,10 +3595,21 @@ p.gds-body-s.ng-star-inserted {
           h('span', { class: 'tg-p-toggle-tit' }, 'Scroll suave (Lenis)'),
           h('span', { class: 'tg-p-toggle-sub' }, 'Apágalo para usar el scroll nativo. En pantallas táctiles ya no se usa.')),
         swL);
+      const swB = h('button', { class: 'tg-p-switch', type: 'button', role: 'switch', 'aria-checked': sinBlur ? 'true' : 'false', 'aria-label': 'Desactivar efectos de desenfoque' },
+        h('span', { class: 'tg-p-sw-track' }),
+        h('span', { class: 'tg-p-sw-handle' },
+          hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', { d: 'M19.69 5.23 8.96 15.96l-4.23-4.23L2.96 13.5l6 6L21.46 7z' }))));
+      swB.addEventListener('click', () => { cambiarSinBlur(!sinBlur); swB.setAttribute('aria-checked', sinBlur ? 'true' : 'false'); });
+      const filaBlur = h('div', { class: 'tg-p-toggle', style: 'margin-top:12px' },
+        h('span', { class: 'tg-p-toggle-txt' },
+          h('span', { class: 'tg-p-toggle-tit' }, 'Desactivar desenfoque'),
+          h('span', { class: 'tg-p-toggle-sub' }, 'Quita todos los efectos de desenfoque (cristal). Ayuda si va lento.')),
+        swB);
       panel.appendChild(h('section', { class: 'tg-p-seccion tg-p-seccion-vibes' },
         h('h3', { class: 'tg-p-titulo' }, 'Rendimiento'),
         h('p', { class: 'tg-p-sub' }, 'Automático reduce los efectos de desenfoque solo si tu equipo va a tirones. Máximo los deja siempre al tope.'),
         fila,
+        filaBlur,
         filaLenis));
       pintarPerfil();
     })();
