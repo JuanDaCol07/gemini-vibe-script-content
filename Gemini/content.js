@@ -770,8 +770,13 @@
     raiz.style.setProperty('--tg-burbuja-bg', burbujaCSS(burbuja));
     raiz.style.setProperty('--tg-burbuja-texto', burbujaTexto(burbuja));
     raiz.classList.add('tg-burbuja-pers');
-    if (guardar) prefsGuardar({ geminiBurbuja: Object.assign({}, burbuja) });
+    if (guardar) guardarBurbujaDebounce();
   }
+  // los sliders disparan decenas de eventos por segundo: se guarda solo al soltar/pausar
+  const guardarBurbujaDebounce = (function () {
+    let t = null;
+    return function () { clearTimeout(t); t = setTimeout(() => prefsGuardar({ geminiBurbuja: Object.assign({}, burbuja) }), 300); };
+  })();
   function restablecerBurbuja() {
     burbuja = Object.assign({}, BURBUJA_BASE);
     const raiz = document.documentElement;
@@ -803,7 +808,6 @@
         background-image: url('${base64Data}') !important;
         background-size: cover !important;
         background-position: center !important;
-        background-attachment: fixed !important;
         background-repeat: no-repeat !important;
       }`;
     let styleTag = document.getElementById('gemini-custom-bg-style');
@@ -886,6 +890,9 @@
       /* Ocultas hasta que entren en pantalla (el JS les pone data-anim="in") */
       [data-anim="wait"] {
         opacity: 0 !important;
+        /* fuera de pantalla / escondidas: sin blur de fondo (no se ve y cuesta pintar) */
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
       }
 
       /* entró a pantalla durante el envío de un prompt: aparece sin repetir su animación */
@@ -1129,18 +1136,18 @@ user-query .file-preview-container:has(> .query-file-carousel) {
        con scale 1.02 / translateY(-8px) y arranque desde abajo) sale unos píxeles de esa caja, y mientras más grande es la foto
        más se nota el corte (sobre todo arriba). Solo se quita en los turnos que traen fotos/videos (así los chats largos sin
        multimedia conservan la optimización de Gemini). */
-.conversation-container:has(.query-file-carousel),
-.conversation-container.turn-content-visibility:has(.query-file-carousel) {
+.conversation-container[data-tg-media],
+.conversation-container.turn-content-visibility[data-tg-media] {
   content-visibility: visible !important;
   contain: none !important;
   overflow: visible !important;
 }
 /* y los contenedores del mensaje que envuelven al carrusel tampoco recortan (la foto con su caja redonda sigue en
    .file-preview-container, que conserva su overflow: hidden para el borde redondeado) */
-user-query:has(.query-file-carousel),
-user-query:has(.query-file-carousel) user-query-content,
-user-query:has(.query-file-carousel) .user-query-container,
-user-query:has(.query-file-carousel) .query-content,
+user-query[data-tg-media],
+user-query[data-tg-media] user-query-content,
+user-query[data-tg-media] .user-query-container,
+user-query[data-tg-media] .query-content,
 .query-file-carousel,
 user-query-file-carousel,
 user-query-file-preview {
@@ -1546,7 +1553,7 @@ top-bar-actions .right-section, top-bar-actions .buttons-container,
        Mientras tanto la caja desaparece y solo queda una pastillita pequeña con los tres puntitos
        animados, pegada a la izquierda (donde irá la respuesta). Cuando llega el texto, la caja
        normal de la respuesta vuelve a aparecer sola. */
-.response-container:not(:has(.response-footer.complete)):not(:has(.markdown :is(p, li, h1, h2, h3, h4, h5, h6, pre, table, ul, ol, blockquote))) {
+.response-container[data-tg-cargando][data-tg-cargando] {
   background: transparent !important;
   background-color: transparent !important;
   backdrop-filter: none !important;
@@ -1653,11 +1660,11 @@ thinking-dots-animation:not(.response-container-header *) {
   margin-bottom: 0 !important;
 }
 /* contenedores de controles/estado vacíos: que no ocupen espacio */
-.response-container:not(:has(.response-footer.complete)):not(:has(.markdown :is(p, li, h1, h2, h3, h4, h5, h6, pre, table, ul, ol, blockquote))) .response-container-header-controls {
+.response-container[data-tg-cargando][data-tg-cargando] .response-container-header-controls {
   display: none !important;
 }
 /* contenido vacío de la respuesta: que no ocupe espacio ni muestre nada hasta que llegue el texto */
-.response-container:not(:has(.response-footer.complete)):not(:has(.markdown :is(p, li, h1, h2, h3, h4, h5, h6, pre, table, ul, ol, blockquote))) :is(.presented-response-container, .response-container-content) {
+.response-container[data-tg-cargando][data-tg-cargando] :is(.presented-response-container, .response-container-content) {
   margin: 0 !important;
   padding: 0 !important;
   min-height: 0 !important;
@@ -2067,7 +2074,7 @@ p.gds-body-s.ng-star-inserted {
     ? window.VUELO_KEYFRAMES
     : ([
   // 0%: translate(var(--tg-dx, 0px), var(--tg-dy, 80px)) scaleX(120%) scaleY(120%); filter: blur(50px);
-  { t: 0,   origen: true, dx: 0,   dy: 0.8,   scaleX: 2, scaleY: 0.3, blur: 100, backdropFilter: 0 },
+  { t: 0,   origen: true, dx: 0,   dy: 0.8,   scaleX: 2, scaleY: 0.3, blur: 40, backdropFilter: 0 },
 
   // 40%: translate(30%, 80%) scaleX(30%) scaleY(30%); filter: blur(100px);
   { t: 0.4, dx: -0.01, dy: -0.1, scaleX: 1, scaleY: 1, blur: 20, },
@@ -2205,7 +2212,7 @@ p.gds-body-s.ng-star-inserted {
     fijar('width', r0.width + 'px'); fijar('height', r0.height + 'px');
     fijar('z-index', VUELO_Z); fijar('pointer-events', 'none');
     fijar('transform-origin', 'center center'); fijar('transition', 'none'); fijar('animation', 'none');
-    fijar('will-change', 'transform, filter, backdrop-filter');
+    fijar('will-change', 'transform, filter, backdrop-filter'); fijar('contain', 'layout paint');
     // fuera de user-query el clon ya no hereda la tipografía/color: se copian tal cual los tiene la real
     ['font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color'].forEach((p) => fijar(p, cs.getPropertyValue(p)));
 
@@ -2658,6 +2665,13 @@ p.gds-body-s.ng-star-inserted {
     if (padre) areas.add(padre); // se añadió/quitó una foto en un carrusel existente
     areas.forEach((a) => {
       const carrusel = a.closest('.query-file-carousel');
+      // reemplaza a los :has(.query-file-carousel) del CSS (se reevaluaban en cada nodo nuevo)
+      const uq = a.closest('user-query');
+      if (uq && !uq.hasAttribute('data-tg-media')) {
+        uq.setAttribute('data-tg-media', '');
+        const cc = uq.closest('.conversation-container');
+        if (cc) cc.setAttribute('data-tg-media', '');
+      }
       if (carrusel && !carrusel.dataset.tgObs) {
         carrusel.dataset.tgObs = '1';
         observadorAncho.observe(carrusel); // recalcula si cambia el ancho de la ventana
@@ -3620,15 +3634,95 @@ p.gds-body-s.ng-star-inserted {
   // Burbujas ya existentes
   registrarBurbujas(document.body);
 
-  // Burbujas nuevas (Gemini las crea dinámicamente)
+  // ============================================================================================
+  // PLANIFICADOR + UN SOLO MutationObserver (optimización)
+  // - Tareas: cada tarea de layout solo corre si fue marcada, UNA vez por frame, y nunca con la pestaña oculta.
+  //   Reemplaza a los setInterval que medían el DOM cada 300/700/2000 ms.
+  // - Un único MutationObserver agrupa los nodos nuevos por frame e IGNORA el texto que llega en streaming
+  //   (.markdown / code-block): ahí no hay burbujas, menús ni carruseles que buscar.
+  // ============================================================================================
+  const Tareas = (function () {
+    const reg = new Map(), sucias = new Set();
+    let programado = false;
+    function correr() {
+      programado = false;
+      if (document.hidden) return; // se retoma en visibilitychange
+      const lista = Array.from(sucias); sucias.clear();
+      lista.forEach((n) => { try { reg.get(n)(); } catch (e) { console.warn('[tg] error en tarea ' + n + ':', e); } });
+    }
+    function pedir() { if (!programado) { programado = true; requestAnimationFrame(correr); } }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && sucias.size) pedir(); });
+    return {
+      registrar(n, f) { reg.set(n, f); },
+      marcar(n) { sucias.add(n); if (!document.hidden) pedir(); }
+    };
+  })();
+  // setInterval que no trabaja con la pestaña oculta
+  const cada = (fn, ms) => setInterval(() => { if (!document.hidden) { try { fn(); } catch (e) { console.warn('[tg] ' + fn.name + ':', e); } } }, ms);
+
+  Tareas.registrar('layout', () => { limpiarCapasEtiqueta(); alinearHeaderAngosto(); alinearMultimedia(); asegurarFadeChat(); });
+  Tareas.registrar('menuLateral', () => { marcarCapasMenuLateral(); actualizarFondoMenuLateral(); });
+  Tareas.registrar('cero', () => actualizarFondoCero());
+  Tareas.registrar('tema', () => revisarTemaBody());
+
+  // el layout se recalcula SOLO cuando cambian de tamaño las piezas que importan
+  const roLayout = new ResizeObserver(() => Tareas.marcar('layout'));
+  function observarLayout() {
+    ['#chat-history', 'top-bar-actions', 'input-container', 'input-area-v2 .text-input-field', 'infinite-scroller', 'bard-mode-switcher']
+      .forEach((sel) => { const e = document.querySelector(sel); if (e && !e._tgRO) { e._tgRO = true; roLayout.observe(e); } });
+  }
+  window.addEventListener('resize', () => { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); });
+
+  // marca (desde JS, no con :has() en CSS) los contenedores de respuesta que todavía no tienen texto
+  function marcarCargandoRespuesta() {
+    const todos = document.querySelectorAll('.response-container');
+    for (let i = Math.max(0, todos.length - 2); i < todos.length; i++) {
+      const r = todos[i];
+      const cargando = !r.querySelector('.response-footer.complete') &&
+        !r.querySelector('.markdown p, .markdown li, .markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6, .markdown pre, .markdown table, .markdown ul, .markdown ol, .markdown blockquote');
+      if (cargando !== r.hasAttribute('data-tg-cargando')) r.toggleAttribute('data-tg-cargando', cargando);
+    }
+  }
+
+  const loteNodos = [];
+  let loteQuitaron = false, lotePendiente = false;
+  const enMarkdown = (n) => !!(n && n.closest && n.closest('.markdown, code-block'));
+  const RE_CREANDO_RAPIDO = /^\s*(Creando|Generando)\b/i;
   new MutationObserver((mutaciones) => {
-    mutaciones.forEach((m) => {
-      m.addedNodes.forEach((n) => {
-        if (n.nodeType === 1) { registrarBurbujas(n); ajustarCarruseles(n); buscarMenuAjustes(n); }
-      });
-      if (m.removedNodes.length) ajustarCarruseles(m.target); // se quitó una foto
-    });
+    for (const m of mutaciones) {
+      for (const n of m.addedNodes) {
+        if (n.nodeType === 1) loteNodos.push(n);
+        else if (n.nodeType === 3 && n.parentElement && RE_CREANDO_RAPIDO.test(n.data)) loteNodos.push(n.parentElement);
+      }
+      if (m.removedNodes.length && !enMarkdown(m.target)) loteQuitaron = true; // se quitó una foto / un mensaje
+    }
+    if (!lotePendiente) { lotePendiente = true; requestAnimationFrame(procesarLote); }
   }).observe(document.body, { childList: true, subtree: true });
+
+  function procesarLote() {
+    lotePendiente = false;
+    const nodos = loteNodos.splice(0);
+    const quito = loteQuitaron; loteQuitaron = false;
+    let hizoAlgo = quito;
+    const buscandoCreando = envioParaScroll && performance.now() - envioParaScroll < 10 * 60 * 1000;
+    let tocoEstructura = quito;
+    for (const n of nodos) {
+      if (!n.isConnected || enMarkdown(n)) continue; // texto que llega en streaming: nada que hacer
+      hizoAlgo = true;
+      registrarBurbujas(n);
+      ajustarCarruseles(n);
+      buscarMenuAjustes(n);
+      detectarMensajeNuevo(n);
+      if (buscandoCreando || n.tagName === 'THINKING-DOTS-ANIMATION') marcarCreando(n);
+      if (!tocoEstructura && (/^(ZERO|MODULAR|USER-QUERY|MODEL-RESPONSE|CHAT-WINDOW|INFINITE)/.test(n.tagName) ||
+          (n.classList && n.classList.contains('zero-state-container')))) tocoEstructura = true;
+    }
+    if (hizoAlgo) programarMarcado();
+    if (hizoAlgo || document.querySelector('.response-container[data-tg-cargando]')) marcarCargandoRespuesta();
+    if (tocoEstructura) Tareas.marcar('cero');
+    if (quito) Tareas.marcar('layout');
+  }
+
   // AUTO-SCROLL SUAVE: CALCULA HASTA DÓNDE LLEGA CADA MENSAJE Y DEJA SU FINAL JUSTO ENCIMA DE LA CAJA DE ESCRIBIR
   // - al enviar tu prompt: el final de tu burbuja queda justo encima de la caja de escribir
   // - al responder la IA: mide la respuesta, la sigue mientras crece y su final queda justo encima de la caja
@@ -3765,6 +3859,13 @@ p.gds-body-s.ng-star-inserted {
   }
 
   function marcarPuntosCarga() {
+    // casi siempre no hay nada cargando: salida barata (antes recorría el DOM 3 veces por segundo)
+    if (!puntosRetrasados.size &&
+        !document.querySelector('thinking-dots-animation, [data-tg-puntos], [data-tg-burbuja], [data-tg-creando-caja]')) {
+      if (!puntosSinVerDesde) puntosSinVerDesde = performance.now();
+      else if (performance.now() - puntosSinVerDesde > 3000) puntosInicio = 0;
+      return;
+    }
     document.querySelectorAll('[data-tg-puntos]').forEach((el) => {
       if (!el.querySelector('thinking-dots-animation')) el.removeAttribute('data-tg-puntos');
     });
@@ -3832,8 +3933,7 @@ p.gds-body-s.ng-star-inserted {
     marcadoPendiente = true;
     requestAnimationFrame(() => { marcadoPendiente = false; marcarPuntosCarga(); });
   }
-  new MutationObserver(programarMarcado).observe(document.body, { childList: true, subtree: true });
-  setInterval(marcarPuntosCarga, 300);
+  cada(marcarPuntosCarga, 300);
   marcarPuntosCarga();
 
   // "CREANDO TU IMAGEN…": busca ese texto en lo que Gemini va añadiendo y marca el texto y su contenedor
@@ -3896,9 +3996,7 @@ p.gds-body-s.ng-star-inserted {
     }
   }
 
-  new MutationObserver((mutaciones) => {
-    mutaciones.forEach((m) => m.addedNodes.forEach((n) => { detectarMensajeNuevo(n); marcarCreando(n.nodeType === 3 ? n.parentElement : n); }));
-  }).observe(document.body, { childList: true, subtree: true });
+  // (los nodos nuevos los procesa el observer único de arriba: procesarLote)
 
   // si la persona sube con el scroll, se deja de seguir el mensaje
   const pararSeguimiento = () => { siguiendoMensaje = false; usuarioMovioScroll = true; };
@@ -3922,6 +4020,8 @@ p.gds-body-s.ng-star-inserted {
       if (sw.closest('input-area-v2')) return;
       const boton = sw.querySelector('button');
       if (!boton) return;
+      if (sw._tgBoton === boton && sw._tgAncho === window.innerWidth) return; // ya procesado
+      sw._tgBoton = boton; sw._tgAncho = window.innerWidth;
       // hacia fuera (contenedores) hasta el cuerpo de la app
       let el = sw;
       while (el && el !== document.body && !el.matches('chat-app, main, chat-app-orchestrator, html')) {
@@ -3964,7 +4064,8 @@ p.gds-body-s.ng-star-inserted {
   // caja de escribir (que están después en el DOM / con más z-index). Ajustes rápidos: FADE_CHAT (apagar), FADE_CAPAS (suavidad),
   // y las variables --tg-fade-tinte / --tg-fade-rgb.
   const FADE_CHAT = true;
-  const FADE_CAPAS = 6;
+  const FADE_CAPAS = 3;
+  const FADE_BLURS = [2, 6, 14]; // px por capa (3 capas se ven casi igual que 6)
   (function () {
     if (!FADE_CHAT) return;
     const est = document.createElement('style');
@@ -4063,7 +4164,7 @@ p.gds-body-s.ng-star-inserted {
       // cada capa difumina una franja; la franja de blur más fuerte queda en el borde de la pantalla
       const tramos = k < n ? [[(k - 1) * s, 0], [k * s, 1], [(k + 1) * s, 1], [(k + 2) * s, 0]] : [[(k - 1) * s, 0], [k * s, 1], [100, 1]];
       const mascara = 'linear-gradient(to ' + dir + ', ' + tramos.map((t) => 'rgba(0,0,0,' + t[1] + ') ' + pos(t[0])).join(', ') + ')';
-      const blur = 'blur(' + (0.5 * Math.pow(2, k - 1)) + 'px)';
+      const blur = 'blur(' + (FADE_BLURS[k - 1] || 14) + 'px)';
       const capa = document.createElement('i');
       capa.style.cssText = '-webkit-backdrop-filter:' + blur + ';backdrop-filter:' + blur + ';-webkit-mask-image:' + mascara + ';mask-image:' + mascara + ';';
       caja.appendChild(capa);
@@ -4079,8 +4180,6 @@ p.gds-body-s.ng-star-inserted {
     if (!FADE_CHAT) return;
     const hist = document.querySelector('#chat-history');
     const contenido = hist && hist.closest('chat-window-content');
-    // limpieza de la versión anterior (cajas metidas dentro del chat): no deben existir
-    if (hist) hist.querySelectorAll(':scope > .tg-fade').forEach((e) => e.remove());
     let raiz = document.getElementById('tg-fade-chat');
     if (!hist || !contenido) { if (raiz) raiz.style.display = 'none'; return; }
     if (!raiz) {
@@ -4093,7 +4192,12 @@ p.gds-body-s.ng-star-inserted {
     // dentro de chat-window-content y DESPUÉS de #chat-history (encima de los mensajes, debajo de lo que va después)
     if (raiz.parentElement !== contenido || raiz.previousElementSibling !== hist) contenido.insertBefore(raiz, hist.nextSibling);
 
-    // Limpieza de propiedades intrusivas que causaban el desbordamiento y doble scrollbar
+    // Limpieza de propiedades intrusivas: UNA sola vez por elemento (antes se repetía en cada ciclo, ~20 escrituras al DOM)
+    const scroller = hist.querySelector(':scope > infinite-scroller') || hist.querySelector('infinite-scroller');
+    if (hist._tgLimpioDe !== scroller) {
+    hist._tgLimpioDe = scroller;
+    // limpieza de la versión anterior (cajas metidas dentro del chat): no deben existir
+    hist.querySelectorAll(':scope > .tg-fade').forEach((e) => e.remove());
     hist.style.removeProperty('margin-bottom');
     hist.style.removeProperty('height');
     hist.style.removeProperty('flex');
@@ -4107,7 +4211,6 @@ p.gds-body-s.ng-star-inserted {
     if (cc) {
       ['margin-top', 'height', 'flex', 'min-height', 'max-height'].forEach((p) => cc.style.removeProperty(p));
     }
-    const scroller = hist.querySelector(':scope > infinite-scroller') || hist.querySelector('infinite-scroller');
     if (scroller) {
       scroller.style.removeProperty('padding-top');
     }
@@ -4121,6 +4224,7 @@ p.gds-body-s.ng-star-inserted {
     const cadena = [scroller, hist];
     for (let p = hist.parentElement, n = 0; p && p !== document.body && n < 8; p = p.parentElement, n++) cadena.push(p);
     cadena.forEach((e) => { if (!e) return; e.style.setProperty('-webkit-mask-image', 'none', 'important'); e.style.setProperty('mask-image', 'none', 'important'); });
+    } // fin de la limpieza de una sola vez
 
     let cr = hist.getBoundingClientRect();
     if (cr.width < 1 || cr.height < 1) { raiz.style.display = 'none'; return; }
@@ -4142,26 +4246,19 @@ p.gds-body-s.ng-star-inserted {
     if (pildora) {
       const r = pildora.getBoundingClientRect();
       if (r.height > 0) topAbajo = r.top - (angosta ? 28 : 40);
-      if (!pildora._tgFadeRO && window.ResizeObserver) { pildora._tgFadeRO = new ResizeObserver(() => asegurarFadeChat()); pildora._tgFadeRO.observe(pildora); }
+      if (!pildora._tgFadeRO && window.ResizeObserver) { pildora._tgFadeRO = new ResizeObserver(() => Tareas.marcar('layout')); pildora._tgFadeRO.observe(pildora); }
     }
     topAbajo = Math.min(Math.max(topAbajo, topBase + 120), vh - 40);
     const hAbajo = Math.max(vh - topAbajo, 60);
     const desdeAbajo = cr.bottom - vh; // negativo si el chat termina antes del fondo: el fade llega hasta el borde de la pantalla
+    // header y caja de escribir quedan ENCIMA del fade (no se desenfocan). Se hace una sola vez por elemento
     const menuIzq = document.querySelector('.side-nav-menu-button');
-    if (menuIzq) {
-      if (getComputedStyle(menuIzq).position === 'static') menuIzq.style.position = 'relative';
-      menuIzq.style.zIndex = '6';
-    }
-    // el header queda ENCIMA del fade (igual que la caja de escribir): sus botones no se desenfocan
-    if (barra) {
-      if (getComputedStyle(barra).position === 'static') barra.style.position = 'relative';
-      barra.style.zIndex = '6';
-    }
-    // la caja de escribir queda ENCIMA del fade: no se desenfoca
-    if (entrada) {
-      if (getComputedStyle(entrada).position === 'static') entrada.style.position = 'relative';
-      entrada.style.zIndex = '6';
-    }
+    [menuIzq, barra, entrada].forEach((el) => {
+      if (!el || el._tgZ) return;
+      el._tgZ = true;
+      if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+      el.style.zIndex = '6';
+    });
     const clave = [cr.left, topBase, cr.width, altoBase, hArriba, hAbajo, desdeAbajo].map((v) => Math.round(v * 10) / 10).join('|');
     if (raiz._tgClave === clave) return;
     raiz._tgClave = clave;
@@ -4177,7 +4274,7 @@ p.gds-body-s.ng-star-inserted {
     const dx = rr.left - cr.left, dy = rr.top - topBase;
     if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) { raiz.style.left = (cr.left - dx) + 'px'; raiz.style.top = (topBase - dy) + 'px'; }
   }
-  window.addEventListener('resize', () => { try { alinearHeaderAngosto(); asegurarFadeChat(); } catch (e) { /* nunca debe romper la página */ } });
+  // (el resize lo maneja el planificador Tareas: ver más abajo)
 
   // ÁREA SEGURA SUPERIOR (notch / barra de estado de Android): SOLO se usa para bajar el header y sus botones.
   // - viewport-fit=cover hace que env(safe-area-inset-top) tenga valor dentro del WebView.
@@ -4199,7 +4296,7 @@ p.gds-body-s.ng-star-inserted {
   window.tgSetSafeArea = (top) => {
     safeTopManual = Math.max(0, Number(top) || 0);
     try { localStorage.setItem('tg-safe-top', String(safeTopManual)); } catch (e) { /* sin localStorage */ }
-    try { alinearHeaderAngosto(); asegurarFadeChat(); } catch (e) { /* aún no está todo creado */ }
+    try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
   };
   // Cuántos px se SUBE el header y sus botones respecto a la posición calculada (ajustable: window.tgSetHeaderOffset(12))
   let headerSubirPx = 8;
@@ -4207,7 +4304,7 @@ p.gds-body-s.ng-star-inserted {
   window.tgSetHeaderOffset = (px) => {
     headerSubirPx = Number(px) || 0;
     try { localStorage.setItem('tg-header-subir', String(headerSubirPx)); } catch (e) { /* sin localStorage */ }
-    try { alinearHeaderAngosto(); asegurarFadeChat(); } catch (e) { /* aún no está todo creado */ }
+    try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
   };
   let sondaSafeTop = null;
   function alturaAreaSuperior() {
@@ -4227,12 +4324,17 @@ p.gds-body-s.ng-star-inserted {
   // ALINEAR EL HEADER EN VISTA ANGOSTA (medido, porque la posición de las piezas la decide Gemini):
   // todo el header en la misma línea (centro a 12px + mitad del botón del borde de arriba), 12px de margen a ambos lados
   // y mínimo 12px de aire entre el botón de menú y la píldora "Gemini Automático".
+  let headerTocado = false;
+  let multimediaTocada = false;
   function alinearHeaderAngosto() {
     const grupos = [document.querySelector('.side-nav-menu-button'), document.querySelector('top-bar-actions .right-section')].filter(Boolean);
     const pildora = document.querySelector('bard-mode-switcher:not(:is(input-area-v2 *))');
     const nuevo = document.querySelector('top-bar-actions new-chat-button');
-    [...grupos, pildora, nuevo].forEach((e) => { if (e) e.style.removeProperty('translate'); });
-    if (!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches)) return;
+    const angostaH = !!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches);
+    if (!angostaH && !headerTocado) return; // vista ancha y nunca se tocó: no hay nada que limpiar ni medir
+    headerTocado = angostaH;
+    [...grupos, pildora, nuevo].forEach((e) => { if (e && e.style.translate) e.style.removeProperty('translate'); });
+    if (!angostaH) return;
     const hamb = document.querySelector('.side-nav-menu-button button');
     const mas = document.querySelector('top-bar-actions conversation-actions-icon button') || document.querySelector('top-bar-actions .right-section button:last-of-type');
     const MARGEN = 12;
@@ -4275,19 +4377,29 @@ p.gds-body-s.ng-star-inserted {
   // MULTIMEDIA ALINEADA CON EL MENSAJE (vista angosta): la imagen/video del mensaje termina en el mismo borde derecho que la burbuja de texto
   function alinearMultimedia() {
     const angosta = window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches;
-    document.querySelectorAll('user-query').forEach((q) => {
+    if (!angosta && !multimediaTocada) return;
+    multimediaTocada = angosta;
+    const carrs = [];
+    document.querySelectorAll('user-query[data-tg-media]').forEach((q) => {
       const carr = q.querySelector('user-query-file-carousel, .query-file-carousel');
-      if (!carr) return;
-      carr.style.removeProperty('translate');
-      if (!angosta) return;
+      if (carr) carrs.push([q, carr]);
+    });
+    // 1) escrituras: se quitan todos los desplazamientos
+    carrs.forEach(([, c]) => { if (c.style.translate) c.style.removeProperty('translate'); });
+    if (!angosta) return;
+    // 2) lecturas: un solo layout para todos
+    const cambios = [];
+    carrs.forEach(([q, carr]) => {
       const burbuja = q.querySelector('.user-query-bubble-with-background');
       const item = carr.querySelector('.scrollable-area > *') || carr.querySelector('user-query-file-preview') || carr;
       if (!burbuja || !item) return;
       const rb = burbuja.getBoundingClientRect(), ri = item.getBoundingClientRect();
       if (rb.width < 1 || ri.width < 1) return;
       const dx = rb.right - ri.right;
-      if (Math.abs(dx) > 0.5) carr.style.setProperty('translate', dx + 'px 0', 'important');
+      if (Math.abs(dx) > 0.5) cambios.push([carr, dx]);
     });
+    // 3) escrituras
+    cambios.forEach(([carr, dx]) => carr.style.setProperty('translate', dx + 'px 0', 'important'));
   }
   // FONDO DIFUMINADO EN LA PANTALLA DE INICIO ("¿Por dónde empezamos?", chat nuevo sin mensajes)
   // SIN crear ninguna capa ni fondo nuevo: se usa tu mismo fondo del body.
@@ -4395,10 +4507,20 @@ p.gds-body-s.ng-star-inserted {
     `;
     (document.head || document.documentElement).appendChild(est);
   })();
+  // el bucle rAF de Lenis solo corre mientras hay actividad (rueda/touch/scroll/teclado) y 1.5 s después; en reposo duerme
+  let lenisUltimaAct = 0;
   function bucleLenis(tiempo) {
-    if (!lenis) { lenisRaf = null; return; }
+    if (!lenis || document.hidden) { lenisRaf = null; return; }
     lenis.raf(tiempo);
-    lenisRaf = requestAnimationFrame(bucleLenis);
+    lenisRaf = (performance.now() - lenisUltimaAct < 1500) ? requestAnimationFrame(bucleLenis) : null;
+  }
+  function despertarLenis() {
+    lenisUltimaAct = performance.now();
+    if (lenis && lenisScroller && lenisScroller.scrollHeight !== lenisAlto) { // el contenido creció: se recalcula el límite (solo al interactuar)
+      lenisAlto = lenisScroller.scrollHeight;
+      try { lenis.resize(); } catch (e) { /* sin resize */ }
+    }
+    if (!lenisRaf && lenis) lenisRaf = requestAnimationFrame(bucleLenis);
   }
   function destruirLenis() {
     if (lenisRaf) { cancelAnimationFrame(lenisRaf); lenisRaf = null; }
@@ -4414,17 +4536,18 @@ p.gds-body-s.ng-star-inserted {
     if (sinMovimiento()) { destruirLenis(); return; } // respeta "reducir movimiento" del sistema
     const scroller = document.querySelector('infinite-scroller.chat-history') || document.querySelector('infinite-scroller');
     if (!scroller || !scroller.isConnected) { destruirLenis(); return; }
-    if (lenis && lenisScroller === scroller) {
-      // el contenido crece mientras la IA escribe o se cargan mensajes viejos: se recalcula el límite del scroll
-      if (scroller.scrollHeight !== lenisAlto) { lenisAlto = scroller.scrollHeight; try { lenis.resize(); } catch (e) { /* sin resize */ } }
-      return;
-    }
+    if (lenis && lenisScroller === scroller) return;
     destruirLenis();
     try {
       lenis = new Lenis(Object.assign({ wrapper: scroller, content: scroller }, LENIS_OPCIONES));
       lenisScroller = scroller;
       lenisAlto = scroller.scrollHeight;
-      lenisRaf = requestAnimationFrame(bucleLenis);
+      if (!scroller._tgLenisEv) {
+        scroller._tgLenisEv = true;
+        // capture: se ejecuta ANTES que el manejador de Lenis, así el límite ya está actualizado en el primer gesto
+        ['wheel', 'touchstart', 'touchmove', 'scroll', 'keydown'].forEach((ev) => scroller.addEventListener(ev, despertarLenis, { passive: true, capture: true }));
+      }
+      despertarLenis();
       console.log('[tg] Lenis activo sobre', scroller.tagName.toLowerCase());
     } catch (e) {
       lenis = null; lenisScroller = null;
@@ -4432,15 +4555,25 @@ p.gds-body-s.ng-star-inserted {
     }
   }
 
-  // cada tarea va en su propio try: si una falla, las demás (sobre todo el fade) siguen funcionando y el error se ve en la consola
+  // pasada completa (al cargar). Después el trabajo lo hace Tareas, solo cuando algo cambia
   function mantenerCapas() {
-    [mantenerLenis, agregarItemMovil, limpiarCapasEtiqueta, marcarCapasMenuLateral, actualizarFondoMenuLateral, alinearHeaderAngosto, alinearMultimedia, asegurarFadeChat, actualizarFondoCero].forEach((tarea) => {
+    [mantenerLenis, agregarItemMovil, marcarCapasMenuLateral, actualizarFondoMenuLateral, observarLayout, marcarCargandoRespuesta].forEach((tarea) => {
       try { tarea(); } catch (e) { console.warn('[tg] error en ' + tarea.name + ':', e); }
     });
+    Tareas.marcar('layout'); Tareas.marcar('cero');
   }
   console.log('[tg] fade v35 cargado (sin aparecer/desaparecer solo durante el envío)');
-  setInterval(mantenerCapas, 700);
   mantenerCapas();
+  // latido barato: Gemini recrea elementos al cambiar de chat, así que se re-enganchan observers y Lenis;
+  // el layout/menú/tema se recalculan solo de vez en cuando (el resto lo disparan observers y eventos)
+  let latido = 0;
+  cada(function latidoTg() {
+    latido++;
+    observarLayout(); mantenerLenis(); agregarItemMovil();
+    Tareas.marcar('cero');
+    if (latido % 3 === 0) { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); }
+    if (latido % 4 === 0) Tareas.marcar('tema');
+  }, 1500);
 
   // TEMA AUTOMÁTICO SEGÚN EL COLOR DEL BODY
   // Fondo del body claro -> modo claro. Fondo oscuro -> modo oscuro.
@@ -4497,11 +4630,11 @@ p.gds-body-s.ng-star-inserted {
   new MutationObserver(programarRevision).observe(document.body, opcionesAtributos);
   new MutationObserver(programarRevision).observe(document.documentElement, opcionesAtributos);
 
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) Tareas.marcar('tema'); });
   // Cambio de tema del sistema y revisión de respaldo
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', programarRevision);
   }
-  setInterval(revisarTemaBody, 2000);
 
   revisarTemaBody();
 })();

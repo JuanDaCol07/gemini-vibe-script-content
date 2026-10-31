@@ -13,14 +13,24 @@ class ContentScreen extends StatefulWidget {
 
 class _ContentScreenState extends State<ContentScreen> {
   InAppWebViewController? webViewController;
+  String _scriptACargar = "";
+  bool _fueActualizado = false;
 
-  // Función para descargar o cargar la lógica/script de forma remota con persistencia segura
-  Future<Map<String, dynamic>> _loadRemoteScript() async {
+  @override
+  void initState() {
+    super.initState();
+    _inicializarScriptRemoto();
+  }
+
+  Future<void> _inicializarScriptRemoto() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // URL directa al archivo en tu repositorio dentro de la carpeta Gemini/
+    // Ruta directa a tu archivo dentro de la carpeta Gemini/ en GitHub
     const String urlScript =
         'https://raw.githubusercontent.com/JuanDaCol07/gemini-vibe-script-content/refs/heads/main/Gemini/content.js';
+
+    String scriptFinal = "";
+    bool actualizado = false;
 
     try {
       final response = await http
@@ -29,13 +39,9 @@ class _ContentScreenState extends State<ContentScreen> {
 
       if (response.statusCode == 200) {
         String nuevoScript = response.body;
-
-        // Verificamos qué había guardado antes
         String? scriptViejo = prefs.getString('cached_content_script');
-        bool esNuevaActualizacion = (scriptViejo != nuevoScript);
 
-        if (esNuevaActualizacion) {
-          // FORZAMOS el guardado correcto con await
+        if (scriptViejo != nuevoScript) {
           bool guardadoExitoso = await prefs.setString(
             'cached_content_script',
             nuevoScript,
@@ -43,31 +49,37 @@ class _ContentScreenState extends State<ContentScreen> {
           print(
             "¿Se guardó en SharedPreferences exitosamente?: $guardadoExitoso",
           );
-
-          return {'script': nuevoScript, 'actualizado': true};
+          scriptFinal = nuevoScript;
+          actualizado = true;
         } else {
-          return {'script': nuevoScript, 'actualizado': false};
+          scriptFinal = nuevoScript;
         }
       }
     } catch (e) {
-      print("No se pudo conectar a internet para actualizar: $e");
+      print(
+        "No se pudo conectar a internet, buscando caché local... Error: $e",
+      );
     }
 
-    // Respaldo local si no hay conexión a internet
-    String? scriptGuardado = prefs.getString('cached_content_script');
-    if (scriptGuardado != null && scriptGuardado.isNotEmpty) {
-      print("Cargando script desde el caché local de SharedPreferences...");
-      return {'script': scriptGuardado, 'actualizado': false};
+    if (scriptFinal.isEmpty) {
+      String? scriptGuardado = prefs.getString('cached_content_script');
+      if (scriptGuardado != null && scriptGuardado.isNotEmpty) {
+        scriptFinal = scriptGuardado;
+      }
     }
 
-    try {
-      print("Cargando de emergencia desde assets locales...");
-      String assetScript = await rootBundle.loadString('Gemini/content.js');
-      return {'script': assetScript, 'actualizado': false};
-    } catch (e) {
-      print("Error cargando respaldo local: $e");
-      return {'script': "", 'actualizado': false};
+    if (scriptFinal.isEmpty) {
+      try {
+        scriptFinal = await rootBundle.loadString('Gemini/content.js');
+      } catch (e) {
+        print("Error cargando respaldo local: $e");
+      }
     }
+
+    setState(() {
+      _scriptACargar = scriptFinal;
+      _fueActualizado = actualizado;
+    });
   }
 
   @override
@@ -85,84 +97,67 @@ class _ContentScreenState extends State<ContentScreen> {
       backgroundColor: const Color(0xFF0F172A),
       body: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.light,
-        child: Stack(
-          children: [
-            // Fondo personalizado con gradiente oscuro / Glassmorphism base
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
-                ),
-              ),
-            ),
-            // WebView principal con inyección de Lenis y Script Remoto de GitHub
-            InAppWebView(
-              initialUrlRequest: URLRequest(
-                url: WebUri("https://gemini.google.com"),
-              ),
-              initialSettings: InAppWebViewSettings(
-                isInspectable: true,
-                mediaPlaybackRequiresUserGesture: false,
-                transparentBackground: true,
-              ),
-              onWebViewCreated: (controller) {
-                webViewController = controller;
-              },
-              onLoadStop: (controller, url) async {
-                // 1. Inyectar Lenis local para un scroll ultra suave
-                try {
-                  String lenisCode = await rootBundle.loadString(
-                    'Gemini/lenis.min.js',
-                  );
-                  if (lenisCode.isNotEmpty) {
-                    await controller.evaluateJavascript(source: lenisCode);
-                  }
-                } catch (e) {
-                  print("Error cargando Lenis: $e");
-                }
+        child: InAppWebView(
+          initialUrlRequest: URLRequest(
+            url: WebUri("https://gemini.google.com"),
+          ),
+          initialSettings: InAppWebViewSettings(
+            isInspectable: true,
+            mediaPlaybackRequiresUserGesture: false,
+            transparentBackground: false,
+            preferredContentMode: UserPreferredContentMode.MOBILE,
+          ),
+          onWebViewCreated: (controller) {
+            webViewController = controller;
+          },
+          onLoadStop: (controller, url) async {
+            try {
+              String lenisCode = await rootBundle.loadString(
+                'Gemini/lenis.min.js',
+              );
+              if (lenisCode.isNotEmpty) {
+                await controller.evaluateJavascript(source: lenisCode);
+              }
+            } catch (e) {
+              print("Error cargando Lenis: $e");
+            }
 
-                // 2. Cargar e inyectar el script remoto (GitHub o Caché local)
-                Map<String, dynamic> resultado = await _loadRemoteScript();
-                String jsCode = resultado['script'];
-                bool fueActualizado = resultado['actualizado'];
+            if (_scriptACargar.isNotEmpty) {
+              try {
+                await controller.evaluateJavascript(source: _scriptACargar);
+              } catch (e) {
+                print("Error evaluando script remoto: $e");
+              }
+            }
 
-                if (jsCode.isNotEmpty) {
-                  await controller.evaluateJavascript(source: jsCode);
-                }
-
-                // 3. Notificar de forma elegante si hubo actualización automática OTA
-                if (fueActualizado && mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Row(
-                        children: [
-                          Icon(Icons.system_update, color: Colors.cyanAccent),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              "Gemini Vibes se actualizó desde la nube",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
+            if (_fueActualizado && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Row(
+                    children: [
+                      Icon(Icons.system_update, color: Colors.cyanAccent),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          "Gemini Vibes se actualizó desde la nube",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
                           ),
-                        ],
+                        ),
                       ),
-                      backgroundColor: const Color(0xFF1E293B),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      duration: const Duration(seconds: 4),
-                    ),
-                  );
-                }
-              },
-            ),
-          ],
+                    ],
+                  ),
+                  backgroundColor: const Color(0xFF1E293B),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+          },
         ),
       ),
     );
