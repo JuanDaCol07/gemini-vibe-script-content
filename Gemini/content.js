@@ -4482,11 +4482,13 @@ p.gds-body-s.ng-star-inserted {
     const desdeAbajo = cr.bottom - vh; // negativo si el chat termina antes del fondo: el fade llega hasta el borde de la pantalla
     // header y caja de escribir quedan ENCIMA del fade (no se desenfocan). Se hace una sola vez por elemento
     const menuIzq = document.querySelector('.side-nav-menu-button');
-    [menuIzq, barra, entrada].forEach((el) => {
+    // (incluye la barra de Google con el avatar de la cuenta, que vive fuera del chat y quedaba por debajo del difuminado)
+    const gbBarra = document.getElementById('gb');
+    [menuIzq, barra, entrada, gbBarra, gbBarra && gbBarra.parentElement].forEach((el) => {
       if (!el || el._tgZ) return;
       el._tgZ = true;
       if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
-      el.style.zIndex = '6';
+      el.style.zIndex = '7';
     });
     const clave = [cr.left, topBase, cr.width, altoBase, hArriba, hAbajo, desdeAbajo].map((v) => Math.round(v * 10) / 10).join('|');
     if (raiz._tgClave === clave) return;
