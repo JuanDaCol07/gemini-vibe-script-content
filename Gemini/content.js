@@ -1594,8 +1594,8 @@ bard-mode-switcher:not(:is(input-area-v2 *)) :is(.mdc-button__label, .logo-pill-
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-/* MENÚ LATERAL (escritorio y vista angosta/Android): una sola capa translúcida con blur; las capas opacas de Gemini quedan transparentes */
-@media all {
+/* MENÚ LATERAL: estas reglas SOLO aplican en escritorio; en vista angosta (9:16) no se toca el menú lateral */
+@media (min-width: 960px) {
 .mat-drawer.mat-sidenav,
 mat-sidenav,
 [data-tg-capa="blur"] {
@@ -4365,6 +4365,11 @@ p.gds-body-s.ng-star-inserted {
   }
   function marcarCapasMenuLateral() {
     if (!vibesOn) return; // con Vibes apagado las hojas propias están desactivadas
+    if (window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches) {
+      // vista angosta: el menú lateral no se modifica (se limpian marcas de cuando la ventana era ancha)
+      document.querySelectorAll('[data-tg-capa]').forEach((e) => e.removeAttribute('data-tg-capa'));
+      return;
+    }
     const contenido = document.querySelector('side-navigation-content');
     if (!contenido) return;
     const opacas = [];
