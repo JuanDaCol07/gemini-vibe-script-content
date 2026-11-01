@@ -161,6 +161,10 @@
   // bloqueo, PIN y la animación de la burbuja al enviar. Es independiente de Gemini Vibes y del perfil de rendimiento.
   // ============================================================================================
   const SINBLUR_CLAVE_LS = 'tg-sin-blur';
+  // OPACIDAD EXTRA con el desenfoque desactivado: sin blur los fondos translúcidos se leen peor, así que a TODOS los fondos de cristal
+  // de la extensión (burbujas, caja de escribir, menús, panel, bloqueo, PIN...) se les suma este valor de opacidad (0.1 = +10 %).
+  // 0 = no sumar nada. Se aplica con la variable CSS --tg-sb-extra, que solo existe mientras el ajuste está activado.
+  const SIN_BLUR_OPACIDAD_EXTRA = 0.1;
   let sinBlur = false;
   try {
     const sg = localStorage.getItem(SINBLUR_CLAVE_LS);
@@ -168,24 +172,27 @@
     if (sg === '0' || sg === '1') sinBlur = sg === '1';
     else if (si === true || si === 'true') sinBlur = true;
   } catch (e) { /* sin localStorage */ }
-  function aplicarSinBlur() { document.documentElement.classList.toggle('tg-sin-blur', sinBlur); }
+  function aplicarSinBlur() {
+    const r = document.documentElement;
+    r.classList.toggle('tg-sin-blur', sinBlur);
+    if (sinBlur && SIN_BLUR_OPACIDAD_EXTRA) r.style.setProperty('--tg-sb-extra', String(SIN_BLUR_OPACIDAD_EXTRA));
+    else r.style.removeProperty('--tg-sb-extra');
+  }
   function cambiarSinBlur(v) {
     sinBlur = !!v;
     try { localStorage.setItem(SINBLUR_CLAVE_LS, sinBlur ? '1' : '0'); } catch (e) { /* sin localStorage */ }
     prefsGuardar({ geminiSinBlur: sinBlur });
     aplicarSinBlur();
-    try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
+    try { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); } catch (e) { /* aún no está todo creado */ }
   }
   (function () {
     const est = document.createElement('style');
     est.id = 'tg-sin-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
     est.textContent = `
-      /* la pantalla de bloqueo y la de PIN (y todo lo que llevan dentro) NO se tocan: conservan su desenfoque */
-      html.tg-sin-blur :not(#tg-bloqueo):not(#tg-bloqueo *):not(#tg-pin):not(#tg-pin *):not(#tg-bloqueo-fondo),
-      html.tg-sin-blur :not(#tg-bloqueo):not(#tg-bloqueo *):not(#tg-pin):not(#tg-pin *)::before,
-      html.tg-sin-blur :not(#tg-bloqueo):not(#tg-bloqueo *):not(#tg-pin):not(#tg-pin *)::after {
+      html.tg-sin-blur *, html.tg-sin-blur *::before, html.tg-sin-blur *::after {
         -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
       }
+      html.tg-sin-blur #tg-pin .tg-pin-fondo { filter: brightness(0.5) saturate(1.1) !important; inset: 0 !important; }
       html.tg-sin-blur body [data-tg-puntos-retraso="oculto"] { filter: none !important; }
       html.tg-sin-blur #tg-fade-chat { display: none !important; }
       /* el interruptor "Desactivar desenfoque" nunca lleva blur (ni con el ajuste apagado ni encendido): su aspecto no cambia al usarlo */
@@ -363,7 +370,7 @@
         t.id = 'tg-toast';
         t.setAttribute('role', 'status');
         t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:2147483647;max-width:min(90vw,520px);' +
-          'padding:12px 18px;border-radius:14px;background:rgba(0,0,0,0.82);color:#fff;font:14px/1.35 "Google Sans","Segoe UI",system-ui,sans-serif;' +
+          'padding:12px 18px;border-radius:14px;background:rgba(0,0,0, calc(0.82 + var(--tg-sb-extra, 0)));color:#fff;font:14px/1.35 "Google Sans","Segoe UI",system-ui,sans-serif;' +
           'text-align:center;pointer-events:none;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);';
         (document.body || document.documentElement).appendChild(t);
       }
@@ -495,7 +502,7 @@
       #tg-bloqueo .tg-b-tecla {
         min-width: 220px; padding: 10px 28px; border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.45); border-bottom-width: 4px;
-        background: rgba(255, 255, 255, 0.12); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        background: rgba(255, 255, 255, calc(0.12 + var(--tg-sb-extra, 0))); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
         font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase;
       }
       /* PANTALLA DE PIN (aparece debajo al deslizar la pantalla de bloqueo hacia arriba) */
@@ -537,7 +544,7 @@
       #tg-pin .tg-pin-tecla {
         width: var(--tg-k); height: var(--tg-k); padding: 0; margin: 0; box-sizing: border-box; border-radius: 50%; cursor: pointer;
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-        border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(0, 0, 0, 0.4); color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(0, 0, 0, calc(0.4 + var(--tg-sb-extra, 0))); color: #fff;
         font-family: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation; outline: 0;
         -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
         transition: transform 0.2s ease, background-color 0.15s ease, border-color 0.15s ease;
@@ -1004,7 +1011,7 @@
   function avisarCambioFondos() { document.dispatchEvent(new Event('tg-fondos-cambiados')); }
   // tono: 0 = oscuro, 50 = color puro, 100 = blanco
   function burbujaL(b) { return b.tono <= 50 ? 12 + (b.tono / 50) * 38 : 50 + ((b.tono - 50) / 50) * 46; }
-  function burbujaCSS(b, conAlfa) { return 'hsla(' + b.h + ', ' + b.s + '%, ' + burbujaL(b).toFixed(1) + '%, ' + (conAlfa === false ? 1 : b.alfa / 100) + ')'; }
+  function burbujaCSS(b, conAlfa) { return 'hsla(' + b.h + ', ' + b.s + '%, ' + burbujaL(b).toFixed(1) + '%, ' + 'calc(' + (conAlfa === false ? 1 : b.alfa / 100) + ' + var(--tg-sb-extra, 0)))'; }
   function burbujaTexto(b) { return burbujaL(b) > 68 ? '#1f1f1f' : '#ffffff'; }
   (function () {
     const est = document.createElement('style');
@@ -1104,16 +1111,16 @@
      
     
       :root {
-        --tg-sidebar-bg: rgba(0, 0, 0, 0.2);
-        --tg-resp-bg: rgba(0, 0, 0, 0.8);
-        --tg-input-bg: rgba(0, 0, 0, 0.55);
+        --tg-sidebar-bg: rgba(0, 0, 0, calc(0.2 + var(--tg-sb-extra, 0)));
+        --tg-resp-bg: rgba(0, 0, 0, calc(0.8 + var(--tg-sb-extra, 0)));
+        --tg-input-bg: rgba(0, 0, 0, calc(0.55 + var(--tg-sb-extra, 0)));
         --tg-texto: #ffffff;
         --tg-texto-suave: rgba(255, 255, 255, 0.7);
       }
       html[data-tema="claro"] {
-        --tg-sidebar-bg: rgba(255, 255, 255, 0.35);
-        --tg-resp-bg: rgba(255, 255, 255, 0.78);
-        --tg-input-bg: rgba(255, 255, 255, 0.65);
+        --tg-sidebar-bg: rgba(255, 255, 255, calc(0.35 + var(--tg-sb-extra, 0)));
+        --tg-resp-bg: rgba(255, 255, 255, calc(0.78 + var(--tg-sb-extra, 0)));
+        --tg-input-bg: rgba(255, 255, 255, calc(0.65 + var(--tg-sb-extra, 0)));
         --tg-texto: #1f1f1f;
         --tg-texto-suave: rgba(31, 31, 31, 0.6);
       }
@@ -1267,7 +1274,7 @@
       }
 
       .user-query-bubble-with-background {
-        background-color: rgba(0, 89, 255, 0.7) !important;
+        background-color: rgba(0, 89, 255, calc(0.7 + var(--tg-sb-extra, 0))) !important;
         backdrop-filter: blur(8px) !important;
         -webkit-backdrop-filter: blur(8px) !important;
         border-radius: 18px 18px 4px 18px !important;
@@ -2714,7 +2721,7 @@ p.gds-body-s.ng-star-inserted {
         align-items: center !important;
       }
       ${SEL_FONDO} {
-        background: rgba(0, 0, 0, 0.35) !important;
+        background: rgba(0, 0, 0, calc(0.35 + var(--tg-sb-extra, 0))) !important;
         -webkit-backdrop-filter: blur(6px) !important; backdrop-filter: blur(6px) !important;
       }
       ${SEL_PANEL} {
@@ -3170,7 +3177,7 @@ p.gds-body-s.ng-star-inserted {
       --p-sombra: rgba(0, 0, 0, 0.45);
       position: fixed; inset: 0; z-index: 2147483646;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, calc(0.35 + var(--tg-sb-extra, 0)));
       backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
       opacity: 0; pointer-events: none; transition: opacity 180ms ease;
@@ -3272,7 +3279,7 @@ p.gds-body-s.ng-star-inserted {
     }
     .tg-p-vista-eti {
       position: absolute; top: 10px; left: 12px; font-size: 12px; padding: 3px 10px; border-radius: 99px;
-      background: rgba(0, 0, 0, 0.45); color: #fff !important; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      background: rgba(0, 0, 0, calc(0.45 + var(--tg-sb-extra, 0))); color: #fff !important; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     }
     .tg-p-msg-usuario, .tg-p-msg-ia { max-width: 86%; font-size: 14px; line-height: 1.35; padding: 10px 14px; }
     .tg-p-msg-usuario {
@@ -3309,7 +3316,7 @@ p.gds-body-s.ng-star-inserted {
     .tg-p-fondo:focus-visible { box-shadow: 0 0 0 3px var(--p-texto); }
     .tg-p-cambiar {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px;
-      background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+      background: rgba(0, 0, 0, calc(0.45 + var(--tg-sb-extra, 0))); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
       color: #fff !important; font-size: 15px; font-weight: 500; opacity: 0; transition: opacity 0.2s ease;
     }
     .tg-p-fondo:hover .tg-p-cambiar, .tg-p-fondo:focus-visible .tg-p-cambiar { opacity: 1; }
@@ -3350,7 +3357,7 @@ p.gds-body-s.ng-star-inserted {
     .tg-p-switch:focus-visible .tg-p-sw-track { box-shadow: 0 0 0 3px var(--p-hover); }
     /* mini pantalla de Gemini */
     .tg-m-lateral {
-      position: absolute; top: 0; bottom: 0; left: 0; width: 20%; background: rgba(0, 0, 0, 0.3);
+      position: absolute; top: 0; bottom: 0; left: 0; width: 20%; background: rgba(0, 0, 0, calc(0.3 + var(--tg-sb-extra, 0)));
       backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 10px 8px; display: flex; flex-direction: column; gap: 6px;
     }
     .tg-m-lateral i { display: block; height: 7px; border-radius: 99px; background: rgba(255, 255, 255, 0.35); }
@@ -3358,7 +3365,7 @@ p.gds-body-s.ng-star-inserted {
     .tg-m-chat { position: absolute; top: 0; bottom: 0; left: 20%; right: 0; padding: 12px; display: flex; flex-direction: column; gap: 7px; justify-content: flex-end; }
     .tg-m-usuario { align-self: flex-end; width: 42%; height: 18px; border-radius: 10px 10px 3px 10px; background: var(--tg-pers-bg, rgba(0, 89, 255, 0.7)); transition: background-color 0.15s ease; }
     .tg-m-ia { align-self: flex-start; width: 66%; height: 34px; border-radius: 10px 10px 10px 3px; background: rgba(0, 0, 0, 0.72); }
-    .tg-m-input { height: 20px; border-radius: 99px; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); margin-top: 3px; }
+    .tg-m-input { height: 20px; border-radius: 99px; background: rgba(0, 0, 0, calc(0.55 + var(--tg-sb-extra, 0))); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); margin-top: 3px; }
     /* mini pantalla de bloqueo */
     .tg-m-bloqueo { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff !important; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.45); }
     .tg-m-bloqueo * { color: #fff !important; }
