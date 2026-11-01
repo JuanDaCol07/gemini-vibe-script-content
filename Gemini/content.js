@@ -1396,8 +1396,8 @@
       }
 
       html.tg-blur-baja input-area-v2 .text-input-field:focus-within {
-  background: rgba(0, 0, 0, 0.75) !important;
-  background-color: rgba(0, 0, 0, 0.75) !important;
+  background: rgba(0, 0, 0, 0.9) !important;
+  background-color: rgba(0, 0, 0, 0.9) !important;
 }
 
 html[data-tema="claro"].tg-blur-baja input-area-v2 .text-input-field:focus-within {
