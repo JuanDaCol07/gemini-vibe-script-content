@@ -222,7 +222,7 @@ class _ContentScreenState extends State<ContentScreen>
   // true  = usa SIEMPRE el content.js de los assets (Gemini/content.js) y NO el de GitHub.
   //         Úsalo mientras pruebas cambios locales: si no, el script de GitHub (y su caché) GANA sobre tu archivo local.
   // false = flujo normal: GitHub -> caché -> assets.
-  static const bool _soloAssetLocal = false;
+  static const bool _soloAssetLocal = true; // <-- CAMBIAR A FALSE PARA PUBLICAR
 
   String _origenScript = 'ninguno'; // 'github' | 'cache' | 'asset' | 'ninguno'
 
@@ -235,7 +235,7 @@ class _ContentScreenState extends State<ContentScreen>
 
   // ---- ACTUALIZACIONES (solo móvil) ----
   // El menú "Actualizaciones Gemini Vibes" de content.js habla con estos métodos por el handler 'tgActualizaciones'.
-  static bool get _esMovil => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+  static const bool _esMovil = !kIsWeb;
   String?
   _pendienteScript; // versión nueva ya descargada (se aplica con "Actualizar")
   bool _hayNueva = false;

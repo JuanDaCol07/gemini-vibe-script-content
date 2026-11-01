@@ -10,10 +10,7 @@
   // ============================================================================================
   const TG_VERSION = '1.0';
   const TG_NOTAS_VERSION = `
-• Nuevo menú "Actualizaciones Gemini Vibes" en la app móvil: busca y aplica la última versión sin reiniciar la app.
-• El teclado ya no redimensiona la página: la caja de escribir sube con una transición y el teclado deja de cerrarse.
-• Nivel de rendimiento Medio: el fondo de "¿Por dónde empezamos?" ya no se difumina.
-• Los ajustes de blur, Vibes, difuminado del scroll y scroll suave ahora se conservan al reiniciar la app.
+• arreglo de bugs y mejoras de rendimiento
 `;
 
   window.__tgCargado = 'opt-2'; // marcador: Flutter lo lee para confirmar qué versión del script se inyectó
