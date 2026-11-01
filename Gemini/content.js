@@ -4114,6 +4114,31 @@ p.gds-body-s.ng-star-inserted {
     r._tgColapsoIntentos = 0;
   }
 
+  // al contraer una respuesta larga el scroll sube SUAVEMENTE (junto con la animación de la burbuja) hasta dejar su inicio a la vista
+  let colapsoScrollId = 0;
+  function scrollSuaveHaciaRespuesta(r) {
+    const scroller = contenedorScroll(r);
+    const margen = 84 + (typeof alturaAreaSuperior === 'function' ? alturaAreaSuperior() : 0); // aire bajo el header
+    const id = ++colapsoScrollId;
+    const t0 = performance.now();
+    let parado = false;
+    const parar = () => { parado = true; };
+    window.addEventListener('wheel', parar, { once: true, passive: true });
+    window.addEventListener('touchmove', parar, { once: true, passive: true });
+    function cuadro() {
+      if (parado || id !== colapsoScrollId || !r.isConnected) return;
+      const t = performance.now() - t0;
+      const falta = r.getBoundingClientRect().top - margen; // negativo = el inicio quedó arriba de lo visible
+      if (falta < -1) {
+        let paso = falta * 0.16; // avance proporcional (ease-out)
+        if (paso > -1) paso = -1;
+        scroller.scrollTop += paso;
+      } else if (t > COLAPSO_MS + 250) return; // alineado y la animación ya terminó
+      if (t < 3000) requestAnimationFrame(cuadro);
+    }
+    requestAnimationFrame(cuadro);
+  }
+
   function cambiarColapso(r, cont, expandir) {
     const completo = cont.scrollHeight;
     // las burbujas no se esconden/reaparecen mientras todo se acomoda (se recargaban las animaciones)
@@ -4137,6 +4162,9 @@ p.gds-body-s.ng-star-inserted {
         cont.animate(
           [{ maxHeight: completo + 'px', '--tg-fade': '0px' }, { maxHeight: COLAPSO_ALTO_PX + 'px', '--tg-fade': '110px' }],
           { duration: COLAPSO_MS, easing });
+        scrollSuaveHaciaRespuesta(r);
+      } else if (r.getBoundingClientRect().top < 0) {
+        r.scrollIntoView({ block: 'start' });
       }
     }
   }
