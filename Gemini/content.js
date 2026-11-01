@@ -67,10 +67,10 @@
   // ============================================================================================
   // NIVEL DE BLUR (Personalizar > Rendimiento > Baja / Media / Alta; clave geminiBlurNivel; por defecto "alta")
   // Sustituye al antiguo perfil (Automático / Máximo / Ligero) y al interruptor "Desactivar desenfoque".
-  //   baja  → NADA de blur (menús y panel Personalizar quedan con fondo opaco): ni backdrop-filter, ni filter(blur) en animaciones (vuelo de la burbuja, puntitos, fondo del PIN),
-  //           ni el blur fade de arriba/abajo del chat.
+  //   baja  → NADA de blur (menús y panel Personalizar quedan con fondo opaco; transparencia de tu burbuja fija en 10 %): ni backdrop-filter, ni filter(blur) en animaciones (vuelo de la burbuja, puntitos, fondo del PIN),
+  //           ni el blur fade de arriba/abajo del chat (en su lugar va el fade LITE: tu fondo de pantalla con máscara en degradé, sin blur).
   //   media → blur SOLO en las burbujas del chat, la caja de escribir, los botones de arriba (+ copiar/editar), la barra lateral,
-  //           los menús contextuales, el marco de Personalizar y el fondo de "¿Por dónde empezamos?". Sin blur fade. En el bloqueo solo lleva blur el fondo del PIN.
+  //           los menús contextuales, el marco de Personalizar y el fondo de "¿Por dónde empezamos?". Sin blur fade (lleva el fade LITE: el fondo en degradé, sin blur). En el bloqueo solo lleva blur el fondo del PIN.
   //           La animación de vuelo de la burbuja NO lleva filter(blur) (ni en media ni en baja).
   //   alta  → cada parámetro de blur tal como está definido en cada elemento (no se toca nada).
   // Todo se hace con la clase html.tg-blur-baja / html.tg-blur-media y UNA hoja de estilos dentro de @layer: las declaraciones
@@ -96,6 +96,21 @@
     }
   } catch (e) { /* sin localStorage: queda en alta */ }
   let sinBlur = nivelBlur === 'baja'; // atajo para el JS (vuelo de la burbuja): true solo en "baja"
+  let alCambiarNivelBlur = null;      // hook: lo asigna la sección de la burbuja (transparencia fija en "baja")
+  // QUITAR DIFUMINADO DEL SCROLL (todos los niveles; clave geminiSinFade; por defecto apagado): no hay ningún fade arriba/abajo del chat
+  const SINFADE_CLAVE_LS = 'tg-sin-fade';
+  let sinFadeScroll = false;
+  try {
+    const fg = localStorage.getItem(SINFADE_CLAVE_LS), fi = PREFS_INICIALES.geminiSinFade;
+    if (fg === '0' || fg === '1') sinFadeScroll = fg === '1';
+    else if (fi === true || fi === 'true') sinFadeScroll = true;
+  } catch (e) { /* sin localStorage */ }
+  function cambiarSinFade(v) {
+    sinFadeScroll = !!v;
+    try { localStorage.setItem(SINFADE_CLAVE_LS, sinFadeScroll ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiSinFade: sinFadeScroll });
+    try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
+  }
   function aplicarNivelBlur() {
     const r = document.documentElement;
     sinBlur = nivelBlur === 'baja';
@@ -103,6 +118,7 @@
     r.classList.toggle('tg-blur-media', nivelBlur === 'media');
     if (nivelBlur === 'baja') r.style.setProperty('--tg-sb-extra', String(BLUR_OPACIDAD_EXTRA)); else r.style.removeProperty('--tg-sb-extra');
     if (nivelBlur !== 'alta') r.style.setProperty('--tg-sb-extra-nb', String(BLUR_OPACIDAD_EXTRA)); else r.style.removeProperty('--tg-sb-extra-nb');
+    if (alCambiarNivelBlur) alCambiarNivelBlur();
   }
   function cambiarNivelBlur(n) {
     if (NIVELES_BLUR.indexOf(n) < 0) return;
@@ -177,8 +193,6 @@
         html[data-tema="claro"].tg-blur-baja #tg-personalizar-panel {
           background: rgb(244, 246, 251) !important; background-color: rgb(244, 246, 251) !important;
         }
-        /* BAJA y MEDIA: sin blur fade arriba/abajo del chat */
-        html.tg-blur-baja #tg-fade-chat, html.tg-blur-media #tg-fade-chat { display: none !important; }
         /* MEDIA: todo pierde el backdrop-filter MENOS burbujas, caja de escribir, botones de arriba, barra lateral y fondo del inicio.
            La pantalla de bloqueo solo conserva el filter(blur) del fondo del PIN (.tg-pin-fondo), que no es backdrop-filter. */
         html.tg-blur-media *:not(${PERMITIDOS}),
@@ -998,7 +1012,10 @@
   function avisarCambioFondos() { document.dispatchEvent(new Event('tg-fondos-cambiados')); }
   // tono: 0 = oscuro, 50 = color puro, 100 = blanco
   function burbujaL(b) { return b.tono <= 50 ? 12 + (b.tono / 50) * 38 : 50 + ((b.tono - 50) / 50) * 46; }
-  function burbujaCSS(b, conAlfa) { return 'hsla(' + b.h + ', ' + b.s + '%, ' + burbujaL(b).toFixed(1) + '%, ' + 'calc(' + (conAlfa === false ? 1 : b.alfa / 100) + ' + var(--tg-sb-extra, 0)))'; }
+  // NIVEL BAJA: la transparencia de tu burbuja queda BLOQUEADA en 10 % (opacidad 90 %); el valor elegido no se pierde: al subir de nivel vuelve
+  const ALFA_BAJA = 90;
+  function alfaBurbuja(b) { return nivelBlur === 'baja' ? ALFA_BAJA : b.alfa; }
+  function burbujaCSS(b, conAlfa) { return 'hsla(' + b.h + ', ' + b.s + '%, ' + burbujaL(b).toFixed(1) + '%, ' + 'calc(' + (conAlfa === false ? 1 : b.alfa / 100) + (nivelBlur === 'baja' ? '' : ' + var(--tg-sb-extra, 0)') + '))'; }
   function burbujaTexto(b) { return burbujaL(b) > 68 ? '#1f1f1f' : '#ffffff'; }
   (function () {
     const est = document.createElement('style');
@@ -1014,13 +1031,27 @@
     `;
     document.head.appendChild(est);
   })();
-  function aplicarBurbuja(guardar) {
+  let burbujaPers = false; // true si el usuario personalizó la burbuja
+  // pinta las variables de la burbuja: personalizada → con su color; sin personalizar pero en "baja" → azul original con 10 % de transparencia
+  function pintarVarsBurbuja() {
     const raiz = document.documentElement;
-    raiz.style.setProperty('--tg-burbuja-bg', burbujaCSS(burbuja));
-    raiz.style.setProperty('--tg-burbuja-texto', burbujaTexto(burbuja));
-    raiz.classList.add('tg-burbuja-pers');
+    if (burbujaPers || nivelBlur === 'baja') {
+      raiz.style.setProperty('--tg-burbuja-bg', burbujaCSS(Object.assign({}, burbuja, { alfa: alfaBurbuja(burbuja) })));
+      raiz.style.setProperty('--tg-burbuja-texto', burbujaTexto(burbuja));
+      raiz.classList.add('tg-burbuja-pers');
+    } else {
+      raiz.classList.remove('tg-burbuja-pers');
+      raiz.style.removeProperty('--tg-burbuja-bg');
+      raiz.style.removeProperty('--tg-burbuja-texto');
+    }
+  }
+  function aplicarBurbuja(guardar) {
+    burbujaPers = true;
+    pintarVarsBurbuja();
     if (guardar) guardarBurbujaDebounce();
   }
+  alCambiarNivelBlur = pintarVarsBurbuja; // al cambiar de nivel se re-pinta (el valor guardado de alfa nunca se toca)
+  pintarVarsBurbuja();
   // los sliders disparan decenas de eventos por segundo: se guarda solo al soltar/pausar
   const guardarBurbujaDebounce = (function () {
     let t = null;
@@ -1028,10 +1059,8 @@
   })();
   function restablecerBurbuja() {
     burbuja = Object.assign({}, BURBUJA_BASE);
-    const raiz = document.documentElement;
-    raiz.classList.remove('tg-burbuja-pers');
-    raiz.style.removeProperty('--tg-burbuja-bg');
-    raiz.style.removeProperty('--tg-burbuja-texto');
+    burbujaPers = false;
+    pintarVarsBurbuja();
     prefsBorrar('geminiBurbuja');
   }
   // (el tema ya no tiene botón propio: se sigue automáticamente desde el menú "Tema" de Gemini,
@@ -2204,6 +2233,11 @@ p.gds-body-s.ng-star-inserted {
       }
       if (NIVELES_BLUR.indexOf(result.geminiBlurNivel) >= 0) nivelBlurExplicito = true;
     }
+    if (result.geminiSinFade === true || result.geminiSinFade === false || result.geminiSinFade === 'true' || result.geminiSinFade === 'false') {
+      sinFadeScroll = result.geminiSinFade === true || result.geminiSinFade === 'true';
+      try { localStorage.setItem(SINFADE_CLAVE_LS, sinFadeScroll ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+      try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
+    }
     if (result.geminiLenis === true || result.geminiLenis === false || result.geminiLenis === 'true' || result.geminiLenis === 'false') {
       const v = result.geminiLenis === true || result.geminiLenis === 'true';
       if (v !== lenisUsuario) {
@@ -2246,7 +2280,7 @@ p.gds-body-s.ng-star-inserted {
   };
 
   // Cargar preferencias guardadas / inyectadas
-  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiBlurNivel', 'geminiPerfil', 'geminiSinBlur', 'geminiLenis', 'geminiVibesActivo'], aplicarPreferencias);
+  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiBlurNivel', 'geminiPerfil', 'geminiSinBlur', 'geminiSinFade', 'geminiLenis', 'geminiVibesActivo'], aplicarPreferencias);
 
   // Evento al seleccionar imagen o video
   const esVideoArchivo = (f) => !!f && (/^video\//i.test(f.type) || /\.(mp4|webm|mov|m4v|ogv)$/i.test(f.name || ''));
@@ -3255,6 +3289,7 @@ p.gds-body-s.ng-star-inserted {
       border: 4px solid var(--tg-pers-solido, #0059ff); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     }
     .tg-p-rango:focus-visible { box-shadow: 0 0 0 3px var(--p-hover); }
+    .tg-p-rango:disabled { opacity: 0.45; cursor: not-allowed; }
     .tg-p-rampa-eti { display: flex; justify-content: space-between; margin-top: 6px; }
     .tg-p-rampa-eti button {
       background: transparent; border: 0; padding: 2px 6px; border-radius: 99px; cursor: pointer;
@@ -3669,15 +3704,15 @@ p.gds-body-s.ng-star-inserted {
     // ---- rendimiento: nivel de blur (Baja / Media / Alta) ----
     (function () {
       const OPC = [
-        { v: 'baja', t: 'Baja', d: 'Sin ningún desenfoque: ni cristal, ni fade, ni filtros en las animaciones. La más ligera.' },
-        { v: 'media', t: 'Media', d: 'Desenfoque solo en las burbujas del chat, la caja de escribir y los botones de arriba. Sin fade. En el bloqueo, solo el fondo del PIN.' },
+        { v: 'baja', t: 'Baja', d: 'Sin ningún desenfoque: ni cristal, ni filtros en las animaciones. Fade lite (el fondo en degradé) y transparencia de tu burbuja fija en 10 %. La más ligera.' },
+        { v: 'media', t: 'Media', d: 'Desenfoque en burbujas, caja de escribir, botones de arriba, barra lateral y menús. Fade lite (fondo en degradé). En el bloqueo, solo el fondo del PIN.' },
         { v: 'alta', t: 'Alta', d: 'Todos los efectos de desenfoque al máximo, tal como están diseñados.' }
       ];
       const fila = h('div', { class: 'tg-p-colores' });
       const desc = h('p', { class: 'tg-p-sub', style: 'margin-top:10px' }, '');
       const botones = OPC.map((o) => {
         const b = h('button', { class: 'tg-p-btn', type: 'button', 'data-nivel': o.v }, o.t);
-        b.addEventListener('click', () => { cambiarNivelBlur(o.v); pintarNivel(); });
+        b.addEventListener('click', () => { cambiarNivelBlur(o.v); pintarNivel(); try { pintarBurbuja(); } catch (e) { /* el panel aún se está creando */ } });
         fila.appendChild(b);
         return b;
       });
@@ -3696,11 +3731,22 @@ p.gds-body-s.ng-star-inserted {
           h('span', { class: 'tg-p-toggle-tit' }, 'Scroll suave (Lenis)'),
           h('span', { class: 'tg-p-toggle-sub' }, 'Apágalo para usar el scroll nativo. En pantallas táctiles ya no se usa.')),
         swL);
+      const swF = h('button', { class: 'tg-p-switch', type: 'button', role: 'switch', 'aria-checked': sinFadeScroll ? 'true' : 'false', 'aria-label': 'Quitar difuminado del scroll' },
+        h('span', { class: 'tg-p-sw-track' }),
+        h('span', { class: 'tg-p-sw-handle' },
+          hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', { d: 'M19.69 5.23 8.96 15.96l-4.23-4.23L2.96 13.5l6 6L21.46 7z' }))));
+      swF.addEventListener('click', () => { cambiarSinFade(!sinFadeScroll); swF.setAttribute('aria-checked', sinFadeScroll ? 'true' : 'false'); });
+      const filaFade = h('div', { class: 'tg-p-toggle', style: 'margin-top:12px' },
+        h('span', { class: 'tg-p-toggle-txt' },
+          h('span', { class: 'tg-p-toggle-tit' }, 'Quitar difuminado del scroll'),
+          h('span', { class: 'tg-p-toggle-sub' }, 'Sin degradado arriba ni abajo del chat, en todos los niveles.')),
+        swF);
       panel.appendChild(h('section', { class: 'tg-p-seccion tg-p-seccion-vibes' },
         h('h3', { class: 'tg-p-titulo' }, 'Rendimiento'),
         h('p', { class: 'tg-p-sub' }, 'Elige cuánto desenfoque (blur) usa la interfaz. Si va lento, baja el nivel.'),
         fila,
         desc,
+        filaFade,
         filaLenis));
       pintarNivel();
     })();
@@ -3748,16 +3794,20 @@ p.gds-body-s.ng-star-inserted {
 
     function pintarBurbuja() {
       const solido = burbujaCSS(burbuja, false);
-      backdrop.style.setProperty('--tg-pers-bg', burbujaCSS(burbuja));
+      backdrop.style.setProperty('--tg-pers-bg', burbujaCSS(Object.assign({}, burbuja, { alfa: alfaBurbuja(burbuja) })));
       backdrop.style.setProperty('--tg-pers-texto', burbujaTexto(burbuja));
       backdrop.style.setProperty('--tg-pers-solido', solido);
       const h = burbuja.h, s = burbuja.s;
       sliderTono.style.setProperty('--ramp', 'linear-gradient(to right, hsl(' + h + ',' + s + '%,12%), hsl(' + h + ',' + s + '%,50%), hsl(' + h + ',' + s + '%,96%))');
       sliderAlfa.style.setProperty('--ramp', 'linear-gradient(to right, ' + burbujaCSS({ h: h, s: s, tono: burbuja.tono, alfa: 15 }) + ', ' + solido + '), repeating-conic-gradient(rgba(128,128,128,0.45) 0 25%, transparent 0 50%) 0 0 / 10px 10px');
       sliderTono.value = burbuja.tono;
-      sliderAlfa.value = burbuja.alfa;
+      const alfaFija = nivelBlur === 'baja';
+      sliderAlfa.value = alfaBurbuja(burbuja);
+      sliderAlfa.disabled = alfaFija;
+      sliderAlfa.setAttribute('aria-disabled', alfaFija ? 'true' : 'false');
+      sliderAlfa.title = alfaFija ? 'Bloqueado en 10 % con el nivel de desenfoque Baja' : '';
       q('tono-valor').textContent = burbuja.tono < 25 ? 'Oscuro' : burbuja.tono > 75 ? 'Blanco' : 'Color';
-      q('alfa-valor').textContent = (100 - burbuja.alfa) + '% transparente';
+      q('alfa-valor').textContent = (100 - alfaBurbuja(burbuja)) + '% transparente' + (alfaFija ? ' (bloqueado en Baja)' : '');
       botonesColor.forEach((b, i) => b.classList.toggle('tg-sel', COLORES[i].h === burbuja.h && COLORES[i].s === burbuja.s));
       const esLibre = !COLORES.some((c) => c.h === burbuja.h && c.s === burbuja.s);
       libre.classList.toggle('tg-sel', esLibre);
@@ -4698,6 +4748,7 @@ p.gds-body-s.ng-star-inserted {
   // y las variables --tg-fade-tinte / --tg-fade-rgb.
   const FADE_CHAT = true;
   const FADE_CAPAS = 2;
+  const FADE_LITE_ALFA = 0.92; // cuánto del fondo se ve en el borde de la pantalla (fade lite de Media y Baja; 1 = el mensaje desaparece del todo)
   const FADE_BLURS = [4, 10]; // px por capa (menos capas = menos pasadas de backdrop-filter por fotograma)
   (function () {
     if (!FADE_CHAT) return;
@@ -4779,6 +4830,12 @@ p.gds-body-s.ng-star-inserted {
       #tg-fade-chat .tg-fade-arriba { top: 0; }
       #tg-fade-chat .tg-fade-abajo { bottom: 0; }
       #tg-fade-chat .tg-fade-caja > i { position: absolute; inset: 0; display: block; pointer-events: none; }
+      /* FADE LITE (niveles Media y Baja): SIN backdrop-filter. Es tu propio fondo de pantalla pintado encima de los mensajes con una
+         máscara en degradé: los mensajes se disuelven en el fondo hacia el borde. Cada caja lleva una copia del fondo del tamaño de
+         la ventana, desplazada para que coincida con el fondo real (el JS pone left/top/width/height). */
+      #tg-fade-chat .tg-fade-caja > i.tg-fade-fondo { inset: auto; background: rgb(var(--tg-fade-rgb)); }
+      #tg-fade-chat.tg-fade-imagen .tg-fade-caja > i.tg-fade-fondo { background: var(--tg-fade-fondo) center / cover no-repeat; }
+      html[data-tema="claro"] #tg-fade-chat.tg-fade-lite { --tg-fade-rgb: 255, 255, 255; }
       /* VISTA ANGOSTA (media query de Gemini): tinte suave y chat escalado hasta topar arriba */
       @media (max-width: 959.98px) {
         #tg-fade-chat { --tg-fade-tinte: 0; }
@@ -4788,9 +4845,19 @@ p.gds-body-s.ng-star-inserted {
     (document.head || document.documentElement).appendChild(est);
   })();
 
-  function crearCajaFade(clase, dir) {
+  function crearCajaFade(clase, dir, lite) {
     const caja = document.createElement('div');
     caja.className = 'tg-fade-caja tg-fade-' + clase;
+    if (lite) { // versión lite: el FONDO de pantalla con máscara en degradé (curva ease-in), sin ningún blur
+      const paso = [0, 0.04, 0.12, 0.26, 0.46, 0.7, 1];
+      const mascara = 'linear-gradient(to ' + dir + ', ' + paso.map((a, i) =>
+        'rgba(0,0,0,' + (a * FADE_LITE_ALFA).toFixed(3) + ') ' + Math.round(i / (paso.length - 1) * 100) + '%').join(', ') + ')';
+      caja.style.cssText = 'overflow:hidden;-webkit-mask-image:' + mascara + ';mask-image:' + mascara + ';';
+      const capa = document.createElement('i');
+      capa.className = 'tg-fade-fondo';
+      caja.appendChild(capa);
+      return caja;
+    }
     const n = FADE_CAPAS, s = 100 / (n + 1);
     const blurs = FADE_BLURS;
     const pos = (v) => (Math.round(v * 100) / 100) + '%';
@@ -4810,14 +4877,26 @@ p.gds-body-s.ng-star-inserted {
     return caja;
   }
 
-  let fadeNivel = null;
+  // fade lite: coloca la copia del fondo de cada caja para que coincida con el fondo real de la ventana
+  function ajustarFondoLite(raiz) {
+    raiz.querySelectorAll('.tg-fade-caja').forEach((caja) => {
+      const f = caja.querySelector('.tg-fade-fondo'); if (!f) return;
+      const r = caja.getBoundingClientRect();
+      f.style.left = (-r.left) + 'px'; f.style.top = (-r.top) + 'px';
+      f.style.width = window.innerWidth + 'px'; f.style.height = window.innerHeight + 'px';
+    });
+  }
+  // si cambia el fondo de pantalla, el fade lite se actualiza
+  document.addEventListener('tg-fondos-cambiados', () => { try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ } });
+  let fadeModo = null; // 'completo' (alta) | 'lite' (media y baja) | 'nada' (quitar difuminado del scroll)
   function asegurarFadeChat() {
     if (!FADE_CHAT) return;
     if (!vibesOn) { const apagado = document.getElementById('tg-fade-chat'); if (apagado) apagado.style.display = 'none'; return; }
-    // el blur fade SOLO existe en el nivel "alta": al cambiar de nivel se quita (o se reconstruye al volver a "alta")
-    const conFade = nivelBlur === 'alta';
-    if (fadeNivel !== nivelBlur) {
-      fadeNivel = nivelBlur;
+    // alta: blur fade completo · media y baja: fade lite (degradado sin blur) · "quitar difuminado del scroll": ninguno
+    const modoFade = sinFadeScroll ? 'nada' : (nivelBlur === 'alta' ? 'completo' : 'lite');
+    const conFade = modoFade !== 'nada';
+    if (fadeModo !== modoFade) { // cambió el modo: se reconstruyen (o se quitan) las capas del fade
+      fadeModo = modoFade;
       const viejo = document.getElementById('tg-fade-chat'); if (viejo) viejo.remove();
     }
     const hist = document.querySelector('#chat-history');
@@ -4828,8 +4907,9 @@ p.gds-body-s.ng-star-inserted {
       raiz = document.createElement('div');
       raiz.id = 'tg-fade-chat';
       raiz.setAttribute('aria-hidden', 'true');
-      raiz.appendChild(crearCajaFade('arriba', 'top'));
-      raiz.appendChild(crearCajaFade('abajo', 'bottom'));
+      if (modoFade === 'lite') raiz.classList.add('tg-fade-lite');
+      raiz.appendChild(crearCajaFade('arriba', 'top', modoFade === 'lite'));
+      raiz.appendChild(crearCajaFade('abajo', 'bottom', modoFade === 'lite'));
     }
     // dentro de chat-window-content y DESPUÉS de #chat-history (encima de los mensajes, debajo de lo que va después)
     if (raiz && (raiz.parentElement !== contenido || raiz.previousElementSibling !== hist)) contenido.insertBefore(raiz, hist.nextSibling);
@@ -4868,7 +4948,7 @@ p.gds-body-s.ng-star-inserted {
     cadena.forEach((e) => { if (!e) return; e.style.setProperty('-webkit-mask-image', 'none', 'important'); e.style.setProperty('mask-image', 'none', 'important'); });
     } // fin de la limpieza de una sola vez
 
-    if (!raiz) return; // baja / media: sin capas de blur fade
+    if (!raiz) return; // "quitar difuminado del scroll": sin capas de fade
     let cr = hist.getBoundingClientRect();
     if (cr.width < 1 || cr.height < 1) { raiz.style.display = 'none'; return; }
     raiz.style.display = '';
@@ -4904,7 +4984,15 @@ p.gds-body-s.ng-star-inserted {
       if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
       el.style.zIndex = '7';
     });
-    const clave = [cr.left, topBase, cr.width, altoBase, hArriba, hAbajo, desdeAbajo].map((v) => Math.round(v * 10) / 10).join('|');
+    if (modoFade === 'lite') { // el fondo de pantalla actual (solo imágenes/GIF; con video o sin fondo se usa el color del tema)
+      const img = fondoGeminiTipo === 'imagen' && fondoGeminiActual ? fondoGeminiActual : '';
+      if (raiz._tgFondo !== img) {
+        raiz._tgFondo = img;
+        if (img) raiz.style.setProperty('--tg-fade-fondo', 'url("' + String(img).replace(/"/g, '%22') + '")'); else raiz.style.removeProperty('--tg-fade-fondo');
+        raiz.classList.toggle('tg-fade-imagen', !!img);
+      }
+    }
+    const clave = [cr.left, topBase, cr.width, altoBase, hArriba, hAbajo, desdeAbajo, window.innerWidth, window.innerHeight].map((v) => Math.round(v * 10) / 10).join('|');
     if (raiz._tgClave === clave) return;
     raiz._tgClave = clave;
     raiz.style.setProperty('--tg-fade-h-a', hArriba + 'px');
@@ -4918,6 +5006,7 @@ p.gds-body-s.ng-star-inserted {
     const rr = raiz.getBoundingClientRect();
     const dx = rr.left - cr.left, dy = rr.top - topBase;
     if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) { raiz.style.left = (cr.left - dx) + 'px'; raiz.style.top = (topBase - dy) + 'px'; }
+    if (modoFade === 'lite') ajustarFondoLite(raiz);
   }
   // (el resize lo maneja el planificador Tareas: ver más abajo)
 
