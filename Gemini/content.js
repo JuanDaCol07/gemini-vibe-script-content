@@ -2056,7 +2056,7 @@ p.gds-body-s.ng-star-inserted {
   }
 
   const VIBES_ESTILOS = ['tg-ligero-style', 'tg-bloqueo-style', 'gemini-custom-bg-style', 'tg-burbuja-style', 'tg-vp-style',
-    'tg-puntos-retraso-style', 'tg-fade-style', 'tg-fondo-cero-style', 'tg-menus-style']; // (tg-lenis-style NO va aquí: el scroll suave no depende de Vibes)
+    'tg-puntos-retraso-style', 'tg-fade-style', 'tg-fondo-cero-style', 'tg-menus-style', 'tg-colapso-style']; // (tg-lenis-style NO va aquí: el scroll suave no depende de Vibes)
   function aplicarVibes() {
     document.documentElement.classList.toggle('tg-vibes-off', !vibesOn);
     VIBES_ESTILOS.forEach((id) => {
@@ -2073,7 +2073,7 @@ p.gds-body-s.ng-star-inserted {
         registrarBurbujas(document.body);
         document.querySelectorAll('#tg-fondo-video video.tg-medio-video').forEach((v) => { const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); });
       }
-      Tareas.marcar('layout'); Tareas.marcar('cero'); Tareas.marcar('menuLateral');
+      Tareas.marcar('layout'); Tareas.marcar('cero'); Tareas.marcar('menuLateral'); Tareas.marcar('colapso');
     } catch (e) { /* aún no está todo creado: se vuelve a llamar al final de la carga */ }
   }
   function cambiarVibes(v) {
@@ -4037,6 +4037,7 @@ p.gds-body-s.ng-star-inserted {
   Tareas.registrar('menuLateral', () => { marcarCapasMenuLateral(); actualizarFondoMenuLateral(); });
   Tareas.registrar('cero', () => actualizarFondoCero());
   Tareas.registrar('tema', () => revisarTemaBody());
+  Tareas.registrar('colapso', () => gestionarColapsoRespuestas());
 
   // el layout se recalcula SOLO cuando cambian de tamaño las piezas que importan
   const roLayout = new ResizeObserver(() => Tareas.marcar('layout'));
@@ -4055,6 +4056,106 @@ p.gds-body-s.ng-star-inserted {
         !r.querySelector('.markdown p, .markdown li, .markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6, .markdown pre, .markdown table, .markdown ul, .markdown ol, .markdown blockquote');
       if (cargando !== r.hasAttribute('data-tg-cargando')) r.toggleAttribute('data-tg-cargando', cargando);
     }
+  }
+
+  // ============================================================================================
+  // RESPUESTAS LARGAS DE GEMINI: SE CONTRAEN Y SE PUEDEN EXPANDIR (igual que las burbujas del usuario)
+  // - solo se evalúa una respuesta YA COMPLETA (.response-footer.complete): mientras se escribe NO se contrae
+  // - si la respuesta se vio escribiéndose en esta sesión, al terminar se queda EXTENDIDA (con botón para contraerla)
+  // - las respuestas que ya estaban terminadas (historial, chat recargado) y miden más de COLAPSO_UMBRAL_PX arrancan contraídas
+  // - contraída: altura COLAPSO_ALTO_PX con desvanecido abajo + botón redondo "expandir"
+  // ============================================================================================
+  const COLAPSO_ALTO_PX = 420;     // alto de la respuesta contraída
+  const COLAPSO_UMBRAL_PX = 620;   // desde este alto (contenido completo) se considera "larguísima"
+  const COLAPSO_MS = 380;
+  (function () {
+    const est = document.createElement('style');
+    est.id = 'tg-colapso-style';
+    est.textContent = `
+      .response-container[data-tg-colapso="contraida"] > .presented-response-container {
+        max-height: ${COLAPSO_ALTO_PX}px !important;
+        overflow: hidden !important;
+        -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%) !important;
+        mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%) !important;
+      }
+      .tg-colapso-toggle { display: flex; justify-content: center; margin: 6px 0 0; position: relative; z-index: 1; }
+      .response-container[data-tg-colapso="contraida"] > .tg-colapso-toggle { margin-top: -34px; }
+      .tg-colapso-btn {
+        width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: var(--tg-input-bg, rgba(0, 0, 0, 0.55)); color: var(--tg-texto, #fff);
+        -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+        transition: transform 0.2s ease;
+      }
+      .tg-colapso-btn:hover { transform: scale(1.08); }
+      .tg-colapso-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.3s ease; }
+      .response-container[data-tg-colapso="expandida"] .tg-colapso-btn svg { transform: rotate(180deg); }
+      @media (prefers-reduced-motion: reduce) { .tg-colapso-btn, .tg-colapso-btn svg { transition: none; } }
+    `;
+    (document.head || document.documentElement).appendChild(est);
+  })();
+
+  function quitarColapso(r, cont) {
+    if (r.hasAttribute('data-tg-colapso')) r.removeAttribute('data-tg-colapso');
+    const t = r.querySelector(':scope > .tg-colapso-toggle');
+    if (t) t.remove();
+    r._tgColapsoEval = false;
+    r._tgColapsoIntentos = 0;
+  }
+
+  function cambiarColapso(r, cont, expandir) {
+    const completo = cont.scrollHeight;
+    if (expandir) {
+      r.setAttribute('data-tg-colapso', 'expandida');
+      if (cont.animate && !sinMovimiento() && completo > COLAPSO_ALTO_PX) {
+        cont.style.setProperty('overflow', 'hidden');
+        const a = cont.animate([{ maxHeight: COLAPSO_ALTO_PX + 'px' }, { maxHeight: completo + 'px' }], { duration: COLAPSO_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+        const fin = () => cont.style.removeProperty('overflow');
+        a.onfinish = fin; a.oncancel = fin;
+      }
+    } else {
+      r.setAttribute('data-tg-colapso', 'contraida');
+      if (cont.animate && !sinMovimiento()) {
+        const a = cont.animate([{ maxHeight: completo + 'px' }, { maxHeight: COLAPSO_ALTO_PX + 'px' }], { duration: COLAPSO_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+        a.onfinish = () => { const sup = r.getBoundingClientRect().top; if (sup < 0) r.scrollIntoView({ block: 'start' }); };
+      }
+    }
+  }
+
+  function crearToggleColapso(r, cont) {
+    const btn = h('button', { class: 'tg-colapso-btn', type: 'button', 'aria-label': 'Expandir o contraer respuesta', 'aria-expanded': 'false' },
+      hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', { d: 'M6 9l6 6 6-6' })));
+    btn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      try { pararSeguimiento(); } catch (err) { /* aún no definido */ }
+      const expandir = r.getAttribute('data-tg-colapso') !== 'expandida';
+      cambiarColapso(r, cont, expandir);
+      btn.setAttribute('aria-expanded', expandir ? 'true' : 'false');
+    });
+    const caja = h('div', { class: 'tg-colapso-toggle' }, btn);
+    cont.insertAdjacentElement('afterend', caja);
+    return btn;
+  }
+
+  function gestionarColapsoRespuestas() {
+    document.querySelectorAll('.response-container').forEach((r) => {
+      const cont = r.querySelector(':scope > .presented-response-container');
+      if (!cont) return;
+      if (!vibesOn) { if (r.hasAttribute('data-tg-colapso') || r._tgColapsoEval) quitarColapso(r, cont); return; }
+      if (r._tgColapsoEval) return; // ya decidido: no se vuelve a medir
+      const completa = !!r.querySelector('.response-footer.complete');
+      if (!completa) { r._tgStreaming = true; return; } // se está escribiendo: nunca se contrae
+      const alto = cont.scrollHeight;
+      if (alto > COLAPSO_UMBRAL_PX) {
+        r._tgColapsoEval = true;
+        const btn = crearToggleColapso(r, cont);
+        const contraer = !r._tgStreaming; // si se vio escribir en vivo, se queda extendida
+        r.setAttribute('data-tg-colapso', contraer ? 'contraida' : 'expandida');
+        btn.setAttribute('aria-expanded', contraer ? 'false' : 'true');
+      } else if ((r._tgColapsoIntentos = (r._tgColapsoIntentos || 0) + 1) >= 4) {
+        r._tgColapsoEval = true; // corta y no se contrae (imágenes que cargan tarde pueden cambiar el alto: se reintenta unas veces)
+      }
+    });
   }
 
   const loteNodos = [];
@@ -4095,7 +4196,7 @@ p.gds-body-s.ng-star-inserted {
       if (!tocoEstructura && (/^(ZERO|MODULAR|USER-QUERY|MODEL-RESPONSE|CHAT-WINDOW|INFINITE)/.test(n.tagName) ||
           (n.classList && n.classList.contains('zero-state-container')))) tocoEstructura = true;
     }
-    if (hizoAlgo) programarMarcado();
+    if (hizoAlgo) { programarMarcado(); Tareas.marcar('colapso'); }
     if (hizoAlgo || document.querySelector('.response-container[data-tg-cargando]')) marcarCargandoRespuesta();
     if (tocoEstructura) Tareas.marcar('cero');
     if (quito) Tareas.marcar('layout');
@@ -5013,7 +5114,7 @@ p.gds-body-s.ng-star-inserted {
     latido++;
     observarLayout(); mantenerLenis(); agregarItemMovil();
     if (!(window.matchMedia && window.matchMedia('(max-width: 959.98px)').matches)) document.querySelectorAll('.desktop-settings-menu').forEach((m) => { try { if (!m.querySelector('#' + ID_ITEM_PERSONALIZAR)) { marcarCapasMenu(m); agregarItemFondo(m); } } catch (e) { /* menú aún sin dibujar */ } });
-    Tareas.marcar('cero');
+    Tareas.marcar('cero'); Tareas.marcar('colapso');
     if (latido % 3 === 0) { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); }
     if (latido % 4 === 0) Tareas.marcar('tema');
   }, 2000);
