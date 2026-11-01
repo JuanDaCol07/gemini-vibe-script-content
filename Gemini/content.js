@@ -84,7 +84,7 @@
   const BLUR_OPACIDAD_EXTRA = 0.05;
   // En "baja", la caja de escribir y los botones de arriba reciben ADEMÁS este extra (se suma al de arriba) para distinguirse sin blur.
   // Se aplica con --tg-sb-extra-ctl, que solo existe en "baja".
-  const BLUR_OPACIDAD_CONTROLES_BAJA = 0.1;
+  const BLUR_OPACIDAD_CONTROLES_BAJA = 0.2;
   let nivelBlur = 'alta';
   let nivelBlurExplicito = false; // true si el usuario ya eligió un nivel (si no, se migra del ajuste antiguo)
   try {
@@ -4841,6 +4841,10 @@ p.gds-body-s.ng-star-inserted {
       #tg-fade-chat .tg-fade-caja > i.tg-fade-fondo { inset: auto; background: rgb(var(--tg-fade-rgb)); }
       #tg-fade-chat.tg-fade-imagen .tg-fade-caja > i.tg-fade-fondo { background: var(--tg-fade-fondo) center / cover no-repeat; }
       html[data-tema="claro"] #tg-fade-chat.tg-fade-lite { --tg-fade-rgb: 255, 255, 255; }
+      /* fondo de VIDEO: cada caja copia su trozo del cuadro actual del video en un <canvas> (sin decodificar el video otra vez) */
+      #tg-fade-chat .tg-fade-canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: none; pointer-events: none; }
+      #tg-fade-chat.tg-fade-video .tg-fade-canvas { display: block; }
+      #tg-fade-chat.tg-fade-video .tg-fade-caja > i.tg-fade-fondo { display: none; }
       /* VISTA ANGOSTA (media query de Gemini): tinte suave y chat escalado hasta topar arriba */
       @media (max-width: 959.98px) {
         #tg-fade-chat { --tg-fade-tinte: 0; }
@@ -4861,6 +4865,9 @@ p.gds-body-s.ng-star-inserted {
       const capa = document.createElement('i');
       capa.className = 'tg-fade-fondo';
       caja.appendChild(capa);
+      const lienzo = document.createElement('canvas');
+      lienzo.className = 'tg-fade-canvas';
+      caja.appendChild(lienzo);
       return caja;
     }
     const n = FADE_CAPAS, s = 100 / (n + 1);
@@ -4889,7 +4896,40 @@ p.gds-body-s.ng-star-inserted {
       const r = caja.getBoundingClientRect();
       f.style.left = (-r.left) + 'px'; f.style.top = (-r.top) + 'px';
       f.style.width = window.innerWidth + 'px'; f.style.height = window.innerHeight + 'px';
+      const lz = caja.querySelector('.tg-fade-canvas'); // video: el canvas mide lo que la caja; se guarda dónde está para recortar el cuadro
+      if (lz) {
+        const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+        if (lz.width !== w) lz.width = w;
+        if (lz.height !== h) lz.height = h;
+        lz._r = { left: r.left, top: r.top, width: w, height: h };
+      }
     });
+  }
+  // FADE LITE con fondo de VIDEO: copia en cada caja el trozo que le toca del cuadro actual del video (object-fit: cover, como el video real).
+  // Se redibuja solo cuando el video tiene un cuadro nuevo (requestVideoFrameCallback) y se detiene solo si el fade o el video dejan de existir.
+  function videoFondoGemini() { return document.querySelector('#tg-fondo-video video.tg-medio-video'); }
+  function pintarVideoFade(raiz, v) {
+    const vw = v.videoWidth, vh = v.videoHeight;
+    if (!vw || !vh || v.readyState < 2) return;
+    const W = window.innerWidth, H = window.innerHeight;
+    const esc = Math.max(W / vw, H / vh);
+    const ox = (W - vw * esc) / 2, oy = (H - vh * esc) / 2;
+    raiz.querySelectorAll('.tg-fade-canvas').forEach((lz) => {
+      const r = lz._r; if (!r) return;
+      const ctx = lz.getContext('2d'); if (!ctx) return;
+      try { ctx.drawImage(v, (r.left - ox) / esc, (r.top - oy) / esc, r.width / esc, r.height / esc, 0, 0, r.width, r.height); } catch (e) { /* cuadro no disponible */ }
+    });
+  }
+  function iniciarVideoFade(raiz) {
+    if (raiz._tgVideoFade) return;
+    raiz._tgVideoFade = true;
+    const paso = () => {
+      const v = videoFondoGemini();
+      if (!raiz.isConnected || !raiz.classList.contains('tg-fade-video') || !v) { raiz._tgVideoFade = false; return; }
+      if (!document.hidden) pintarVideoFade(raiz, v);
+      if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(paso); else requestAnimationFrame(paso);
+    };
+    paso();
   }
   // si cambia el fondo de pantalla, el fade lite se actualiza
   document.addEventListener('tg-fondos-cambiados', () => { try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ } });
@@ -4989,8 +5029,14 @@ p.gds-body-s.ng-star-inserted {
       if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
       el.style.zIndex = '7';
     });
-    if (modoFade === 'lite') { // el fondo de pantalla actual (solo imágenes/GIF; con video o sin fondo se usa el color del tema)
+    if (modoFade === 'lite') { // el fondo de pantalla actual (imágenes/GIF por CSS; video por <canvas>; sin fondo se usa el color del tema)
       const img = fondoGeminiTipo === 'imagen' && fondoGeminiActual ? fondoGeminiActual : '';
+      const esVideo = fondoGeminiTipo === 'video' && !!videoFondoGemini();
+      if (raiz.classList.contains('tg-fade-video') !== esVideo) {
+        raiz.classList.toggle('tg-fade-video', esVideo);
+        if (esVideo) { ajustarFondoLite(raiz); }
+      }
+      if (esVideo) iniciarVideoFade(raiz);
       if (raiz._tgFondo !== img) {
         raiz._tgFondo = img;
         if (img) raiz.style.setProperty('--tg-fade-fondo', 'url("' + String(img).replace(/"/g, '%22') + '")'); else raiz.style.removeProperty('--tg-fade-fondo');
