@@ -2259,6 +2259,9 @@ p.gds-body-s.ng-star-inserted {
   const DURACION_ENVIO_MS = 2200;     // mientras dura la animación de enviar el prompt, NO se esconden ni reaparecen las burbujas
   let envioHasta = 0;
   const enEnvio = () => performance.now() < envioHasta;
+  // pausa de las animaciones de esconder/reaparecer burbujas (se activa al expandir/contraer una respuesta larga: el cambio de altura mueve todo)
+  let colapsoPausaHasta = 0;
+  const enPausaColapso = () => performance.now() < colapsoPausaHasta;
   const ESPERA_VISIBLE_MS = 150; // debe seguir visible este tiempo (evita gastar la animación en saltos de scroll)
   const temporizadores = new WeakMap();
 
@@ -2549,7 +2552,7 @@ p.gds-body-s.ng-star-inserted {
             const espera = retrasoPorBurbuja(el); // fotos/videos: esperan a que termine la animación de la burbuja
             if (espera > 0) { temporizadores.set(el, setTimeout(activarAnimacion, espera)); return; }
 
-            if (enEnvio() && el._animado && !el.hasAttribute('data-origen')) {
+            if ((enEnvio() || enPausaColapso()) && el._animado && !el.hasAttribute('data-origen')) {
               el.setAttribute('data-sin-anim', '');
             }
 
@@ -2566,7 +2569,7 @@ p.gds-body-s.ng-star-inserted {
           temporizadores.delete(el);
         }
         if (el._vuelo) return; // volando: se queda escondida hasta aterrizar
-        if (!REANIMAR_AL_ENTRAR || enEnvio()) return; // durante el envío: sin esconder/reaparecer, se queda como está
+        if (!REANIMAR_AL_ENTRAR || enEnvio() || enPausaColapso()) return; // durante el envío (o al expandir/contraer una respuesta): sin esconder/reaparecer, se queda como está
         // una burbuja recién enviada que ya arrancó NO se reinicia por el primer aviso "no visible" (aún sin posición calculada)
         if (el.hasAttribute('data-origen') && !el._visto) return;
         // salió de la pantalla: se esconde hasta que vuelva a aparecer
@@ -4072,13 +4075,18 @@ p.gds-body-s.ng-star-inserted {
     const est = document.createElement('style');
     est.id = 'tg-colapso-style';
     est.textContent = `
+      /* alto del desvanecido: registrado como <length> para poder animarlo (el desvanecido aparece/desaparece suave) */
+      @property --tg-fade { syntax: '<length>'; inherits: false; initial-value: 110px; }
       .response-container[data-tg-colapso="contraida"] > .presented-response-container {
         max-height: ${COLAPSO_ALTO_PX}px !important;
         overflow: hidden !important;
-        -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%) !important;
-        mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%) !important;
       }
-      .tg-colapso-toggle { display: flex; justify-content: flex-end; margin: 6px 0 0; position: relative; z-index: 1; }
+      .response-container[data-tg-colapso="contraida"] > .presented-response-container,
+      .response-container > .presented-response-container[data-tg-fade-anim] {
+        -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--tg-fade)), transparent 100%) !important;
+        mask-image: linear-gradient(to bottom, #000 calc(100% - var(--tg-fade)), transparent 100%) !important;
+      }
+      .tg-colapso-toggle { display: flex; justify-content: flex-end; margin: 6px 0 0; position: relative; z-index: 1; transition: margin-top ${COLAPSO_MS}ms cubic-bezier(0.22, 1, 0.36, 1); }
       .response-container[data-tg-colapso="contraida"] > .tg-colapso-toggle { margin-top: -34px; }
       .tg-colapso-btn {
         height: 40px; padding: 0 12px 0 16px; border: 0; border-radius: 9999px; cursor: pointer;
@@ -4093,7 +4101,7 @@ p.gds-body-s.ng-star-inserted {
       .response-container[data-tg-colapso="expandida"] .tg-colapso-txt::before { content: 'Mostrar menos'; }
       .tg-colapso-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.3s ease; }
       .response-container[data-tg-colapso="expandida"] .tg-colapso-btn svg { transform: rotate(180deg); }
-      @media (prefers-reduced-motion: reduce) { .tg-colapso-btn, .tg-colapso-btn svg { transition: none; } }
+      @media (prefers-reduced-motion: reduce) { .tg-colapso-btn, .tg-colapso-btn svg, .tg-colapso-toggle { transition: none; } }
     `;
     (document.head || document.documentElement).appendChild(est);
   })();
@@ -4106,21 +4114,57 @@ p.gds-body-s.ng-star-inserted {
     r._tgColapsoIntentos = 0;
   }
 
+  // al contraer una respuesta larga el scroll sube SUAVEMENTE (junto con la animación de la burbuja) hasta dejar su inicio a la vista
+  let colapsoScrollId = 0;
+  function scrollSuaveHaciaRespuesta(r) {
+    const scroller = contenedorScroll(r);
+    const margen = 84 + (typeof alturaAreaSuperior === 'function' ? alturaAreaSuperior() : 0); // aire bajo el header
+    const id = ++colapsoScrollId;
+    const t0 = performance.now();
+    let parado = false;
+    const parar = () => { parado = true; };
+    window.addEventListener('wheel', parar, { once: true, passive: true });
+    window.addEventListener('touchmove', parar, { once: true, passive: true });
+    function cuadro() {
+      if (parado || id !== colapsoScrollId || !r.isConnected) return;
+      const t = performance.now() - t0;
+      const falta = r.getBoundingClientRect().top - margen; // negativo = el inicio quedó arriba de lo visible
+      if (falta < -1) {
+        let paso = falta * 0.16; // avance proporcional (ease-out)
+        if (paso > -1) paso = -1;
+        scroller.scrollTop += paso;
+      } else if (t > COLAPSO_MS + 250) return; // alineado y la animación ya terminó
+      if (t < 3000) requestAnimationFrame(cuadro);
+    }
+    requestAnimationFrame(cuadro);
+  }
+
   function cambiarColapso(r, cont, expandir) {
     const completo = cont.scrollHeight;
+    // las burbujas no se esconden/reaparecen mientras todo se acomoda (se recargaban las animaciones)
+    colapsoPausaHasta = performance.now() + COLAPSO_MS + 1800;
+    const anima = !!cont.animate && !sinMovimiento();
+    const easing = 'cubic-bezier(0.22, 1, 0.36, 1)';
     if (expandir) {
       r.setAttribute('data-tg-colapso', 'expandida');
-      if (cont.animate && !sinMovimiento() && completo > COLAPSO_ALTO_PX) {
+      if (anima && completo > COLAPSO_ALTO_PX) {
         cont.style.setProperty('overflow', 'hidden');
-        const a = cont.animate([{ maxHeight: COLAPSO_ALTO_PX + 'px' }, { maxHeight: completo + 'px' }], { duration: COLAPSO_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
-        const fin = () => cont.style.removeProperty('overflow');
+        cont.setAttribute('data-tg-fade-anim', ''); // el desvanecido se mantiene mientras crece y se va apagando
+        const fin = () => { cont.style.removeProperty('overflow'); cont.removeAttribute('data-tg-fade-anim'); };
+        const a = cont.animate(
+          [{ maxHeight: COLAPSO_ALTO_PX + 'px', '--tg-fade': '110px' }, { maxHeight: completo + 'px', '--tg-fade': '0px' }],
+          { duration: COLAPSO_MS, easing });
         a.onfinish = fin; a.oncancel = fin;
       }
     } else {
       r.setAttribute('data-tg-colapso', 'contraida');
-      if (cont.animate && !sinMovimiento()) {
-        const a = cont.animate([{ maxHeight: completo + 'px' }, { maxHeight: COLAPSO_ALTO_PX + 'px' }], { duration: COLAPSO_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
-        a.onfinish = () => { const sup = r.getBoundingClientRect().top; if (sup < 0) r.scrollIntoView({ block: 'start' }); };
+      if (anima) {
+        cont.animate(
+          [{ maxHeight: completo + 'px', '--tg-fade': '0px' }, { maxHeight: COLAPSO_ALTO_PX + 'px', '--tg-fade': '110px' }],
+          { duration: COLAPSO_MS, easing });
+        scrollSuaveHaciaRespuesta(r);
+      } else if (r.getBoundingClientRect().top < 0) {
+        r.scrollIntoView({ block: 'start' });
       }
     }
   }
