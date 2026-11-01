@@ -42,15 +42,22 @@
     const k = Number(bruto);
     return isFinite(k) ? k : null;
   })();
-  const KERNEL_INCOMPATIBLE = ES_APP_FLUTTER && KERNEL_DART !== TG_KERNEL;
+  // solo en la página de Gemini (no en el login de Google ni en otras páginas que cargue el WebView)
+  const ES_PAGINA_GEMINI = (function () {
+    try { return /(^|\.)gemini\.google\.com$/i.test(location.hostname || ''); } catch (e) { return false; }
+  })();
+  const KERNEL_INCOMPATIBLE = ES_APP_FLUTTER && ES_PAGINA_GEMINI && KERNEL_DART !== TG_KERNEL;
 
   function pantallaKernelIncompatible() {
     const montar = function () {
       if (document.getElementById('tg-kernel-aviso')) return;
       const est = document.createElement('style');
       est.textContent =
+        // se esconde TODO lo de Gemini: solo queda el fondo del body y el aviso
+        'html,body{overflow:hidden !important;}' +
+        'body > *:not(#tg-kernel-aviso){display:none !important;}' +
         '#tg-kernel-aviso{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:20px;' +
-        'background:rgba(0,0,0,0.6);font-family:"Google Sans","Segoe UI",system-ui,sans-serif;color:#fff;}' +
+        'background:transparent;font-family:"Google Sans","Segoe UI",system-ui,sans-serif;color:#fff;}' +
         '#tg-kernel-aviso .tg-k-caja{max-width:360px;width:100%;padding:26px 22px;border-radius:24px;background:rgba(24,25,28,0.96);text-align:center;}' +
         '#tg-kernel-aviso h2{margin:0 0 10px;font-size:20px;font-weight:600;}' +
         '#tg-kernel-aviso p{margin:0 0 18px;font-size:14.5px;line-height:1.45;opacity:0.9;}' +
