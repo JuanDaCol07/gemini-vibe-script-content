@@ -31,9 +31,6 @@
 • Nivel de rendimiento Medio: el fondo de "¿Por dónde empezamos?" ya no se difumina.
 • Los ajustes de blur, Vibes, difuminado del scroll y scroll suave ahora se conservan al reiniciar la app.
 `;
-
-  
-  
   const TG_URL_GITHUB_APP = 'https://github.com/JuanDaCol07/gemini-vibe-script-content/releases'; // <-- pon aquí la página de la app
 
   window.__tgCargado = 'opt-2'; // marcador: Flutter lo lee para confirmar qué versión del script se inyectó
@@ -71,34 +68,115 @@
   function pantallaKernelIncompatible() {
     const montar = function () {
       if (document.getElementById('tg-kernel-aviso')) return;
+      const pf = (window.TG_PREFS_INICIALES && typeof window.TG_PREFS_INICIALES === 'object') ? window.TG_PREFS_INICIALES : {};
+      const claro = pf.geminiTema === 'claro';
+      // el botón toma el color de TU burbuja (igual que en el panel de actualizaciones)
+      let bb = pf.geminiBurbuja;
+      if (typeof bb === 'string') { try { bb = JSON.parse(bb); } catch (e) { bb = null; } }
+      bb = Object.assign({ h: 221, s: 100, tono: 50, alfa: 70 }, (bb && typeof bb === 'object') ? bb : {});
+      const Lum = bb.tono <= 50 ? 12 + (bb.tono / 50) * 38 : 50 + ((bb.tono - 50) / 50) * 46;
+      const acento = 'hsl(' + bb.h + ', ' + bb.s + '%, ' + Lum.toFixed(1) + '%)';
+      const acentoTexto = Lum > 68 ? '#1f1f1f' : '#ffffff';
+      const imagen = (typeof pf.geminiFondo === 'string' && pf.geminiFondo && pf.geminiFondoTipo !== 'video')
+        ? 'url("' + pf.geminiFondo.replace(/"/g, '%22') + '")' : '';
+
       const est = document.createElement('style');
       est.textContent =
-        // se esconde TODO lo de Gemini: solo queda el fondo del body y el aviso
+        // se esconde TODO lo de Gemini: solo queda el fondo y este panel
         'html,body{overflow:hidden !important;}' +
         'body > *:not(#tg-kernel-aviso){display:none !important;}' +
-        '#tg-kernel-aviso{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:20px;' +
-        'background:transparent;font-family:"Google Sans","Segoe UI",system-ui,sans-serif;color:#fff;}' +
-        '#tg-kernel-aviso .tg-k-caja{max-width:360px;width:100%;padding:26px 22px;border-radius:24px;background:rgba(24,25,28,0.96);text-align:center;}' +
-        '#tg-kernel-aviso h2{margin:0 0 10px;font-size:20px;font-weight:600;}' +
-        '#tg-kernel-aviso p{margin:0 0 18px;font-size:14.5px;line-height:1.45;opacity:0.9;}' +
-        '#tg-kernel-aviso a{display:inline-block;padding:12px 26px;border-radius:9999px;background:#0059ff;color:#fff;text-decoration:none;font-size:15px;font-weight:500;}';
-      const caja = document.createElement('div');
-      caja.className = 'tg-k-caja';
-      const t = document.createElement('h2'); t.textContent = 'Actualización necesaria';
-      const p = document.createElement('p');
-      p.textContent = 'Gemini Vibes necesita una versión más nueva de la app para seguir funcionando. Descárgala e instálala desde GitHub.';
-      const a = document.createElement('a');
-      a.href = TG_URL_GITHUB_APP; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Ir a GitHub';
-      a.addEventListener('click', function (e) { e.preventDefault(); abrirGithubApp(); });
-      caja.appendChild(t); caja.appendChild(p); caja.appendChild(a);
+        '#tg-kernel-aviso{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box;' +
+        'font-family:"Google Sans","Segoe UI",system-ui,-apple-system,sans-serif;background-size:cover;background-position:center;background-repeat:no-repeat;}' +
+        '#tg-kernel-aviso *{box-sizing:border-box;}' +
+        '#tg-kernel-aviso .tg-k-velo{position:absolute;inset:0;pointer-events:none;background:rgba(0,0,0,0.35);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);}' +
+        '#tg-kernel-aviso.tg-k-claro .tg-k-velo{background:rgba(255,255,255,0.25);}' +
+        '#tg-kernel-aviso .tg-k-panel{position:relative;width:min(420px,calc(100vw - 28px));max-height:min(90vh,760px);display:flex;flex-direction:column;overflow:hidden;' +
+        'border-radius:28px;background:var(--k-panel);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 24px 80px rgba(0,0,0,0.45);color:var(--k-texto);}' +
+        '#tg-kernel-aviso .tg-k-cab{position:relative;isolation:isolate;flex:none;color:#fff;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;' +
+        'padding:18px 20px 26px;text-shadow:0 2px 10px rgba(0,0,0,0.45);}' +
+        '#tg-kernel-aviso .tg-k-fondos{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none;' +
+        '-webkit-mask-image:linear-gradient(to bottom,#000 0%,#000 52%,rgba(0,0,0,0.55) 80%,transparent 100%);mask-image:linear-gradient(to bottom,#000 0%,#000 52%,rgba(0,0,0,0.55) 80%,transparent 100%);}' +
+        '#tg-kernel-aviso .tg-k-fondo{position:absolute;inset:-24px;background:linear-gradient(135deg,#1f2937,#0b1220);background-size:cover;background-position:center;filter:blur(7px) brightness(0.62) saturate(1.2);}' +
+        '#tg-kernel-aviso .tg-k-fondo-b{filter:blur(20px) brightness(1) saturate(1.2);-webkit-mask-image:linear-gradient(to bottom,transparent 15%,#000 85%);mask-image:linear-gradient(to bottom,transparent 15%,#000 85%);}' +
+        '#tg-kernel-aviso .tg-k-titulo{margin-top:6px;font-size:15px;font-weight:600;letter-spacing:0.01em;padding:0 44px;}' +
+        '#tg-kernel-aviso .tg-k-marca{display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:4px;}' +
+        '#tg-kernel-aviso .tg-k-logo{display:block;width:72px;height:72px;}' +
+        '#tg-kernel-aviso .tg-k-nombre{font-size:clamp(26px,8vw,32px);font-weight:500;line-height:1.1;letter-spacing:-0.01em;}' +
+        '#tg-kernel-aviso .tg-k-sub{font-size:14px;opacity:0.92;}' +
+        '#tg-kernel-aviso .tg-k-cuerpo{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:4px 18px 20px;}' +
+        '#tg-kernel-aviso .tg-k-eti{font-size:13px;font-weight:600;color:var(--k-texto);}' +
+        '#tg-kernel-aviso .tg-k-notas{width:100%;padding:12px 14px;border-radius:16px;background:var(--k-card);border:1px solid var(--k-borde);color:var(--k-texto);' +
+        'font-size:13.5px;line-height:1.45;text-align:left;overflow-wrap:anywhere;}' +
+        '#tg-kernel-aviso .tg-k-btn{display:inline-flex;align-items:center;justify-content:center;min-width:220px;height:46px;padding:0 26px;margin-top:4px;border:0;border-radius:9999px;' +
+        'cursor:pointer;font:inherit;font-size:15px;font-weight:500;text-decoration:none;background:' + acento + ';color:' + acentoTexto + ';-webkit-tap-highlight-color:transparent;}' +
+        '#tg-kernel-aviso .tg-k-btn:active{transform:scale(0.97);}' +
+        '#tg-kernel-aviso .tg-k-pie{font-size:11.5px;color:var(--k-suave);text-align:center;line-height:1.35;}';
+
       const aviso = document.createElement('div');
       aviso.id = 'tg-kernel-aviso';
-      aviso.appendChild(est); aviso.appendChild(caja);
+      if (claro) aviso.className = 'tg-k-claro';
+      aviso.style.setProperty('--k-panel', claro ? 'rgba(244,246,251,0.72)' : 'rgba(18,18,20,0.62)');
+      aviso.style.setProperty('--k-card', claro ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)');
+      aviso.style.setProperty('--k-borde', claro ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.14)');
+      aviso.style.setProperty('--k-texto', claro ? '#1f1f1f' : '#ffffff');
+      aviso.style.setProperty('--k-suave', claro ? 'rgba(31,31,31,0.6)' : 'rgba(255,255,255,0.7)');
+      if (imagen) aviso.style.backgroundImage = imagen;
+
+      const NS = 'http://www.w3.org/2000/svg';
+      const el = function (tag, clase, texto) {
+        const e = document.createElement(tag);
+        if (clase) e.className = clase;
+        if (texto) e.textContent = texto;
+        return e;
+      };
+      // estrella de Gemini (la misma que usa el panel cuando no llega el icono)
+      const svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('class', 'tg-k-logo'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+      const defs = document.createElementNS(NS, 'defs');
+      const grad = document.createElementNS(NS, 'linearGradient');
+      grad.setAttribute('id', 'tg-k-grad'); grad.setAttribute('x1', '0'); grad.setAttribute('y1', '1'); grad.setAttribute('x2', '1'); grad.setAttribute('y2', '0');
+      [['0%', '#4285f4'], ['50%', '#9b72cb'], ['100%', '#d96570']].forEach(function (p) {
+        const s = document.createElementNS(NS, 'stop');
+        s.setAttribute('offset', p[0]); s.setAttribute('stop-color', p[1]); grad.appendChild(s);
+      });
+      defs.appendChild(grad);
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('fill', 'url(#tg-k-grad)');
+      path.setAttribute('d', 'M12 1.5c.6 5.6 4.9 9.9 10.5 10.5-5.6.6-9.9 4.9-10.5 10.5C11.4 17 7.1 12.7 1.5 12 7.1 11.4 11.4 7.1 12 1.5z');
+      svg.appendChild(defs); svg.appendChild(path);
+
+      const fondos = el('div', 'tg-k-fondos');
+      fondos.setAttribute('aria-hidden', 'true');
+      const f1 = el('div', 'tg-k-fondo'), f2 = el('div', 'tg-k-fondo tg-k-fondo-b');
+      if (imagen) { f1.style.backgroundImage = imagen; f2.style.backgroundImage = imagen; }
+      fondos.appendChild(f1); fondos.appendChild(f2);
+
+      const marca = el('div', 'tg-k-marca');
+      marca.appendChild(svg);
+      marca.appendChild(el('span', 'tg-k-nombre', 'Gemini Vibes nueva versión'));
+      const cab = el('div', 'tg-k-cab');
+      cab.appendChild(fondos);
+      cab.appendChild(el('div', 'tg-k-titulo', 'Actualización de la app'));
+      cab.appendChild(marca);
+      cab.appendChild(el('div', 'tg-k-sub', 'Requiere instalar la nueva versión de la app'));
+
+      const btn = el('a', 'tg-k-btn', 'Ir a GitHub');
+      btn.href = TG_URL_GITHUB_APP; btn.target = '_blank'; btn.rel = 'noopener';
+      btn.addEventListener('click', function (e) { e.preventDefault(); abrirGithubApp(); });
+      const cuerpo = el('div', 'tg-k-cuerpo');
+      cuerpo.appendChild(el('div', 'tg-k-eti', 'Notas de versión:'));
+      cuerpo.appendChild(el('div', 'tg-k-notas', 'Esta actualización cambia partes internas de la app, por eso no se puede instalar desde aquí. Para seguir actualizando, busca la nueva versión de la app en GitHub, descárgala e instálala.'));
+      cuerpo.appendChild(btn);
+      cuerpo.appendChild(el('div', 'tg-k-pie', 'Instala la nueva versión de la app para seguir usando Gemini Vibes.'));
+
+      const panel = el('div', 'tg-k-panel');
+      panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-label', 'Actualización de la app');
+      panel.appendChild(cab); panel.appendChild(cuerpo);
+      aviso.appendChild(est); aviso.appendChild(el('div', 'tg-k-velo')); aviso.appendChild(panel);
       document.documentElement.appendChild(aviso);
-      // fondo personalizado de Gemini (el mismo que eligió la persona): imagen/GIF desde las preferencias inyectadas,
-      // video desde IndexedDB. Si no hay ninguno, queda el fondo normal del body.
+
+      // fondo en VIDEO (si es lo que tiene guardado): se lee de IndexedDB y va detrás de todo
       try {
-        const pf = (window.TG_PREFS_INICIALES && typeof window.TG_PREFS_INICIALES === 'object') ? window.TG_PREFS_INICIALES : {};
         if (pf.geminiFondoTipo === 'video') {
           const r = indexedDB.open('tg-fondos-extension', 1);
           r.onsuccess = function () {
@@ -121,8 +199,6 @@
               g.onerror = function () { bd.close(); };
             } catch (e) { /* sin video: queda el fondo normal */ }
           };
-        } else if (typeof pf.geminiFondo === 'string' && pf.geminiFondo) {
-          aviso.style.background = 'url("' + pf.geminiFondo.replace(/"/g, '%22') + '") center / cover no-repeat';
         }
       } catch (e) { /* sin fondo personalizado: queda el fondo normal */ }
     };
