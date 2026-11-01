@@ -236,6 +236,18 @@ class _ContentScreenState extends State<ContentScreen>
   // ---- ACTUALIZACIONES (solo móvil) ----
   // El menú "Actualizaciones Gemini Vibes" de content.js habla con estos métodos por el handler 'tgActualizaciones'.
   static const bool _esMovil = !kIsWeb;
+
+  // KERNEL de la app: súbelo (1, 2, 3...) cuando cambies este Dart o agregues algo que el script necesite.
+  // Debe coincidir con TG_KERNEL de content.js; si no coinciden, content.js no activa nada y pide instalar la app nueva.
+  static const int _kernel = 1;
+
+  // Lee TG_KERNEL del texto de un script (null si no existe)
+  static int? _kernelDeScript(String? script) {
+    if (script == null) return null;
+    final m = RegExp(r'const\s+TG_KERNEL\s*=\s*(\d+)\s*;').firstMatch(script);
+    return m == null ? null : int.tryParse(m.group(1)!);
+  }
+
   String?
   _pendienteScript; // versión nueva ya descargada (se aplica con "Actualizar")
   bool _hayNueva = false;
@@ -330,7 +342,9 @@ class _ContentScreenState extends State<ContentScreen>
 
   Future<String> _leerPrefsComoJs() async {
     // TG_ES_MOVIL: content.js lo usa para mostrar el menú "Actualizaciones Gemini Vibes" SOLO en la app móvil
-    final movil = 'window.TG_ES_MOVIL = $_esMovil;';
+    // TG_KERNEL_DART: content.js lo compara con su propio TG_KERNEL (si no coinciden, no activa la extensión)
+    final movil =
+        'window.TG_ES_MOVIL = $_esMovil; window.TG_KERNEL_DART = $_kernel;';
     try {
       final mapa = await AlmacenPrefs.instancia.leerTodo();
       // jsonEncode produce JS válido; content.js lo lee al arrancar (window.TG_PREFS_INICIALES)
@@ -456,6 +470,9 @@ class _ContentScreenState extends State<ContentScreen>
       'verificadaIso': _verificadoEn?.toUtc().toIso8601String(),
       'remotaIso': _remotaFechaIso,
       'hayNueva': _hayNueva,
+      'kernelDart': _kernel,
+      // kernel del script nuevo ya descargado (null si no hay nuevo o no declara kernel); content.js decide qué hacer
+      'remotaKernel': _kernelDeScript(_pendienteScript),
     };
   }
 

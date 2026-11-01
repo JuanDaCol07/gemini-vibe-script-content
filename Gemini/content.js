@@ -16,7 +16,70 @@
 • Los ajustes de blur, Vibes, difuminado del scroll y scroll suave ahora se conservan al reiniciar la app.
 `;
 
+  // ============================================================================================
+  // KERNEL (compatibilidad entre este script y la app Flutter)
+  // - TG_KERNEL sube (1, 2, 3...) cada vez que un cambio necesita una app nueva (cambia el Dart, un handler, un elemento nuevo...).
+  // - content.dart tiene su propio kernel y lo publica en window.TG_KERNEL_DART. Si los dos NO coinciden (o el de la app no existe),
+  //   este script NO activa nada: solo muestra un aviso sobre la página de Gemini pidiendo instalar la nueva versión desde GitHub.
+  // - Desde el menú "Actualizaciones Gemini Vibes" se compara además el kernel del script NUEVO (remotaKernel) con este.
+  // - content.dart lee TG_KERNEL del script descargado: debe seguir en una sola declaración, empezando la línea con const.
+  // - Solo aplica dentro de la app móvil; en la extensión de Chrome no hay Dart y no se comprueba nada.
+  // ============================================================================================
+  const TG_KERNEL = 1;
+  const TG_URL_GITHUB_APP = 'https://github.com/JuanDaCol07/gemini-vibe-script-content/releases'; // <-- pon aquí la página de la app
+
   window.__tgCargado = 'opt-2'; // marcador: Flutter lo lee para confirmar qué versión del script se inyectó
+
+  // ¿estamos dentro de la app de Flutter? (el user agent del WebView de Android lleva "; wv)")
+  const ES_APP_FLUTTER = (function () {
+    try {
+      return window.TG_ES_MOVIL === true || !!window.flutter_inappwebview || /;\s*wv\)/.test(navigator.userAgent || '');
+    } catch (e) { return false; }
+  })();
+  const KERNEL_DART = (function () {
+    const bruto = window.TG_KERNEL_DART;
+    if (bruto === undefined || bruto === null || bruto === '') return null;
+    const k = Number(bruto);
+    return isFinite(k) ? k : null;
+  })();
+  const KERNEL_INCOMPATIBLE = ES_APP_FLUTTER && KERNEL_DART !== TG_KERNEL;
+
+  function pantallaKernelIncompatible() {
+    const montar = function () {
+      if (document.getElementById('tg-kernel-aviso')) return;
+      const est = document.createElement('style');
+      est.textContent =
+        '#tg-kernel-aviso{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:20px;' +
+        'background:rgba(0,0,0,0.6);font-family:"Google Sans","Segoe UI",system-ui,sans-serif;color:#fff;}' +
+        '#tg-kernel-aviso .tg-k-caja{max-width:360px;width:100%;padding:26px 22px;border-radius:24px;background:rgba(24,25,28,0.96);text-align:center;}' +
+        '#tg-kernel-aviso h2{margin:0 0 10px;font-size:20px;font-weight:600;}' +
+        '#tg-kernel-aviso p{margin:0 0 18px;font-size:14.5px;line-height:1.45;opacity:0.9;}' +
+        '#tg-kernel-aviso a{display:inline-block;padding:12px 26px;border-radius:9999px;background:#0059ff;color:#fff;text-decoration:none;font-size:15px;font-weight:500;}';
+      const caja = document.createElement('div');
+      caja.className = 'tg-k-caja';
+      const t = document.createElement('h2'); t.textContent = 'Actualización necesaria';
+      const p = document.createElement('p');
+      p.textContent = 'Gemini Vibes necesita una versión más nueva de la app para seguir funcionando. Descárgala e instálala desde GitHub.';
+      const a = document.createElement('a');
+      a.href = TG_URL_GITHUB_APP; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Ir a GitHub';
+      caja.appendChild(t); caja.appendChild(p); caja.appendChild(a);
+      const aviso = document.createElement('div');
+      aviso.id = 'tg-kernel-aviso';
+      aviso.appendChild(est); aviso.appendChild(caja);
+      document.documentElement.appendChild(aviso);
+    };
+    if (document.body) montar(); else document.addEventListener('DOMContentLoaded', montar, { once: true });
+  }
+  if (KERNEL_INCOMPATIBLE) {
+    // todo lo demás queda desactivado: no se crea ninguna hoja de estilo, observer, bloqueo ni menú
+    console.warn('[tg] kernel incompatible: script=' + TG_KERNEL + ' app=' + KERNEL_DART);
+    pantallaKernelIncompatible();
+    return;
+  }
+  // ¿el script nuevo encontrado en GitHub necesita otra app? (remotaKernel lo calcula Dart leyendo TG_KERNEL del script descargado)
+  function kernelRemotoDistinto(d) {
+    return !!d && !!d.hayNueva && (d.remotaKernel === undefined || d.remotaKernel === null || Number(d.remotaKernel) !== TG_KERNEL);
+  }
   // PANTALLA DE BLOQUEO (se muestra al cargar la página; ESPACIO la sube y el body entra con zoom;
   // ALT + L la vuelve a bajar para bloquear de nuevo)
   // Se activa/desactiva con el interruptor del panel Personalizar. Se guarda en chrome.storage (geminiBloqueoActivo) y se
@@ -4075,22 +4138,26 @@ p.gds-body-s.ng-star-inserted {
       const d = S.d;
       const nueva = S.fase === 'nueva' || S.fase === 'actualizando';
       const alDia = S.fase === 'alDia';
+      const kern = S.fase === 'kernel'; // hay versión nueva, pero necesita instalar una app nueva (kernel distinto)
       const ocupado = S.fase === 'buscando' || S.fase === 'actualizando';
-      q('titulo').textContent = nueva ? 'Nueva actualización' : 'Actualizaciones';
-      q('nombre').textContent = 'Gemini Vibes ' + (nueva ? ((d && d.remotaVersion) || 'nueva versión') : TG_VERSION);
-      q('sub').textContent = nueva ? '¡Más hermoso que nunca!'
+      q('titulo').textContent = kern ? 'Actualización de la app' : nueva ? 'Nueva actualización' : 'Actualizaciones';
+      q('nombre').textContent = 'Gemini Vibes ' + ((nueva || kern) ? ((d && d.remotaVersion) || 'nueva versión') : TG_VERSION);
+      q('sub').textContent = kern ? 'Requiere instalar la nueva versión de la app'
+        : nueva ? '¡Más hermoso que nunca!'
         : !d ? '' : (d.origen === 'asset' || !d.instaladaIso) ? 'Versión incluida en la app' : 'Actualizado el ' + fechaLarga(d.instaladaIso);
-      const textoNotas = nueva ? (((d && d.remotaNotas) || '').trim() || 'Esta versión no incluye notas.') : (TG_NOTAS_VERSION.trim() || 'Sin notas de versión.');
+      const textoNotas = kern ? 'Esta actualización cambia partes internas de la app, por eso no se puede instalar desde aquí. Para seguir actualizando, busca la nueva versión de la app en GitHub, descárgala e instálala.'
+        : nueva ? (((d && d.remotaNotas) || '').trim() || 'Esta versión no incluye notas.') : (TG_NOTAS_VERSION.trim() || 'Sin notas de versión.');
       if (S.notas !== textoNotas) { S.notas = textoNotas; q('notas').textContent = textoNotas; q('notas').scrollTop = 0; }
       q('ok').hidden = !alDia;
       const btn = q('btn');
       btn.hidden = alDia;
       btn.disabled = ocupado;
       btn.toggleAttribute('data-ocupado', ocupado);
-      q('btn-txt').textContent = S.fase === 'buscando' ? 'Buscando…' : S.fase === 'actualizando' ? 'Actualizando…' : nueva ? 'Actualizar' : 'Buscar actualizaciones';
+      q('btn-txt').textContent = S.fase === 'buscando' ? 'Buscando…' : S.fase === 'actualizando' ? 'Actualizando…' : kern ? 'Ir a GitHub' : nueva ? 'Actualizar' : 'Buscar actualizaciones';
       q('err').textContent = S.error;
       q('err').hidden = !S.error;
       q('pie').textContent = S.fase === 'actualizando' ? 'Aplicando… la página de Gemini se recargará en un momento.'
+        : kern ? 'Tu versión actual seguirá funcionando hasta que instales la nueva app.'
         : nueva ? 'Esta actualización reiniciará la página de Gemini para incluir los nuevos cambios'
         : !d ? '' : 'Última comprobación de actualizaciones: ' + (d.verificadaIso ? fechaLarga(d.verificadaIso) : 'Nunca');
     }
@@ -4098,6 +4165,7 @@ p.gds-body-s.ng-star-inserted {
 
     q('btn').addEventListener('click', () => {
       if (S.fase === 'buscando' || S.fase === 'actualizando') return;
+      if (S.fase === 'kernel') { try { window.open(TG_URL_GITHUB_APP, '_blank'); } catch (e) { /* sin window.open */ } return; }
       if (S.fase === 'nueva') { // ACTUALIZAR: Dart guarda el script y recarga la página
         S.fase = 'actualizando'; S.error = ''; render();
         llamarActualizaciones('actualizar').then((r) => {
@@ -4109,7 +4177,7 @@ p.gds-body-s.ng-star-inserted {
       } else { // BUSCAR
         S.fase = 'buscando'; S.error = ''; render();
         llamarActualizaciones('verificar').then((r) => {
-          if (r && r.ok !== false) { S.d = Object.assign(S.d || {}, r); S.fase = r.hayNueva ? 'nueva' : 'alDia'; }
+          if (r && r.ok !== false) { S.d = Object.assign(S.d || {}, r); S.fase = kernelRemotoDistinto(r) ? 'kernel' : r.hayNueva ? 'nueva' : 'alDia'; }
           else { S.fase = 'inicio'; S.error = (r && r.error) || 'No se pudo comprobar.'; }
         }).catch((e) => { S.fase = 'inicio'; S.error = msj(e); }).then(render);
       }
@@ -4130,7 +4198,7 @@ p.gds-body-s.ng-star-inserted {
     // estado inicial: si ya se había encontrado una versión nueva, se abre directo en la pantalla "Nueva actualización"
     llamarActualizaciones('estado', !window.__tgIconoCache).then((r) => {
       if (r && r.icono) { window.__tgIconoCache = r.icono; ponerLogo(); }
-      if (r && r.ok !== false) { S.d = r; S.fase = r.hayNueva ? 'nueva' : 'inicio'; }
+      if (r && r.ok !== false) { S.d = r; S.fase = kernelRemotoDistinto(r) ? 'kernel' : r.hayNueva ? 'nueva' : 'inicio'; }
       else S.error = (r && r.error) || 'No se pudo consultar.';
     }).catch((e) => { S.error = msj(e); }).then(render);
   }
