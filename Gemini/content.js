@@ -117,6 +117,9 @@
   } catch (e) { /* sin localStorage: queda en alta */ }
   let sinBlur = nivelBlur === 'baja'; // atajo para el JS (vuelo de la burbuja): true solo en "baja"
   let alCambiarNivelBlur = null;      // hook: lo asigna la sección de la burbuja (transparencia fija en "baja")
+  // TECLADO (app móvil, ver tgSetTeclado): px del teclado que de verdad TAPAN la página (0 = cerrado o ya redimensionada por Android)
+  // y px que se ha subido la caja de escribir en este instante. El fade de abajo los lee para terminar donde empieza el teclado.
+  let tecladoKbEf = 0, tecladoAplicado = 0;
   // QUITAR DIFUMINADO DEL SCROLL (todos los niveles; clave geminiSinFade; por defecto apagado): no hay ningún fade arriba/abajo del chat
   const SINFADE_CLAVE_LS = 'tg-sin-fade';
   let sinFadeScroll = false;
@@ -3456,9 +3459,9 @@ p.gds-body-s.ng-star-inserted {
       .sidenav-with-history-container.mobile { padding-top: var(--tg-safe-top, 0px) !important; box-sizing: border-box !important; }
       /* TECLADO EN LA APP MÓVIL: el WebView no cambia de tamaño; Flutter manda la altura (window.tgSetTeclado) y se sube la caja
          de escribir con "translate" (no pisa ningún transform de Gemini). Con Vibes encendido o apagado. */
-      html[data-tg-teclado] input-container { translate: 0 calc(-1 * var(--tg-teclado, 0px)) !important; transition: translate 0.18s ease-out; will-change: translate; }
+      /* sin transición CSS: el JS anima --tg-teclado fotograma a fotograma (así el fade de abajo sigue a la caja sin desfase) */
+      html[data-tg-teclado] input-container { translate: 0 calc(-1 * var(--tg-teclado, 0px)) !important; will-change: translate; }
       html[data-tg-teclado] infinite-scroller { padding-bottom: calc(120px + var(--tg-teclado, 0px)) !important; }
-      @media (prefers-reduced-motion: reduce) { html[data-tg-teclado] input-container { transition: none; } }
     `;
     document.head.appendChild(b);
   })();
@@ -4437,7 +4440,7 @@ p.gds-body-s.ng-star-inserted {
   // setInterval que no trabaja con la pestaña oculta
   const cada = (fn, ms) => setInterval(() => { if (!document.hidden && !pantallaBloqueada) { try { fn(); } catch (e) { console.warn('[tg] ' + fn.name + ':', e); } } }, ms);
 
-  Tareas.registrar('layout', () => { actualizarVarSafeTop(); limpiarCapasEtiqueta(); alinearHeaderAngosto(); alinearMultimedia(); asegurarFadeChat(); });
+  Tareas.registrar('layout', () => { if (tecladoAplicado > 0 || tecladoKbEf > 0) { try { aplicarTeclado(); } catch (e) { /* aún no definido */ } } actualizarVarSafeTop(); limpiarCapasEtiqueta(); alinearHeaderAngosto(); alinearMultimedia(); asegurarFadeChat(); });
   Tareas.registrar('menuLateral', () => { marcarCapasMenuLateral(); actualizarFondoMenuLateral(); });
   Tareas.registrar('cero', () => actualizarFondoCero());
   Tareas.registrar('tema', () => revisarTemaBody());
@@ -5272,14 +5275,17 @@ p.gds-body-s.ng-star-inserted {
     if (barra) { const r = barra.getBoundingClientRect(); if (r.height > 0) hArriba = Math.min(Math.max(r.bottom - topBase + (angosta ? 20 : 24), angosta ? 95 : 80), 260); }
     // ABAJO: queda POR DETRÁS de la caja de escribir, desde un poco antes de su borde superior hasta el fondo de la pantalla
     const vh = window.innerHeight;
-    let topAbajo = vh - (angosta ? 150 : 170);
+    // con el teclado abierto el fade termina donde EMPIEZA el teclado (lo que queda debajo no se ve) y sigue a la caja de escribir
+    const kbEf = tecladoKbEf;
+    const vhVis = vh - kbEf;
+    let topAbajo = vhVis - (angosta ? 150 : 170);
     if (pildora) {
       const r = pildora.getBoundingClientRect();
       if (r.height > 0) topAbajo = r.top - (angosta ? 28 : 40) - (modoFade === 'lite' ? FADE_LITE_ALTO_EXTRA_ABAJO : 0);
       if (!pildora._tgFadeRO && window.ResizeObserver) { pildora._tgFadeRO = new ResizeObserver(() => Tareas.marcar('layout')); pildora._tgFadeRO.observe(pildora); }
     }
-    topAbajo = Math.min(Math.max(topAbajo, topBase + 120), vh - 40);
-    const hAbajo = Math.max(vh - topAbajo, 60);
+    topAbajo = Math.min(Math.max(topAbajo, topBase + 120), vhVis - 40);
+    const hAbajo = Math.max(vhVis - topAbajo, 60);
     const desdeAbajo = cr.bottom - vh; // negativo si el chat termina antes del fondo: el fade llega hasta el borde de la pantalla
     // header y caja de escribir quedan ENCIMA del fade (no se desenfocan). Se hace una sola vez por elemento
     const menuIzq = document.querySelector('.side-nav-menu-button');
@@ -5305,14 +5311,14 @@ p.gds-body-s.ng-star-inserted {
         raiz.classList.toggle('tg-fade-imagen', !!img);
       }
     }
-    const clave = [cr.left, topBase, cr.width, altoBase, hArriba, hAbajo, desdeAbajo].concat(modoFade === 'lite' ? [window.innerWidth, window.innerHeight] : []).map((v) => Math.round(v * 10) / 10).join('|');
+    const clave = [cr.left, topBase, cr.width, altoBase, hArriba, hAbajo, desdeAbajo, kbEf].concat(modoFade === 'lite' ? [window.innerWidth, window.innerHeight] : []).map((v) => Math.round(v * 10) / 10).join('|');
     if (raiz._tgClave === clave) return;
     raiz._tgClave = clave;
     raiz.style.setProperty('--tg-fade-h-a', hArriba + 'px');
     raiz.querySelector('.tg-fade-arriba').style.setProperty('--tg-fade-h', hArriba + 'px');
     const cajaAbajo = raiz.querySelector('.tg-fade-abajo');
     cajaAbajo.style.setProperty('--tg-fade-h', hAbajo + 'px');
-    cajaAbajo.style.bottom = desdeAbajo + 'px';
+    cajaAbajo.style.bottom = (desdeAbajo + kbEf) + 'px';
     raiz.style.left = cr.left + 'px'; raiz.style.top = topBase + 'px';
     raiz.style.width = cr.width + 'px'; raiz.style.height = altoBase + 'px';
     // calibración: si algún ancestro tiene transform/filter, "fixed" se mide contra él y quedaría corrido; se corrige con lo que se mide
