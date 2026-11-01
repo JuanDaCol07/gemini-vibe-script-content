@@ -180,10 +180,12 @@
     const est = document.createElement('style');
     est.id = 'tg-sin-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
     est.textContent = `
-      html.tg-sin-blur *, html.tg-sin-blur *::before, html.tg-sin-blur *::after {
+      /* la pantalla de bloqueo y la de PIN (y todo lo que llevan dentro) NO se tocan: conservan su desenfoque */
+      html.tg-sin-blur :not(#tg-bloqueo):not(#tg-bloqueo *):not(#tg-pin):not(#tg-pin *):not(#tg-bloqueo-fondo),
+      html.tg-sin-blur :not(#tg-bloqueo):not(#tg-bloqueo *):not(#tg-pin):not(#tg-pin *)::before,
+      html.tg-sin-blur :not(#tg-bloqueo):not(#tg-bloqueo *):not(#tg-pin):not(#tg-pin *)::after {
         -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
       }
-      html.tg-sin-blur #tg-pin .tg-pin-fondo { filter: brightness(0.5) saturate(1.1) !important; inset: 0 !important; }
       html.tg-sin-blur body [data-tg-puntos-retraso="oculto"] { filter: none !important; }
       html.tg-sin-blur #tg-fade-chat { display: none !important; }
       /* el interruptor "Desactivar desenfoque" nunca lleva blur (ni con el ajuste apagado ni encendido): su aspecto no cambia al usarlo */
@@ -891,29 +893,36 @@
         }, Math.max(BLOQUEO_DURACION_MS, 400) + 80);
       }
 
+      // DESLIZAR HACIA ARRIBA: basta con subir ~18 % de la pantalla (entre 70 y 150 px), o dar un "flick" rápido
+      const BLOQUEO_FLICK_PX_MS = 0.45;
+      const BLOQUEO_UMBRAL_PX = () => Math.max(70, Math.min(window.innerHeight * 0.18, 150));
       let arrastre = null;
       pantalla.addEventListener('pointerdown', (e) => {
         if (!e.isPrimary || e.button !== 0 || desbloqueado || enPin) return;
-        arrastre = { pointerId: e.pointerId, inicioY: e.clientY, distancia: 0 };
+        arrastre = { pointerId: e.pointerId, inicioY: e.clientY, distancia: 0, t: performance.now(), y: e.clientY, vel: 0 };
         pantalla.classList.add('tg-arrastrando');
         pantalla.setPointerCapture(e.pointerId);
       });
       pantalla.addEventListener('pointermove', (e) => {
         if (!arrastre || e.pointerId !== arrastre.pointerId) return;
         arrastre.distancia = Math.max(0, arrastre.inicioY - e.clientY);
+        const ahora = performance.now(), dt = ahora - arrastre.t;
+        if (dt > 0) { arrastre.vel = (arrastre.y - e.clientY) / dt; arrastre.t = ahora; arrastre.y = e.clientY; } // px/ms hacia arriba
         pantalla.style.transform = 'translateY(-' + arrastre.distancia + 'px)';
-        pantalla.style.setProperty('--tg-bloqueo-blur', Math.min(12, arrastre.distancia / Math.max(window.innerHeight, 1) * 12) + 'px');
+        pantalla.style.setProperty('--tg-bloqueo-blur', Math.min(12, arrastre.distancia / BLOQUEO_UMBRAL_PX() * 12) + 'px');
       });
       function terminarArrastre(e, permitirDesbloqueo) {
         if (!arrastre || e.pointerId !== arrastre.pointerId) return;
         if (permitirDesbloqueo) arrastre.distancia = Math.max(0, arrastre.inicioY - e.clientY);
         const distancia = arrastre.distancia;
+        const arrastre_vel = arrastre.vel;
         arrastre = null;
         if (pantalla.hasPointerCapture(e.pointerId)) pantalla.releasePointerCapture(e.pointerId);
         pantalla.classList.remove('tg-arrastrando');
         pantalla.style.removeProperty('transform');
         pantalla.style.removeProperty('--tg-bloqueo-blur');
-        if (permitirDesbloqueo && distancia >= Math.min(window.innerHeight * 1, 500)) mostrarPin();
+        const vel = arrastre_vel;
+        if (permitirDesbloqueo && (distancia >= BLOQUEO_UMBRAL_PX() || (vel > BLOQUEO_FLICK_PX_MS && distancia > 30))) mostrarPin();
       }
       pantalla.addEventListener('pointerup', (e) => terminarArrastre(e, true));
       pantalla.addEventListener('pointercancel', (e) => terminarArrastre(e, false));
