@@ -1,4 +1,20 @@
 (function () {
+
+  // ============================================================================================
+  // KERNEL (compatibilidad entre este script y la app Flutter)
+  // - TG_KERNEL sube (1, 2, 3...) cada vez que un cambio necesita una app nueva (cambia el Dart, un handler, un elemento nuevo...).
+  // - content.dart tiene su propio kernel y lo publica en window.TG_KERNEL_DART. Si los dos NO coinciden (o el de la app no existe),
+  //   este script NO activa nada: solo muestra un aviso sobre la página de Gemini pidiendo instalar la nueva versión desde GitHub.
+  // - Desde el menú "Actualizaciones Gemini Vibes" se compara además el kernel del script NUEVO (remotaKernel) con este.
+  // - content.dart lee TG_KERNEL del script descargado: debe seguir en una sola declaración, empezando la línea con const.
+  // - Solo aplica dentro de la app móvil; en la extensión de Chrome no hay Dart y no se comprueba nada.
+  // ============================================================================================
+
+
+
+  const TG_KERNEL = 2; // No cambies esto, YO lo cambiare si es nesesario.
+
+
   // ============================================================================================
   // VERSIÓN Y NOTAS DE VERSIÓN (lo primero del script: es lo único que hay que editar en cada release)
   // - TG_VERSION: número que se muestra en el menú "Actualizaciones Gemini Vibes" (app móvil).
@@ -16,16 +32,8 @@
 • Los ajustes de blur, Vibes, difuminado del scroll y scroll suave ahora se conservan al reiniciar la app.
 `;
 
-  // ============================================================================================
-  // KERNEL (compatibilidad entre este script y la app Flutter)
-  // - TG_KERNEL sube (1, 2, 3...) cada vez que un cambio necesita una app nueva (cambia el Dart, un handler, un elemento nuevo...).
-  // - content.dart tiene su propio kernel y lo publica en window.TG_KERNEL_DART. Si los dos NO coinciden (o el de la app no existe),
-  //   este script NO activa nada: solo muestra un aviso sobre la página de Gemini pidiendo instalar la nueva versión desde GitHub.
-  // - Desde el menú "Actualizaciones Gemini Vibes" se compara además el kernel del script NUEVO (remotaKernel) con este.
-  // - content.dart lee TG_KERNEL del script descargado: debe seguir en una sola declaración, empezando la línea con const.
-  // - Solo aplica dentro de la app móvil; en la extensión de Chrome no hay Dart y no se comprueba nada.
-  // ============================================================================================
-  const TG_KERNEL = 1;
+  
+  
   const TG_URL_GITHUB_APP = 'https://github.com/JuanDaCol07/gemini-vibe-script-content/releases'; // <-- pon aquí la página de la app
 
   window.__tgCargado = 'opt-2'; // marcador: Flutter lo lee para confirmar qué versión del script se inyectó
@@ -48,6 +56,18 @@
   })();
   const KERNEL_INCOMPATIBLE = ES_APP_FLUTTER && ES_PAGINA_GEMINI && KERNEL_DART !== TG_KERNEL;
 
+  // abre la página de la app en el navegador del teléfono: primero por el handler de Flutter (url_launcher); si la app no lo tiene, window.open
+  function abrirGithubApp() {
+    const respaldo = function () { try { window.open(TG_URL_GITHUB_APP, '_blank'); } catch (e) { /* sin window.open */ } };
+    try {
+      if (window.flutter_inappwebview && typeof window.flutter_inappwebview.callHandler === 'function') {
+        Promise.resolve(window.flutter_inappwebview.callHandler('abrirExterno', TG_URL_GITHUB_APP))
+          .then(function (ok) { if (ok !== true) respaldo(); }, respaldo);
+        return;
+      }
+    } catch (e) { /* cae al respaldo */ }
+    respaldo();
+  }
   function pantallaKernelIncompatible() {
     const montar = function () {
       if (document.getElementById('tg-kernel-aviso')) return;
@@ -69,6 +89,7 @@
       p.textContent = 'Gemini Vibes necesita una versión más nueva de la app para seguir funcionando. Descárgala e instálala desde GitHub.';
       const a = document.createElement('a');
       a.href = TG_URL_GITHUB_APP; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Ir a GitHub';
+      a.addEventListener('click', function (e) { e.preventDefault(); abrirGithubApp(); });
       caja.appendChild(t); caja.appendChild(p); caja.appendChild(a);
       const aviso = document.createElement('div');
       aviso.id = 'tg-kernel-aviso';
@@ -4202,7 +4223,7 @@ p.gds-body-s.ng-star-inserted {
 
     q('btn').addEventListener('click', () => {
       if (S.fase === 'buscando' || S.fase === 'actualizando') return;
-      if (S.fase === 'kernel') { try { window.open(TG_URL_GITHUB_APP, '_blank'); } catch (e) { /* sin window.open */ } return; }
+      if (S.fase === 'kernel') { abrirGithubApp(); return; }
       if (S.fase === 'nueva') { // ACTUALIZAR: Dart guarda el script y recarga la página
         S.fase = 'actualizando'; S.error = ''; render();
         llamarActualizaciones('actualizar').then((r) => {

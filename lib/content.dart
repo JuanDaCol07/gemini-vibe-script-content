@@ -10,6 +10,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // =============================================================================
 // ALMACÉN DE PREFERENCIAS (puente con content.js)
@@ -743,6 +744,26 @@ class _ContentScreenState extends State<ContentScreen>
               AlmacenPrefs.instancia.guardar(args[0] as String, args[1]),
             );
             return true;
+          },
+        );
+
+        // content.js -> Flutter: abrir un enlace de GitHub en el navegador del teléfono (solo https y github.com)
+        controller.addJavaScriptHandler(
+          handlerName: 'abrirExterno',
+          callback: (args) async {
+            try {
+              if (args.isEmpty) return false;
+              final u = Uri.parse('${args[0]}');
+              final host = u.host.toLowerCase();
+              if (u.scheme != 'https' ||
+                  !(host == 'github.com' || host.endsWith('.github.com'))) {
+                return false;
+              }
+              return await launchUrl(u, mode: LaunchMode.externalApplication);
+            } catch (e) {
+              debugPrint('[tg] abrirExterno falló: $e');
+              return false;
+            }
           },
         );
 
