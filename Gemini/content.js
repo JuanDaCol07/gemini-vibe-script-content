@@ -486,30 +486,50 @@
         padding: 0 20px; transform: scale(0.94); transition: transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
       }
       #tg-pin.tg-pin-visible .tg-pin-contenido { transform: scale(1); }
-      #tg-pin .tg-pin-sub { font-size: 15px; opacity: 0.75; }
-      #tg-pin .tg-pin-titulo { margin: 0; font-size: clamp(26px, 4.4vw, 48px); font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; }
-      #tg-pin .tg-pin-cajas { position: relative; display: flex; gap: 8px; margin-top: 14px; }
-      /* input real e invisible sobre las cajas: recibe el foco (abre el teclado numérico del móvil) y un toque en las cajas lo vuelve a enfocar */
-      #tg-pin .tg-pin-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; outline: 0; background: transparent; color: transparent; caret-color: transparent; font-size: 16px; opacity: 0.01; z-index: 2; -webkit-appearance: none; appearance: none; }
-      #tg-pin .tg-pin-caja {
-        width: 56px; height: 72px; box-sizing: border-box; border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.4); background: rgba(0, 0, 0, 0.4);
-        -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-        display: flex; align-items: center; justify-content: center; font-size: 32px; line-height: 1;
-        transition: border-color 150ms ease, transform 150ms ease, background 150ms ease;
+      #tg-pin { --tg-k: clamp(62px, min(19vw, 10.5vh), 84px); --tg-kgap: clamp(12px, 3.6vw, 20px); }
+      #tg-pin .tg-pin-contenido { gap: 8px; }
+      #tg-pin .tg-pin-titulo { margin: 0; font-size: clamp(22px, 3.2vw, 28px); font-weight: 500; line-height: 1.2; letter-spacing: -0.01em; }
+      #tg-pin .tg-pin-sub { font-size: 15px; opacity: 0.8; }
+      /* puntos del PIN: círculos vacíos que se rellenan al teclear */
+      #tg-pin .tg-pin-puntos { display: flex; gap: 22px; margin: 18px 0 6px; }
+      #tg-pin .tg-pin-punto {
+        width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%;
+        border: 1.5px solid rgba(255, 255, 255, 0.9); background: transparent;
+        transition: background-color 150ms ease, transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
       }
-      #tg-pin .tg-pin-caja.tg-llena { border-color: rgba(255, 255, 255, 0.95); background: rgba(255, 255, 255, 0.14); transform: scale(1.04); }
-      #tg-pin .tg-pin-caja.tg-activa { border-color: rgba(255, 255, 255, 0.8); }
-      #tg-pin .tg-pin-cajas.tg-error { animation: tgPinSacudir 420ms ease; }
-      #tg-pin .tg-pin-cajas.tg-error .tg-pin-caja { border-color: #ff6b6b; }
+      #tg-pin .tg-pin-punto.tg-llena { background: #fff; transform: scale(1.12); }
+      #tg-pin .tg-pin-puntos.tg-error { animation: tgPinSacudir 420ms ease; }
+      #tg-pin .tg-pin-puntos.tg-error .tg-pin-punto { border-color: #ff6b6b; }
+      #tg-pin .tg-pin-puntos.tg-error .tg-pin-punto.tg-llena { background: #ff6b6b; }
       #tg-pin .tg-pin-msg { min-height: 20px; font-size: 14px; color: #ff9b9b; }
-      #tg-pin .tg-pin-olvido {
-        position: absolute; bottom: 7vh; left: 50%; transform: translateX(-50%); z-index: 1;
-        background: none; border: 0; color: #fff; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; padding: 8px 14px; border-radius: 9999px;
+      /* teclado numérico: botones redondos de cristal (mismo estilo que los botones de la extensión) */
+      #tg-pin .tg-pin-teclado { display: grid; grid-template-columns: repeat(3, var(--tg-k)); gap: var(--tg-kgap); justify-content: center; margin-top: 6px; }
+      #tg-pin .tg-pin-tecla {
+        width: var(--tg-k); height: var(--tg-k); padding: 0; margin: 0; box-sizing: border-box; border-radius: 50%; cursor: pointer;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(0, 0, 0, 0.4); color: #fff;
+        font-family: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation; outline: 0;
+        -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+        transition: transform 0.2s ease, background-color 0.15s ease, border-color 0.15s ease;
       }
-      #tg-pin .tg-pin-olvido:hover { background: rgba(255, 255, 255, 0.12); }
+      #tg-pin .tg-pin-tecla:hover { transform: scale(1.06); }
+      #tg-pin .tg-pin-tecla:active, #tg-pin .tg-pin-tecla.tg-pulsada { transform: scale(0.92); background: rgba(255, 255, 255, 0.28); border-color: rgba(255, 255, 255, 0.6); transition-duration: 0.05s; }
+      #tg-pin .tg-pin-tecla:focus-visible { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5); }
+      #tg-pin .tg-pin-tecla-num { font-size: calc(var(--tg-k) * 0.44); font-weight: 400; line-height: 1; }
+      #tg-pin .tg-pin-tecla-letras { font-size: calc(var(--tg-k) * 0.13); font-weight: 600; letter-spacing: 0.2em; text-indent: 0.2em; line-height: 1; min-height: calc(var(--tg-k) * 0.13); opacity: 0.9; }
+      #tg-pin .tg-pin-tecla-cero { grid-column: 2; }
+      /* fila de abajo: "¿Olvidaste el PIN?" a la izquierda y Cancelar/Borrar a la derecha */
+      #tg-pin .tg-pin-pie { display: flex; justify-content: space-between; align-items: center; width: calc(var(--tg-k) * 3 + var(--tg-kgap) * 2); margin-top: 14px; }
+      #tg-pin .tg-pin-accion {
+        background: none; border: 0; color: #fff; font: inherit; font-size: 16px; cursor: pointer; padding: 8px 12px; border-radius: 9999px;
+        transition: background-color 0.15s ease, transform 0.2s ease; -webkit-tap-highlight-color: transparent; outline: 0;
+      }
+      #tg-pin .tg-pin-accion:hover { background: rgba(255, 255, 255, 0.12); }
+      #tg-pin .tg-pin-accion:active { transform: scale(0.95); }
+      #tg-pin .tg-pin-accion:focus-visible { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5); }
+      #tg-pin .tg-pin-olvido { font-size: 14px; opacity: 0.9; }
       @keyframes tgPinSacudir { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-12px); } 40% { transform: translateX(10px); } 60% { transform: translateX(-8px); } 80% { transform: translateX(5px); } }
-      @media (prefers-reduced-motion: reduce) { #tg-pin, #tg-pin .tg-pin-contenido { transition: none; } #tg-pin .tg-pin-cajas.tg-error { animation: none; } }
+      @media (prefers-reduced-motion: reduce) { #tg-pin, #tg-pin .tg-pin-contenido, #tg-pin .tg-pin-tecla, #tg-pin .tg-pin-punto { transition: none; } #tg-pin .tg-pin-puntos.tg-error { animation: none; } }
       @keyframes tgBloqueoFlota { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -8px); } }
       @media (prefers-reduced-motion: reduce) { #tg-bloqueo .tg-b-pista { animation: none; } }
     `;
@@ -592,17 +612,26 @@
       } catch (e) { /* queda solo en memoria */ }
     }
 
+    const PIN_TECLAS = [
+      { n: '1', l: '' }, { n: '2', l: 'ABC' }, { n: '3', l: 'DEF' }, { n: '4', l: 'GHI' }, { n: '5', l: 'JKL' },
+      { n: '6', l: 'MNO' }, { n: '7', l: 'PQRS' }, { n: '8', l: 'TUV' }, { n: '9', l: 'WXYZ' }, { n: '0', l: '' }
+    ];
     function crearPantallaPin(opc) {
       const pin = h('div', { id: 'tg-pin' },
         h('div', { class: 'tg-pin-fondo' }),
         h('div', { class: 'tg-pin-contenido' },
-          h('div', { class: 'tg-pin-sub' }),
           h('h1', { class: 'tg-pin-titulo' }),
-          h('div', { class: 'tg-pin-cajas' }, Array.from({ length: BLOQUEO_PIN_LARGO }, () => h('span', { class: 'tg-pin-caja' })),
-            h('input', { class: 'tg-pin-input', type: 'tel', inputmode: 'numeric', pattern: '[0-9]*', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', maxlength: BLOQUEO_PIN_LARGO, 'aria-label': 'Código PIN' })),
-          h('div', { class: 'tg-pin-msg', role: 'alert' })
-        ),
-        h('button', { type: 'button', class: 'tg-pin-olvido' }, '¿Olvidaste el PIN?')
+          h('div', { class: 'tg-pin-sub' }),
+          h('div', { class: 'tg-pin-puntos', 'aria-hidden': 'true' }, Array.from({ length: BLOQUEO_PIN_LARGO }, () => h('span', { class: 'tg-pin-punto' }))),
+          h('div', { class: 'tg-pin-msg', role: 'alert' }),
+          h('div', { class: 'tg-pin-teclado' },
+            PIN_TECLAS.map((t) => h('button', { type: 'button', class: 'tg-pin-tecla' + (t.n === '0' ? ' tg-pin-tecla-cero' : ''), 'data-d': t.n, 'aria-label': t.n },
+              h('span', { class: 'tg-pin-tecla-num' }, t.n),
+              h('span', { class: 'tg-pin-tecla-letras' }, t.l)))),
+          h('div', { class: 'tg-pin-pie' },
+            h('button', { type: 'button', class: 'tg-pin-accion tg-pin-olvido' }, '¿Olvidaste el PIN?'),
+            h('button', { type: 'button', class: 'tg-pin-accion tg-pin-borrar' }, 'Cancelar'))
+        )
       );
       // mismo fondo que el bloqueo (queda difuminado por CSS)
       const fondoPin = pin.querySelector('.tg-pin-fondo');
@@ -618,11 +647,11 @@
 
       const elSub = pin.querySelector('.tg-pin-sub');
       const elTitulo = pin.querySelector('.tg-pin-titulo');
-      const elCajas = pin.querySelector('.tg-pin-cajas');
-      const cajas = [...pin.querySelectorAll('.tg-pin-caja')];
-      const inputPin = pin.querySelector('.tg-pin-input');
+      const elCajas = pin.querySelector('.tg-pin-puntos');
+      const cajas = [...pin.querySelectorAll('.tg-pin-punto')];
       const elMsg = pin.querySelector('.tg-pin-msg');
       const elOlvido = pin.querySelector('.tg-pin-olvido');
+      const elBorrar = pin.querySelector('.tg-pin-borrar');
 
       let modo = bloqueoPinHash ? 'ingresar' : 'crear1';
       let primero = '';
@@ -631,15 +660,13 @@
       let cerrado = false;
 
       function pintar() {
-        if (modo === 'ingresar') { elSub.textContent = 'El bloqueo está activado.'; elTitulo.textContent = 'Ingresa tu código PIN para desbloquear.'; }
-        else if (modo === 'crear1') { elSub.textContent = 'Aún no tienes un PIN.'; elTitulo.textContent = 'Crea un código PIN de ' + BLOQUEO_PIN_LARGO + ' dígitos.'; }
-        else { elSub.textContent = 'Un último paso.'; elTitulo.textContent = 'Confirma tu código PIN.'; }
-        elOlvido.style.display = modo === 'ingresar' ? '' : 'none';
-        if (inputPin.value !== digitos) inputPin.value = digitos; // el input refleja los dígitos (borrar en el teclado del móvil funciona solo)
+        if (modo === 'ingresar') { elTitulo.textContent = 'Ingresa tu código PIN'; elSub.textContent = 'Se requiere para desbloquear'; }
+        else if (modo === 'crear1') { elTitulo.textContent = 'Crea tu código PIN'; elSub.textContent = 'Elige ' + BLOQUEO_PIN_LARGO + ' dígitos'; }
+        else { elTitulo.textContent = 'Confirma tu código PIN'; elSub.textContent = 'Un último paso'; }
+        elOlvido.style.visibility = modo === 'ingresar' ? '' : 'hidden';
+        elBorrar.textContent = digitos.length ? 'Borrar' : 'Cancelar'; // como en el iPhone: Cancelar vuelve, Borrar quita el último dígito
         cajas.forEach((c, i) => {
           c.classList.toggle('tg-llena', i < digitos.length);
-          c.classList.toggle('tg-activa', i === digitos.length);
-          c.textContent = i < digitos.length ? '\u2022' : '';
         });
       }
       function error(mensaje) {
@@ -673,25 +700,37 @@
           error('Los códigos no coinciden. Vuelve a crearlo.');
         }
       }
+      function anadirDigito(d) {
+        if (ocupado || cerrado || digitos.length >= BLOQUEO_PIN_LARGO) return;
+        digitos += d;
+        elMsg.textContent = '';
+        pintar();
+        if (digitos.length === BLOQUEO_PIN_LARGO) { ocupado = true; setTimeout(() => { ocupado = false; evaluar(); }, 160); }
+      }
+      function borrarDigito() {
+        if (ocupado || cerrado) return;
+        digitos = digitos.slice(0, -1); elMsg.textContent = ''; pintar();
+      }
       function tecla(e) {
-        // teclados de móvil (IME): no mandan teclas reales; los dígitos llegan por el evento 'input' del campo
-        if (e.target === inputPin && (e.key === 'Unidentified' || e.keyCode === 229)) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         if (ocupado || cerrado) return;
         if (/^[0-9]$/.test(e.key)) {
-          if (digitos.length < BLOQUEO_PIN_LARGO) {
-            digitos += e.key;
-            elMsg.textContent = '';
-            pintar();
-            if (digitos.length === BLOQUEO_PIN_LARGO) { ocupado = true; setTimeout(() => { ocupado = false; evaluar(); }, 160); }
-          }
+          anadirDigito(e.key);
+          // el botón correspondiente se "pulsa" también al usar el teclado físico
+          const b = pin.querySelector('.tg-pin-tecla[data-d="' + e.key + '"]');
+          if (b) { b.classList.add('tg-pulsada'); setTimeout(() => b.classList.remove('tg-pulsada'), 110); }
         } else if (e.key === 'Backspace') {
-          digitos = digitos.slice(0, -1); elMsg.textContent = ''; pintar();
+          borrarDigito();
         } else if (e.key === 'Escape') {
           opc.alVolver();
         }
       }
+      pin.querySelectorAll('.tg-pin-tecla').forEach((b) => b.addEventListener('click', () => anadirDigito(b.getAttribute('data-d'))));
+      elBorrar.addEventListener('click', () => {
+        if (ocupado || cerrado) return;
+        if (digitos.length) borrarDigito(); else opc.alVolver();
+      });
       elOlvido.addEventListener('click', () => {
         if (ocupado || cerrado) return;
         if (window.confirm('¿Restablecer el PIN? Se desbloqueará la pantalla y deberás crear uno nuevo la próxima vez que la bloquees.')) {
@@ -700,19 +739,7 @@
         }
       });
       window.addEventListener('keydown', tecla, true);
-      inputPin.addEventListener('input', () => {
-        if (ocupado || cerrado) { inputPin.value = digitos; return; }
-        digitos = inputPin.value.replace(/\D/g, '').slice(0, BLOQUEO_PIN_LARGO);
-        elMsg.textContent = '';
-        pintar();
-        if (digitos.length === BLOQUEO_PIN_LARGO) { ocupado = true; setTimeout(() => { ocupado = false; evaluar(); }, 160); }
-      });
-      // un toque en cualquier parte de la pantalla de PIN (salvo "¿Olvidaste el PIN?") devuelve el foco al campo
-      pin.addEventListener('pointerup', (e) => { if (!cerrado && !(e.target.closest && e.target.closest('.tg-pin-olvido'))) inputPin.focus({ preventScroll: true }); });
       pintar();
-      // el foco se pide ya mismo (sigue dentro del gesto del usuario: deslizar o Espacio) para que el teclado salga solo
-      try { inputPin.focus({ preventScroll: true }); } catch (e) { /* sin foco */ }
-      requestAnimationFrame(() => { if (!cerrado) { try { inputPin.focus({ preventScroll: true }); } catch (e) { /* sin foco */ } } });
       requestAnimationFrame(() => requestAnimationFrame(() => pin.classList.add('tg-pin-visible')));
 
       return {
