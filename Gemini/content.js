@@ -82,6 +82,9 @@
   //   --tg-sb-extra     → fondos de burbujas / caja de escribir / botones de arriba (solo en "baja", que es donde pierden el blur)
   //   --tg-sb-extra-nb  → fondos que pierden el blur en "baja" Y en "media" (menús, barra lateral, panel, teclado del PIN...)
   const BLUR_OPACIDAD_EXTRA = 0.05;
+  // En "baja", la caja de escribir y los botones de arriba reciben ADEMÁS este extra (se suma al de arriba) para distinguirse sin blur.
+  // Se aplica con --tg-sb-extra-ctl, que solo existe en "baja".
+  const BLUR_OPACIDAD_CONTROLES_BAJA = 0.1;
   let nivelBlur = 'alta';
   let nivelBlurExplicito = false; // true si el usuario ya eligió un nivel (si no, se migra del ajuste antiguo)
   try {
@@ -117,6 +120,7 @@
     r.classList.toggle('tg-blur-baja', nivelBlur === 'baja');
     r.classList.toggle('tg-blur-media', nivelBlur === 'media');
     if (nivelBlur === 'baja') r.style.setProperty('--tg-sb-extra', String(BLUR_OPACIDAD_EXTRA)); else r.style.removeProperty('--tg-sb-extra');
+    if (nivelBlur === 'baja') r.style.setProperty('--tg-sb-extra-ctl', String(BLUR_OPACIDAD_EXTRA + BLUR_OPACIDAD_CONTROLES_BAJA)); else r.style.removeProperty('--tg-sb-extra-ctl');
     if (nivelBlur !== 'alta') r.style.setProperty('--tg-sb-extra-nb', String(BLUR_OPACIDAD_EXTRA)); else r.style.removeProperty('--tg-sb-extra-nb');
     if (alCambiarNivelBlur) alCambiarNivelBlur();
   }
@@ -1129,14 +1133,14 @@
       :root {
         --tg-sidebar-bg: rgba(0, 0, 0, calc(0.2 + var(--tg-sb-extra-nb, 0)));
         --tg-resp-bg: rgba(0, 0, 0, calc(0.8 + var(--tg-sb-extra, 0)));
-        --tg-input-bg: rgba(0, 0, 0, calc(0.55 + var(--tg-sb-extra, 0)));
+        --tg-input-bg: rgba(0, 0, 0, calc(0.55 + var(--tg-sb-extra-ctl, var(--tg-sb-extra, 0))));
         --tg-texto: #ffffff;
         --tg-texto-suave: rgba(255, 255, 255, 0.7);
       }
       html[data-tema="claro"] {
         --tg-sidebar-bg: rgba(255, 255, 255, calc(0.35 + var(--tg-sb-extra-nb, 0)));
         --tg-resp-bg: rgba(255, 255, 255, calc(0.78 + var(--tg-sb-extra, 0)));
-        --tg-input-bg: rgba(255, 255, 255, calc(0.65 + var(--tg-sb-extra, 0)));
+        --tg-input-bg: rgba(255, 255, 255, calc(0.65 + var(--tg-sb-extra-ctl, var(--tg-sb-extra, 0))));
         --tg-texto: #1f1f1f;
         --tg-texto-suave: rgba(31, 31, 31, 0.6);
       }
@@ -4748,6 +4752,7 @@ p.gds-body-s.ng-star-inserted {
   // y las variables --tg-fade-tinte / --tg-fade-rgb.
   const FADE_CHAT = true;
   const FADE_CAPAS = 2;
+  const FADE_LITE_ALTO_EXTRA_ABAJO = 70; // px extra hacia ARRIBA del fade lite de abajo (para que llegue a la altura del blur fade)
   const FADE_LITE_ALFA = 0.92; // cuánto del fondo se ve en el borde de la pantalla (fade lite de Media y Baja; 1 = el mensaje desaparece del todo)
   const FADE_BLURS = [4, 10]; // px por capa (menos capas = menos pasadas de backdrop-filter por fotograma)
   (function () {
@@ -4968,7 +4973,7 @@ p.gds-body-s.ng-star-inserted {
     let topAbajo = vh - (angosta ? 150 : 170);
     if (pildora) {
       const r = pildora.getBoundingClientRect();
-      if (r.height > 0) topAbajo = r.top - (angosta ? 28 : 40);
+      if (r.height > 0) topAbajo = r.top - (angosta ? 28 : 40) - (modoFade === 'lite' ? FADE_LITE_ALTO_EXTRA_ABAJO : 0);
       if (!pildora._tgFadeRO && window.ResizeObserver) { pildora._tgFadeRO = new ResizeObserver(() => Tareas.marcar('layout')); pildora._tgFadeRO.observe(pildora); }
     }
     topAbajo = Math.min(Math.max(topAbajo, topBase + 120), vh - 40);
