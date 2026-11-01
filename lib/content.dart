@@ -222,7 +222,8 @@ class _ContentScreenState extends State<ContentScreen>
   // true  = usa SIEMPRE el content.js de los assets (Gemini/content.js) y NO el de GitHub.
   //         Úsalo mientras pruebas cambios locales: si no, el script de GitHub (y su caché) GANA sobre tu archivo local.
   // false = flujo normal: GitHub -> caché -> assets.
-  static const bool _soloAssetLocal = true; // <-- CAMBIAR A FALSE PARA PUBLICAR
+  static const bool _soloAssetLocal =
+      false; // <-- CAMBIAR A FALSE PARA PUBLICAR
 
   String _origenScript = 'ninguno'; // 'github' | 'cache' | 'asset' | 'ninguno'
 

@@ -9,7 +9,12 @@
   //   antes de instalarlas). Por eso cada una debe seguir en una sola declaración, empezando la línea con la palabra const.
   // ============================================================================================
   const TG_VERSION = '1.0';
-  const TG_NOTAS_VERSION = `• Arreglo de bugs y mejoras de rendimiento`;
+  const TG_NOTAS_VERSION = `
+• Nuevo menú "Actualizaciones Gemini Vibes" en la app móvil: busca y aplica la última versión sin reiniciar la app.
+• El teclado ya no redimensiona la página: la caja de escribir sube con una transición y el teclado deja de cerrarse.
+• Nivel de rendimiento Medio: el fondo de "¿Por dónde empezamos?" ya no se difumina.
+• Los ajustes de blur, Vibes, difuminado del scroll y scroll suave ahora se conservan al reiniciar la app.
+`;
 
   window.__tgCargado = 'opt-2'; // marcador: Flutter lo lee para confirmar qué versión del script se inyectó
   // PANTALLA DE BLOQUEO (se muestra al cargar la página; ESPACIO la sube y el body entra con zoom;
@@ -3960,7 +3965,7 @@ p.gds-body-s.ng-star-inserted {
         -webkit-mask-image: linear-gradient(to bottom, transparent 15%, #000 85%); mask-image: linear-gradient(to bottom, transparent 15%, #000 85%);
       }
       html.tg-blur-media .tg-u-fondo, html.tg-blur-baja .tg-u-fondo { inset: 0; filter: brightness(0.62) saturate(1.15) !important; }
-      html.tg-blur-media .tg-u-fondo-b, html.tg-blur-baja .tg-u-fondo-b { display: none !important; }
+      
 
       .tg-u-titulo { margin-top: 6px; font-size: 15px; font-weight: 600; letter-spacing: 0.01em; padding: 0 44px; }
       .tg-u-marca { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 4px; }
