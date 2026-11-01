@@ -3961,7 +3961,7 @@ p.gds-body-s.ng-star-inserted {
       }
       .tg-u-fondo { position: absolute; inset: -24px; background-size: cover; background-position: center; filter: blur(7px) brightness(0.62) saturate(1.2); }
       .tg-u-fondo-b {
-        filter: blur(20px) brightness(0.62) saturate(1.2);
+        filter: blur(20px) brightness(1) saturate(1.2);
         -webkit-mask-image: linear-gradient(to bottom, transparent 15%, #000 85%); mask-image: linear-gradient(to bottom, transparent 15%, #000 85%);
       }
       
