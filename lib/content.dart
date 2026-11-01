@@ -197,10 +197,12 @@ class _ContentScreenState extends State<ContentScreen>
   Widget? _webView;
 
   // ---- TECLADO ----
-  // Antes el Scaffold encogía el WebView en CADA fotograma de la animación del teclado (~20 re-layouts nativos
-  // del WebView + ~20 eventos "resize" para content.js). Ahora el Scaffold no se redimensiona y el hueco del teclado
-  // se aplica UNA sola vez, cuando la animación se asienta.
-  double _tecladoPx = 0;
+  // El WebView NUNCA cambia de tamaño cuando aparece el teclado (redimensionarlo lagueaba y, además, Android
+  // perdía el foco del input y cerraba el teclado). En su lugar Flutter le avisa a la página la altura del teclado
+  // (window.tgSetTeclado) y content.js sube la caja de escribir con una transición.
+  double _tecladoObjetivo = 0;
+  double _tecladoEnviado = 0;
+  DateTime _tecladoUltimoEnvio = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _tecladoTimer;
 
   // ---- SPLASH (capa negra + logo por encima del WebView) ----
@@ -298,19 +300,32 @@ class _ContentScreenState extends State<ContentScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // TECLADO: el hueco se aplica una sola vez, cuando la animación se asienta
+  // TECLADO: se le avisa a la página (como mucho cada ~60 ms); el WebView no se redimensiona
   // ---------------------------------------------------------------------------
   @override
   void didChangeMetrics() {
     if (!mounted) return;
     final vista = View.of(context);
-    final nuevo = vista.viewInsets.bottom / vista.devicePixelRatio;
-    _tecladoTimer?.cancel();
-    // cada fotograma de la animación reinicia el temporizador: solo dispara cuando el valor deja de cambiar
-    _tecladoTimer = Timer(const Duration(milliseconds: 70), () {
-      if (!mounted || (nuevo - _tecladoPx).abs() < 1) return;
-      setState(() => _tecladoPx = nuevo);
-    });
+    _tecladoObjetivo = (vista.viewInsets.bottom / vista.devicePixelRatio)
+        .roundToDouble();
+    if (_tecladoTimer?.isActive ?? false)
+      return; // el envío pendiente lleva el último valor
+    const intervalo = Duration(milliseconds: 60);
+    final desde = DateTime.now().difference(_tecladoUltimoEnvio);
+    _tecladoTimer = Timer(
+      desde >= intervalo ? Duration.zero : intervalo - desde,
+      _enviarTeclado,
+    );
+  }
+
+  void _enviarTeclado() {
+    _tecladoUltimoEnvio = DateTime.now();
+    if (_tecladoObjetivo == _tecladoEnviado) return;
+    _tecladoEnviado = _tecladoObjetivo;
+    webViewController?.evaluateJavascript(
+      source:
+          'window.tgSetTeclado && window.tgSetTeclado(${_tecladoEnviado.toStringAsFixed(0)});',
+    );
   }
 
   Future<String> _leerPrefsComoJs() async {
@@ -634,21 +649,15 @@ class _ContentScreenState extends State<ContentScreen>
     }
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 0, 0, 0),
-      // el teclado NO redimensiona el Scaffold fotograma a fotograma (ver _tecladoPx)
+      // el teclado NO redimensiona el Scaffold ni el WebView (ver didChangeMetrics)
       resizeToAvoidBottomInset: false,
       body: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.light,
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // capa 1: el WebView, con el hueco del teclado aplicado una sola vez
-            if (_webView != null)
-              Positioned.fill(
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: _tecladoPx),
-                  child: _webView!,
-                ),
-              ),
+            // capa 1: el WebView (tamaño fijo, el teclado no lo redimensiona)
+            if (_webView != null) Positioned.fill(child: _webView!),
 
             // capa 2: fondo negro + logo por encima, con fade out
             if (!_splashQuitado)

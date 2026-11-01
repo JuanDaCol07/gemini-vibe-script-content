@@ -84,7 +84,7 @@
   const BLUR_OPACIDAD_EXTRA = 0.05;
   // En "baja", la caja de escribir y los botones de arriba reciben ADEMÁS este extra (se suma al de arriba) para distinguirse sin blur.
   // Se aplica con --tg-sb-extra-ctl, que solo existe en "baja".
-  const BLUR_OPACIDAD_CONTROLES_BAJA = 0.1;
+  const BLUR_OPACIDAD_CONTROLES_BAJA = 0;
   let nivelBlur = 'alta';
   let nivelBlurExplicito = false; // true si el usuario ya eligió un nivel (si no, se migra del ajuste antiguo)
   try {
@@ -3437,6 +3437,11 @@ p.gds-body-s.ng-star-inserted {
       /* ÁREA SEGURA (barra de estado de Android) EN LA BARRA LATERAL: siempre activo, con o sin Gemini Vibes.
          --tg-safe-top lo calcula el JS (env(safe-area-inset-top) o el valor de tgSetSafeArea) */
       .sidenav-with-history-container.mobile { padding-top: var(--tg-safe-top, 0px) !important; box-sizing: border-box !important; }
+      /* TECLADO EN LA APP MÓVIL: el WebView no cambia de tamaño; Flutter manda la altura (window.tgSetTeclado) y se sube la caja
+         de escribir con "translate" (no pisa ningún transform de Gemini). Con Vibes encendido o apagado. */
+      html[data-tg-teclado] input-container { translate: 0 calc(-1 * var(--tg-teclado, 0px)) !important; transition: translate 0.18s ease-out; will-change: translate; }
+      html[data-tg-teclado] infinite-scroller { padding-bottom: calc(120px + var(--tg-teclado, 0px)) !important; }
+      @media (prefers-reduced-motion: reduce) { html[data-tg-teclado] input-container { transition: none; } }
     `;
     document.head.appendChild(b);
   })();
@@ -5206,6 +5211,14 @@ p.gds-body-s.ng-star-inserted {
     safeTopManual = Math.max(0, Number(top) || 0);
     try { localStorage.setItem('tg-safe-top', String(safeTopManual)); } catch (e) { /* sin localStorage */ }
     try { actualizarVarSafeTop(); Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
+  };
+  // TECLADO (app móvil): Flutter llama window.tgSetTeclado(px) con la altura del teclado en px CSS (0 = cerrado).
+  window.tgSetTeclado = (px) => {
+    const v = Math.max(0, Number(px) || 0);
+    const r = document.documentElement;
+    if (v > 0) { r.style.setProperty('--tg-teclado', v + 'px'); r.setAttribute('data-tg-teclado', ''); }
+    else { r.removeAttribute('data-tg-teclado'); r.style.removeProperty('--tg-teclado'); }
+    try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
   };
   // Cuántos px se SUBE el header y sus botones respecto a la posición calculada (ajustable: window.tgSetHeaderOffset(12))
   let headerSubirPx = 8;
