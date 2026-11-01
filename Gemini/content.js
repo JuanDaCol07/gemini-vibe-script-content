@@ -65,28 +65,53 @@
   })();
 
   // ============================================================================================
-  // PERFIL DE RENDIMIENTO (auto / máximo / ligero)
-  // - "ligero" (clase html.tg-ligero) baja los radios de blur ~35 %, quita saturate(), usa 2 capas de fade y quita transiciones de layout.
-  // - "auto": arranca ligero en equipos flojos (poca RAM / pocos núcleos) o si ya se midió lentitud antes; además mide los fotogramas
-  //   REALES durante el vuelo de la burbuja (la animación más pesada) y, si va a tirones, pasa a ligero y lo recuerda.
-  // - Se elige a mano en Personalizar > Rendimiento (se guarda con el puente de preferencias: clave geminiPerfil).
+  // NIVEL DE BLUR (Personalizar > Rendimiento > Baja / Media / Alta; clave geminiBlurNivel; por defecto "alta")
+  // Sustituye al antiguo perfil (Automático / Máximo / Ligero) y al interruptor "Desactivar desenfoque".
+  //   baja  → NADA de blur: ni backdrop-filter, ni filter(blur) en animaciones (vuelo de la burbuja, puntitos, fondo del PIN),
+  //           ni el blur fade de arriba/abajo del chat.
+  //   media → blur SOLO en las burbujas del chat, la caja de escribir y los botones de arriba (+ copiar/editar). Sin blur fade.
+  //           En la pantalla de bloqueo solo lleva blur el fondo del PIN. Las animaciones conservan su filter.
+  //   alta  → cada parámetro de blur tal como está definido en cada elemento (no se toca nada).
+  // Todo se hace con la clase html.tg-blur-baja / html.tg-blur-media y UNA hoja de estilos dentro de @layer: las declaraciones
+  // !important de una capa ganan a las !important sin capa, así que no importa qué tan específico sea el selector original.
   // ============================================================================================
-  const PERFIL_CLAVE_LS = 'tg-perfil';
-  const PERFIL_AUTO_LS = 'tg-perfil-auto-ligero';
-  let perfilModo = 'auto';
+  const BLUR_NIVEL_LS = 'tg-blur-nivel';
+  const NIVELES_BLUR = ['baja', 'media', 'alta'];
+  // OPACIDAD EXTRA en los fondos que se quedan SIN blur (sin blur los fondos translúcidos se leen peor). 0.05 = +5 %.
+  //   --tg-sb-extra     → fondos de burbujas / caja de escribir / botones de arriba (solo en "baja", que es donde pierden el blur)
+  //   --tg-sb-extra-nb  → fondos que pierden el blur en "baja" Y en "media" (menús, barra lateral, panel, teclado del PIN...)
+  const BLUR_OPACIDAD_EXTRA = 0.05;
+  let nivelBlur = 'alta';
+  let nivelBlurExplicito = false; // true si el usuario ya eligió un nivel (si no, se migra del ajuste antiguo)
   try {
-    const pg = localStorage.getItem(PERFIL_CLAVE_LS) || PREFS_INICIALES.geminiPerfil;
-    if (pg === 'auto' || pg === 'maximo' || pg === 'ligero') perfilModo = pg;
-  } catch (e) { /* sin localStorage */ }
-  function equipoFlojo() {
-    const m = navigator.deviceMemory, c = navigator.hardwareConcurrency;
-    return !!((m && m <= 4) || (c && c <= 4));
+    const ng = localStorage.getItem(BLUR_NIVEL_LS) || PREFS_INICIALES.geminiBlurNivel;
+    if (NIVELES_BLUR.indexOf(ng) >= 0) { nivelBlur = ng; nivelBlurExplicito = true; }
+    else {
+      // migración de los ajustes antiguos: "Desactivar desenfoque" → baja; perfil "Ligero" → media
+      const sb = localStorage.getItem('tg-sin-blur'), si = PREFS_INICIALES.geminiSinBlur;
+      const pf = localStorage.getItem('tg-perfil') || PREFS_INICIALES.geminiPerfil;
+      if (sb === '1' || (sb === null && (si === true || si === 'true'))) nivelBlur = 'baja';
+      else if (pf === 'ligero') nivelBlur = 'media';
+    }
+  } catch (e) { /* sin localStorage: queda en alta */ }
+  let sinBlur = nivelBlur === 'baja'; // atajo para el JS (vuelo de la burbuja): true solo en "baja"
+  function aplicarNivelBlur() {
+    const r = document.documentElement;
+    sinBlur = nivelBlur === 'baja';
+    r.classList.toggle('tg-blur-baja', nivelBlur === 'baja');
+    r.classList.toggle('tg-blur-media', nivelBlur === 'media');
+    if (nivelBlur === 'baja') r.style.setProperty('--tg-sb-extra', String(BLUR_OPACIDAD_EXTRA)); else r.style.removeProperty('--tg-sb-extra');
+    if (nivelBlur !== 'alta') r.style.setProperty('--tg-sb-extra-nb', String(BLUR_OPACIDAD_EXTRA)); else r.style.removeProperty('--tg-sb-extra-nb');
   }
-  let perfilAutoLigero = false;
-  try { perfilAutoLigero = localStorage.getItem(PERFIL_AUTO_LS) === '1' || equipoFlojo(); } catch (e) { perfilAutoLigero = equipoFlojo(); }
-  function perfilLigero() { return perfilModo === 'ligero' || (perfilModo === 'auto' && perfilAutoLigero); }
+  function cambiarNivelBlur(n) {
+    if (NIVELES_BLUR.indexOf(n) < 0) return;
+    nivelBlur = n; nivelBlurExplicito = true;
+    try { localStorage.setItem(BLUR_NIVEL_LS, n); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiBlurNivel: n });
+    aplicarNivelBlur();
+    try { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); } catch (e) { /* aún no está todo creado */ }
+  }
   function esTactil() { return !!(window.matchMedia && window.matchMedia('(hover: none)').matches); }
-  function aplicarPerfil() { document.documentElement.classList.toggle('tg-ligero', perfilLigero()); }
   // LENIS (scroll suave): se puede apagar del todo desde Personalizar > Rendimiento (clave geminiLenis; por defecto encendido)
   const LENIS_CLAVE_LS = 'tg-lenis';
   let lenisUsuario = true;
@@ -102,108 +127,51 @@
     prefsGuardar({ geminiLenis: lenisUsuario });
     if (lenisUsuario) mantenerLenis(); else destruirLenis();
   }
-  function cambiarPerfil(modo) {
-    perfilModo = modo;
-    try { localStorage.setItem(PERFIL_CLAVE_LS, modo); } catch (e) { /* sin localStorage */ }
-    prefsGuardar({ geminiPerfil: modo });
-    aplicarPerfil();
-  }
-  // muestreo de fotogramas durante el vuelo de la burbuja
-  let fpsPrev = 0, fpsN = 0, fpsLentos = 0;
-  function muestrearFps(t) {
-    if (fpsPrev) { fpsN++; if (t - fpsPrev > 26) fpsLentos++; }
-    fpsPrev = t;
-  }
-  function finMuestreoFps() {
-    if (perfilModo === 'auto' && !perfilAutoLigero && fpsN >= 15 && fpsLentos / fpsN > 0.25) {
-      perfilAutoLigero = true;
-      try { localStorage.setItem(PERFIL_AUTO_LS, '1'); } catch (e) { /* sin localStorage */ }
-      aplicarPerfil();
-      console.log('[tg] perfil ligero activado automáticamente (' + fpsLentos + '/' + fpsN + ' fotogramas lentos)');
-    }
-    fpsPrev = 0; fpsN = 0; fpsLentos = 0;
-  }
   (function () {
+    // elementos que SÍ conservan su blur en el nivel "media" (el resto pierde el backdrop-filter)
+    const PERMITIDOS = [
+      '.user-query-bubble-with-background',
+      '.response-container',
+      'thinking-dots-animation:not(.response-container-header *, [data-tg-burbuja] *)',
+      '[data-tg-puntos][data-tg-burbuja]',
+      '[data-tg-creando-burbuja]',
+      '[data-tg-creando-caja]:not([data-tg-creando-unica])',
+      'input-area-v2 .text-input-field',
+      'input-area-v2 .input-area-fieldset > .text-input-field',
+      'top-bar-actions button.mat-mdc-icon-button',
+      '.side-nav-menu-button button.mat-mdc-icon-button',
+      'chat-app-side-nav-menu-button button.mat-mdc-icon-button',
+      'top-bar-actions .left-section button.mat-mdc-button',
+      'top-bar-actions .center-section button.mat-mdc-button',
+      'bard-mode-switcher:not(:is(input-area-v2 *)) button',
+      'gem-icon-button[data-test-id="prompt-copy-button"]',
+      'gem-icon-button[data-test-id="prompt-edit-button"]'
+    ].join(', ');
     const est = document.createElement('style');
-    est.id = 'tg-ligero-style';
+    est.id = 'tg-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
     est.textContent = `
-      html.tg-ligero .user-query-bubble-with-background,
-      html.tg-ligero .response-container,
-      html.tg-ligero thinking-dots-animation:not(.response-container-header *),
-      html.tg-ligero [data-tg-puntos][data-tg-burbuja],
-      html.tg-ligero [data-tg-creando-burbuja],
-      html.tg-ligero [data-tg-creando-caja]:not([data-tg-creando-unica]) {
-        -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
-      }
-      html.tg-ligero input-area-v2 .text-input-field,
-      html.tg-ligero input-area-v2 .input-area-fieldset > .text-input-field,
-      html.tg-ligero top-bar-actions button.mat-mdc-icon-button,
-      html.tg-ligero .side-nav-menu-button button.mat-mdc-icon-button,
-      html.tg-ligero chat-app-side-nav-menu-button button.mat-mdc-icon-button,
-      html.tg-ligero top-bar-actions .left-section button.mat-mdc-button,
-      html.tg-ligero top-bar-actions .center-section button.mat-mdc-button,
-      html.tg-ligero bard-mode-switcher:not(:is(input-area-v2 *)) button,
-      html.tg-ligero gem-icon-button[data-test-id="prompt-copy-button"],
-      html.tg-ligero gem-icon-button[data-test-id="prompt-edit-button"] {
-        -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important;
-      }
-      html.tg-ligero .query-file-carousel user-query-file-preview .file-preview-container { transition: none !important; }
-      html.tg-ligero #tg-pin .tg-pin-fondo { filter: blur(14px) brightness(0.5) saturate(1.1) !important; inset: -30px !important; }
-      html.tg-ligero #tg-personalizar-panel { -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-      html.tg-ligero #tg-personalizar-backdrop { -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); }
-    `;
-    (document.head || document.documentElement).appendChild(est);
-  })();
-  aplicarPerfil();
-  // ============================================================================================
-  // SIN DESENFOQUE (Personalizar > Rendimiento > "Desactivar desenfoque", clave geminiSinBlur; por defecto apagado)
-  // Quita TODOS los backdrop-filter (cristal translúcido) y los blur() de la extensión: menús, burbujas, caja de escribir, fade,
-  // bloqueo, PIN y la animación de la burbuja al enviar. Es independiente de Gemini Vibes y del perfil de rendimiento.
-  // ============================================================================================
-  const SINBLUR_CLAVE_LS = 'tg-sin-blur';
-  // OPACIDAD EXTRA con el desenfoque desactivado: sin blur los fondos translúcidos se leen peor, así que a TODOS los fondos de cristal
-  // de la extensión (burbujas, caja de escribir, menús, panel, bloqueo, PIN...) se les suma este valor de opacidad (0.1 = +10 %).
-  // 0 = no sumar nada. Se aplica con la variable CSS --tg-sb-extra, que solo existe mientras el ajuste está activado.
-  const SIN_BLUR_OPACIDAD_EXTRA = 0.05;
-  let sinBlur = false;
-  try {
-    const sg = localStorage.getItem(SINBLUR_CLAVE_LS);
-    const si = PREFS_INICIALES.geminiSinBlur;
-    if (sg === '0' || sg === '1') sinBlur = sg === '1';
-    else if (si === true || si === 'true') sinBlur = true;
-  } catch (e) { /* sin localStorage */ }
-  function aplicarSinBlur() {
-    const r = document.documentElement;
-    r.classList.toggle('tg-sin-blur', sinBlur);
-    if (sinBlur && SIN_BLUR_OPACIDAD_EXTRA) r.style.setProperty('--tg-sb-extra', String(SIN_BLUR_OPACIDAD_EXTRA));
-    else r.style.removeProperty('--tg-sb-extra');
-  }
-  function cambiarSinBlur(v) {
-    sinBlur = !!v;
-    try { localStorage.setItem(SINBLUR_CLAVE_LS, sinBlur ? '1' : '0'); } catch (e) { /* sin localStorage */ }
-    prefsGuardar({ geminiSinBlur: sinBlur });
-    aplicarSinBlur();
-    try { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); } catch (e) { /* aún no está todo creado */ }
-  }
-  (function () {
-    const est = document.createElement('style');
-    est.id = 'tg-sin-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
-    est.textContent = `
-      html.tg-sin-blur *, html.tg-sin-blur *::before, html.tg-sin-blur *::after {
-        -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
-      }
-      html.tg-sin-blur #tg-pin .tg-pin-fondo { filter: brightness(0.5) saturate(1.1) !important; inset: 0 !important; }
-      html.tg-sin-blur body [data-tg-puntos-retraso="oculto"] { filter: none !important; }
-      html.tg-sin-blur #tg-fade-chat { display: none !important; }
-      /* el interruptor "Desactivar desenfoque" nunca lleva blur (ni con el ajuste apagado ni encendido): su aspecto no cambia al usarlo */
-      html #tg-personalizar-panel .tg-p-toggle.tg-p-ctl-blur,
-      html.tg-ligero #tg-personalizar-panel .tg-p-toggle.tg-p-ctl-blur {
-        -webkit-backdrop-filter: none !important; backdrop-filter: none !important; filter: none !important;
+      @layer tg-blur {
+        /* BAJA: ningún backdrop-filter en ningún elemento */
+        html.tg-blur-baja *, html.tg-blur-baja *::before, html.tg-blur-baja *::after {
+          -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+        }
+        /* BAJA: sin filter(blur) en el fondo del PIN (queda solo oscurecido) ni en los puntitos de "pensando" */
+        html.tg-blur-baja #tg-pin .tg-pin-fondo { filter: brightness(0.5) saturate(1.1) !important; inset: 0 !important; }
+        html.tg-blur-baja body [data-tg-puntos-retraso="oculto"] { filter: none !important; }
+        /* BAJA y MEDIA: sin blur fade arriba/abajo del chat */
+        html.tg-blur-baja #tg-fade-chat, html.tg-blur-media #tg-fade-chat { display: none !important; }
+        /* MEDIA: todo pierde el backdrop-filter MENOS burbujas, caja de escribir y botones de arriba (que siguen con el suyo).
+           La pantalla de bloqueo solo conserva el filter(blur) del fondo del PIN (.tg-pin-fondo), que no es backdrop-filter. */
+        html.tg-blur-media *:not(${PERMITIDOS}),
+        html.tg-blur-media *:not(${PERMITIDOS})::before,
+        html.tg-blur-media *:not(${PERMITIDOS})::after {
+          -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+        }
       }
     `;
     (document.head || document.documentElement).appendChild(est);
   })();
-  aplicarSinBlur();
+  aplicarNivelBlur();
   const puenteFlutter = (function () {
     const pendientes = new Map();
     let temporizador = null;
@@ -370,7 +338,7 @@
         t.id = 'tg-toast';
         t.setAttribute('role', 'status');
         t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:2147483647;max-width:min(90vw,520px);' +
-          'padding:12px 18px;border-radius:14px;background:rgba(0,0,0, calc(0.82 + var(--tg-sb-extra, 0)));color:#fff;font:14px/1.35 "Google Sans","Segoe UI",system-ui,sans-serif;' +
+          'padding:12px 18px;border-radius:14px;background:rgba(0,0,0, calc(0.82 + var(--tg-sb-extra-nb, 0)));color:#fff;font:14px/1.35 "Google Sans","Segoe UI",system-ui,sans-serif;' +
           'text-align:center;pointer-events:none;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);';
         (document.body || document.documentElement).appendChild(t);
       }
@@ -502,7 +470,7 @@
       #tg-bloqueo .tg-b-tecla {
         min-width: 220px; padding: 10px 28px; border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.45); border-bottom-width: 4px;
-        background: rgba(255, 255, 255, calc(0.12 + var(--tg-sb-extra, 0))); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        background: rgba(255, 255, 255, calc(0.12 + var(--tg-sb-extra-nb, 0))); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
         font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase;
       }
       /* PANTALLA DE PIN (aparece debajo al deslizar la pantalla de bloqueo hacia arriba) */
@@ -544,7 +512,7 @@
       #tg-pin .tg-pin-tecla {
         width: var(--tg-k); height: var(--tg-k); padding: 0; margin: 0; box-sizing: border-box; border-radius: 50%; cursor: pointer;
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-        border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(0, 0, 0, calc(0.4 + var(--tg-sb-extra, 0))); color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(0, 0, 0, calc(0.4 + var(--tg-sb-extra-nb, 0))); color: #fff;
         font-family: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation; outline: 0;
         -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
         transition: transform 0.2s ease, background-color 0.15s ease, border-color 0.15s ease;
@@ -1111,14 +1079,14 @@
      
     
       :root {
-        --tg-sidebar-bg: rgba(0, 0, 0, calc(0.2 + var(--tg-sb-extra, 0)));
+        --tg-sidebar-bg: rgba(0, 0, 0, calc(0.2 + var(--tg-sb-extra-nb, 0)));
         --tg-resp-bg: rgba(0, 0, 0, calc(0.8 + var(--tg-sb-extra, 0)));
         --tg-input-bg: rgba(0, 0, 0, calc(0.55 + var(--tg-sb-extra, 0)));
         --tg-texto: #ffffff;
         --tg-texto-suave: rgba(255, 255, 255, 0.7);
       }
       html[data-tema="claro"] {
-        --tg-sidebar-bg: rgba(255, 255, 255, calc(0.35 + var(--tg-sb-extra, 0)));
+        --tg-sidebar-bg: rgba(255, 255, 255, calc(0.35 + var(--tg-sb-extra-nb, 0)));
         --tg-resp-bg: rgba(255, 255, 255, calc(0.78 + var(--tg-sb-extra, 0)));
         --tg-input-bg: rgba(255, 255, 255, calc(0.65 + var(--tg-sb-extra, 0)));
         --tg-texto: #1f1f1f;
@@ -2152,7 +2120,7 @@ p.gds-body-s.ng-star-inserted {
     `;
   }
 
-  const VIBES_ESTILOS = ['tg-ligero-style', 'tg-bloqueo-style', 'gemini-custom-bg-style', 'tg-burbuja-style', 'tg-vp-style',
+  const VIBES_ESTILOS = ['tg-bloqueo-style', 'gemini-custom-bg-style', 'tg-burbuja-style', 'tg-vp-style',
     'tg-puntos-retraso-style', 'tg-fade-style', 'tg-fondo-cero-style', 'tg-menus-style', 'tg-colapso-style']; // (tg-lenis-style NO va aquí: el scroll suave no depende de Vibes)
   function aplicarVibes() {
     document.documentElement.classList.toggle('tg-vibes-off', !vibesOn);
@@ -2202,15 +2170,20 @@ p.gds-body-s.ng-star-inserted {
     if (result.geminiTema === 'claro' || result.geminiTema === 'oscuro') {
       aplicarTema(result.geminiTema);
     }
-    if (result.geminiPerfil === 'auto' || result.geminiPerfil === 'maximo' || result.geminiPerfil === 'ligero') {
-      perfilModo = result.geminiPerfil;
-      try { localStorage.setItem(PERFIL_CLAVE_LS, perfilModo); } catch (e) { /* sin localStorage */ }
-      aplicarPerfil();
-    }
-    if (result.geminiSinBlur === true || result.geminiSinBlur === false || result.geminiSinBlur === 'true' || result.geminiSinBlur === 'false') {
-      sinBlur = result.geminiSinBlur === true || result.geminiSinBlur === 'true';
-      try { localStorage.setItem(SINBLUR_CLAVE_LS, sinBlur ? '1' : '0'); } catch (e) { /* sin localStorage */ }
-      aplicarSinBlur();
+    {
+      let n = null;
+      if (NIVELES_BLUR.indexOf(result.geminiBlurNivel) >= 0) n = result.geminiBlurNivel;
+      else if (!nivelBlurExplicito) { // ajustes antiguos: "Desactivar desenfoque" → baja; perfil "Ligero" → media
+        if (result.geminiSinBlur === true || result.geminiSinBlur === 'true') n = 'baja';
+        else if (result.geminiPerfil === 'ligero') n = 'media';
+      }
+      if (n && n !== nivelBlur) {
+        nivelBlur = n;
+        try { localStorage.setItem(BLUR_NIVEL_LS, n); } catch (e) { /* sin localStorage */ }
+        aplicarNivelBlur();
+        try { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); } catch (e) { /* aún no está todo creado */ }
+      }
+      if (NIVELES_BLUR.indexOf(result.geminiBlurNivel) >= 0) nivelBlurExplicito = true;
     }
     if (result.geminiLenis === true || result.geminiLenis === false || result.geminiLenis === 'true' || result.geminiLenis === 'false') {
       const v = result.geminiLenis === true || result.geminiLenis === 'true';
@@ -2254,7 +2227,7 @@ p.gds-body-s.ng-star-inserted {
   };
 
   // Cargar preferencias guardadas / inyectadas
-  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiPerfil', 'geminiLenis', 'geminiSinBlur', 'geminiVibesActivo'], aplicarPreferencias);
+  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiBlurNivel', 'geminiPerfil', 'geminiSinBlur', 'geminiLenis', 'geminiVibesActivo'], aplicarPreferencias);
 
   // Evento al seleccionar imagen o video
   const esVideoArchivo = (f) => !!f && (/^video\//i.test(f.type) || /\.(mp4|webm|mov|m4v|ogv)$/i.test(f.name || ''));
@@ -2527,7 +2500,7 @@ p.gds-body-s.ng-star-inserted {
       scaleY: sY,
       escalaX: sX,
       escalaY: sY,
-      blur: sinBlur ? 0 : Math.max(0, L(a.blur ?? 0, b.blur ?? 0)) * (perfilLigero() ? 0.5 : 1),
+      blur: sinBlur ? 0 : Math.max(0, L(a.blur ?? 0, b.blur ?? 0)),
       backdropFilter: sinBlur ? 'none' : backdropFilterVal
     };
   }
@@ -2586,7 +2559,7 @@ p.gds-body-s.ng-star-inserted {
       // solo se escribe lo que cambió respecto al fotograma anterior
       const tr = `translate(${(destino.left + st.x).toFixed(2)}px, ${(destino.top + st.y).toFixed(2)}px) scaleX(${st.scaleX.toFixed(4)}) scaleY(${st.scaleY.toFixed(4)})`;
       if (tr !== g._tgTr) { g._tgTr = tr; fijar('transform', tr); }
-      const fl = `blur(${st.blur.toFixed(1)}px)`;
+      const fl = sinBlur ? 'none' : `blur(${st.blur.toFixed(1)}px)`; // baja: ningún filter en la animación
       if (fl !== g._tgFl) { g._tgFl = fl; fijar('filter', fl); }
       if (st.backdropFilter !== undefined && st.backdropFilter !== g._tgBf) {
         g._tgBf = st.backdropFilter;
@@ -2604,7 +2577,6 @@ p.gds-body-s.ng-star-inserted {
     function aterrizar() {
       if (el._vuelo !== g) return;
       el._vuelo = null;
-      finMuestreoFps();
       el._aterrizoEn = performance.now(); // las fotos del mismo mensaje esperan a este momento (ver retrasoPorBurbuja)
       g.remove();
       if (!el.isConnected) return;
@@ -2616,7 +2588,6 @@ p.gds-body-s.ng-star-inserted {
       if (el._vuelo !== g) { g.remove(); return; }
       if (!el.isConnected) { el._vuelo = null; g.remove(); return; }
       const p = Math.min(1, Math.max(0, (ahora - t0) / VUELO_MS));
-      muestrearFps(ahora);
       pintar(p);
       if (p >= 1) { aterrizar(); return; }
       requestAnimationFrame(cuadro);
@@ -2721,7 +2692,7 @@ p.gds-body-s.ng-star-inserted {
         align-items: center !important;
       }
       ${SEL_FONDO} {
-        background: rgba(0, 0, 0, calc(0.35 + var(--tg-sb-extra, 0))) !important;
+        background: rgba(0, 0, 0, calc(0.35 + var(--tg-sb-extra-nb, 0))) !important;
         -webkit-backdrop-filter: blur(6px) !important; backdrop-filter: blur(6px) !important;
       }
       ${SEL_PANEL} {
@@ -3177,7 +3148,7 @@ p.gds-body-s.ng-star-inserted {
       --p-sombra: rgba(0, 0, 0, 0.45);
       position: fixed; inset: 0; z-index: 2147483646;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(0, 0, 0, calc(0.35 + var(--tg-sb-extra, 0)));
+      background: rgba(0, 0, 0, calc(0.35 + var(--tg-sb-extra-nb, 0)));
       backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
       opacity: 0; pointer-events: none; transition: opacity 180ms ease;
@@ -3279,7 +3250,7 @@ p.gds-body-s.ng-star-inserted {
     }
     .tg-p-vista-eti {
       position: absolute; top: 10px; left: 12px; font-size: 12px; padding: 3px 10px; border-radius: 99px;
-      background: rgba(0, 0, 0, calc(0.45 + var(--tg-sb-extra, 0))); color: #fff !important; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      background: rgba(0, 0, 0, calc(0.45 + var(--tg-sb-extra-nb, 0))); color: #fff !important; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     }
     .tg-p-msg-usuario, .tg-p-msg-ia { max-width: 86%; font-size: 14px; line-height: 1.35; padding: 10px 14px; }
     .tg-p-msg-usuario {
@@ -3316,7 +3287,7 @@ p.gds-body-s.ng-star-inserted {
     .tg-p-fondo:focus-visible { box-shadow: 0 0 0 3px var(--p-texto); }
     .tg-p-cambiar {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px;
-      background: rgba(0, 0, 0, calc(0.45 + var(--tg-sb-extra, 0))); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+      background: rgba(0, 0, 0, calc(0.45 + var(--tg-sb-extra-nb, 0))); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
       color: #fff !important; font-size: 15px; font-weight: 500; opacity: 0; transition: opacity 0.2s ease;
     }
     .tg-p-fondo:hover .tg-p-cambiar, .tg-p-fondo:focus-visible .tg-p-cambiar { opacity: 1; }
@@ -3357,7 +3328,7 @@ p.gds-body-s.ng-star-inserted {
     .tg-p-switch:focus-visible .tg-p-sw-track { box-shadow: 0 0 0 3px var(--p-hover); }
     /* mini pantalla de Gemini */
     .tg-m-lateral {
-      position: absolute; top: 0; bottom: 0; left: 0; width: 20%; background: rgba(0, 0, 0, calc(0.3 + var(--tg-sb-extra, 0)));
+      position: absolute; top: 0; bottom: 0; left: 0; width: 20%; background: rgba(0, 0, 0, calc(0.3 + var(--tg-sb-extra-nb, 0)));
       backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 10px 8px; display: flex; flex-direction: column; gap: 6px;
     }
     .tg-m-lateral i { display: block; height: 7px; border-radius: 99px; background: rgba(255, 255, 255, 0.35); }
@@ -3676,20 +3647,25 @@ p.gds-body-s.ng-star-inserted {
       pintarVibes();
     })();
 
-    // ---- rendimiento ----
+    // ---- rendimiento: nivel de blur (Baja / Media / Alta) ----
     (function () {
       const OPC = [
-        { v: 'auto', t: 'Automático' }, { v: 'maximo', t: 'Máximo' }, { v: 'ligero', t: 'Ligero' }
+        { v: 'baja', t: 'Baja', d: 'Sin ningún desenfoque: ni cristal, ni fade, ni filtros en las animaciones. La más ligera.' },
+        { v: 'media', t: 'Media', d: 'Desenfoque solo en las burbujas del chat, la caja de escribir y los botones de arriba. Sin fade. En el bloqueo, solo el fondo del PIN.' },
+        { v: 'alta', t: 'Alta', d: 'Todos los efectos de desenfoque al máximo, tal como están diseñados.' }
       ];
       const fila = h('div', { class: 'tg-p-colores' });
+      const desc = h('p', { class: 'tg-p-sub', style: 'margin-top:10px' }, '');
       const botones = OPC.map((o) => {
-        const b = h('button', { class: 'tg-p-btn', type: 'button', 'data-perfil': o.v }, o.t);
-        b.addEventListener('click', () => { cambiarPerfil(o.v); pintarPerfil(); });
+        const b = h('button', { class: 'tg-p-btn', type: 'button', 'data-nivel': o.v }, o.t);
+        b.addEventListener('click', () => { cambiarNivelBlur(o.v); pintarNivel(); });
         fila.appendChild(b);
         return b;
       });
-      function pintarPerfil() {
-        botones.forEach((b) => { const on = b.getAttribute('data-perfil') === perfilModo; b.style.background = on ? 'var(--p-hover)' : ''; b.style.outline = on ? '2px solid var(--p-texto)' : ''; });
+      function pintarNivel() {
+        botones.forEach((b) => { const on = b.getAttribute('data-nivel') === nivelBlur; b.style.background = on ? 'var(--p-hover)' : ''; b.style.outline = on ? '2px solid var(--p-texto)' : ''; });
+        const o = OPC.filter((x) => x.v === nivelBlur)[0];
+        desc.textContent = o ? o.d : '';
       }
       const swL = h('button', { class: 'tg-p-switch', type: 'button', role: 'switch', 'aria-checked': lenisUsuario ? 'true' : 'false', 'aria-label': 'Scroll suave (Lenis)' },
         h('span', { class: 'tg-p-sw-track' }),
@@ -3701,23 +3677,13 @@ p.gds-body-s.ng-star-inserted {
           h('span', { class: 'tg-p-toggle-tit' }, 'Scroll suave (Lenis)'),
           h('span', { class: 'tg-p-toggle-sub' }, 'Apágalo para usar el scroll nativo. En pantallas táctiles ya no se usa.')),
         swL);
-      const swB = h('button', { class: 'tg-p-switch', type: 'button', role: 'switch', 'aria-checked': sinBlur ? 'true' : 'false', 'aria-label': 'Desactivar efectos de desenfoque' },
-        h('span', { class: 'tg-p-sw-track' }),
-        h('span', { class: 'tg-p-sw-handle' },
-          hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', { d: 'M19.69 5.23 8.96 15.96l-4.23-4.23L2.96 13.5l6 6L21.46 7z' }))));
-      swB.addEventListener('click', () => { cambiarSinBlur(!sinBlur); swB.setAttribute('aria-checked', sinBlur ? 'true' : 'false'); });
-      const filaBlur = h('div', { class: 'tg-p-toggle tg-p-ctl-blur', style: 'margin-top:12px' },
-        h('span', { class: 'tg-p-toggle-txt' },
-          h('span', { class: 'tg-p-toggle-tit' }, 'Desactivar desenfoque'),
-          h('span', { class: 'tg-p-toggle-sub' }, 'Quita todos los efectos de desenfoque (cristal). Ayuda si va lento.')),
-        swB);
       panel.appendChild(h('section', { class: 'tg-p-seccion tg-p-seccion-vibes' },
         h('h3', { class: 'tg-p-titulo' }, 'Rendimiento'),
-        h('p', { class: 'tg-p-sub' }, 'Automático reduce los efectos de desenfoque solo si tu equipo va a tirones. Máximo los deja siempre al tope.'),
+        h('p', { class: 'tg-p-sub' }, 'Elige cuánto desenfoque (blur) usa la interfaz. Si va lento, baja el nivel.'),
         fila,
-        filaBlur,
+        desc,
         filaLenis));
-      pintarPerfil();
+      pintarNivel();
     })();
 
     // ---- burbuja ----
@@ -4806,9 +4772,8 @@ p.gds-body-s.ng-star-inserted {
   function crearCajaFade(clase, dir) {
     const caja = document.createElement('div');
     caja.className = 'tg-fade-caja tg-fade-' + clase;
-    const ligeroF = perfilLigero();
-    const n = ligeroF ? 2 : FADE_CAPAS, s = 100 / (n + 1);
-    const blurs = ligeroF ? [3, 10] : FADE_BLURS;
+    const n = FADE_CAPAS, s = 100 / (n + 1);
+    const blurs = FADE_BLURS;
     const pos = (v) => (Math.round(v * 100) / 100) + '%';
     for (let k = 1; k <= n; k++) {
       // cada capa difumina una franja; la franja de blur más fuerte queda en el borde de la pantalla
@@ -4826,19 +4791,21 @@ p.gds-body-s.ng-star-inserted {
     return caja;
   }
 
-  let fadeLigero = null;
+  let fadeNivel = null;
   function asegurarFadeChat() {
     if (!FADE_CHAT) return;
     if (!vibesOn) { const apagado = document.getElementById('tg-fade-chat'); if (apagado) apagado.style.display = 'none'; return; }
-    if (fadeLigero !== perfilLigero()) { // cambió el perfil: se reconstruyen las capas del fade
-      fadeLigero = perfilLigero();
+    // el blur fade SOLO existe en el nivel "alta": al cambiar de nivel se quita (o se reconstruye al volver a "alta")
+    const conFade = nivelBlur === 'alta';
+    if (fadeNivel !== nivelBlur) {
+      fadeNivel = nivelBlur;
       const viejo = document.getElementById('tg-fade-chat'); if (viejo) viejo.remove();
     }
     const hist = document.querySelector('#chat-history');
     const contenido = hist && hist.closest('chat-window-content');
     let raiz = document.getElementById('tg-fade-chat');
     if (!hist || !contenido) { if (raiz) raiz.style.display = 'none'; return; }
-    if (!raiz) {
+    if (!raiz && conFade) {
       raiz = document.createElement('div');
       raiz.id = 'tg-fade-chat';
       raiz.setAttribute('aria-hidden', 'true');
@@ -4846,7 +4813,7 @@ p.gds-body-s.ng-star-inserted {
       raiz.appendChild(crearCajaFade('abajo', 'bottom'));
     }
     // dentro de chat-window-content y DESPUÉS de #chat-history (encima de los mensajes, debajo de lo que va después)
-    if (raiz.parentElement !== contenido || raiz.previousElementSibling !== hist) contenido.insertBefore(raiz, hist.nextSibling);
+    if (raiz && (raiz.parentElement !== contenido || raiz.previousElementSibling !== hist)) contenido.insertBefore(raiz, hist.nextSibling);
 
     // Limpieza de propiedades intrusivas: UNA sola vez por elemento (antes se repetía en cada ciclo, ~20 escrituras al DOM)
     const scroller = hist.querySelector(':scope > infinite-scroller') || hist.querySelector('infinite-scroller');
@@ -4882,6 +4849,7 @@ p.gds-body-s.ng-star-inserted {
     cadena.forEach((e) => { if (!e) return; e.style.setProperty('-webkit-mask-image', 'none', 'important'); e.style.setProperty('mask-image', 'none', 'important'); });
     } // fin de la limpieza de una sola vez
 
+    if (!raiz) return; // baja / media: sin capas de blur fade
     let cr = hist.getBoundingClientRect();
     if (cr.width < 1 || cr.height < 1) { raiz.style.display = 'none'; return; }
     raiz.style.display = '';
