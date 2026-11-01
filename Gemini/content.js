@@ -70,7 +70,7 @@
   //   baja  → NADA de blur (menús y panel Personalizar quedan con fondo opaco; transparencia de tu burbuja fija en 10 %): ni backdrop-filter, ni filter(blur) en animaciones (vuelo de la burbuja, puntitos, fondo del PIN),
   //           ni el blur fade de arriba/abajo del chat (en su lugar va el fade LITE: tu fondo de pantalla con máscara en degradé, sin blur).
   //   media → blur SOLO en las burbujas del chat, la caja de escribir, los botones de arriba (+ copiar/editar), la barra lateral,
-  //           los menús contextuales, el marco de Personalizar y el fondo de "¿Por dónde empezamos?". Sin blur fade (lleva el fade LITE: el fondo en degradé, sin blur). En el bloqueo solo lleva blur el fondo del PIN.
+  //           los menús contextuales, el marco de Personalizar (el fondo de "¿Por dónde empezamos?" NO se difumina en media). Sin blur fade (lleva el fade LITE: el fondo en degradé, sin blur). En el bloqueo solo lleva blur el fondo del PIN.
   //           La animación de vuelo de la burbuja NO lleva filter(blur) (ni en media ni en baja).
   //   alta  → cada parámetro de blur tal como está definido en cada elemento (no se toca nada).
   // Todo se hace con la clase html.tg-blur-baja / html.tg-blur-media y UNA hoja de estilos dentro de @layer: las declaraciones
@@ -170,8 +170,7 @@
       // barra lateral (escritorio y vista angosta)
       'bard-sidenav', 'side-navigation-content', '.sidenav-with-history-container',
       '.mat-drawer.mat-sidenav', 'mat-sidenav', '[data-tg-capa="blur"]',
-      // pantalla de inicio "¿Por dónde empezamos?": la capa de fondo difuminado (ver tg-fondo-cero-style)
-      'html.tg-cero chat-window',
+      // (la capa de fondo difuminado de "¿Por dónde empezamos?" ya NO está aquí: en "media" el fondo no se difumina en esa pantalla)
       // menús contextuales (ajustes, "+", gem-menu...) y el marco del panel Personalizar (NO su fondo de pantalla completa)
       '[data-tg-menu-capa="blur"]', '.desktop-settings-menu:not([data-tg-menu-capa])', '#tg-personalizar-panel'
     ].join(', ');
@@ -5049,7 +5048,7 @@ p.gds-body-s.ng-star-inserted {
         raiz.classList.toggle('tg-fade-imagen', !!img);
       }
     }
-    const clave = [cr.left, topBase, cr.width, altoBase, hArriba, hAbajo, desdeAbajo, window.innerWidth, window.innerHeight].map((v) => Math.round(v * 10) / 10).join('|');
+    const clave = [cr.left, topBase, cr.width, altoBase, hArriba, hAbajo, desdeAbajo].concat(modoFade === 'lite' ? [window.innerWidth, window.innerHeight] : []).map((v) => Math.round(v * 10) / 10).join('|');
     if (raiz._tgClave === clave) return;
     raiz._tgClave = clave;
     raiz.style.setProperty('--tg-fade-h-a', hArriba + 'px');
