@@ -67,10 +67,11 @@
   // ============================================================================================
   // NIVEL DE BLUR (Personalizar > Rendimiento > Baja / Media / Alta; clave geminiBlurNivel; por defecto "alta")
   // Sustituye al antiguo perfil (Automático / Máximo / Ligero) y al interruptor "Desactivar desenfoque".
-  //   baja  → NADA de blur: ni backdrop-filter, ni filter(blur) en animaciones (vuelo de la burbuja, puntitos, fondo del PIN),
+  //   baja  → NADA de blur (menús y panel Personalizar quedan con fondo opaco): ni backdrop-filter, ni filter(blur) en animaciones (vuelo de la burbuja, puntitos, fondo del PIN),
   //           ni el blur fade de arriba/abajo del chat.
-  //   media → blur SOLO en las burbujas del chat, la caja de escribir y los botones de arriba (+ copiar/editar). Sin blur fade.
-  //           En la pantalla de bloqueo solo lleva blur el fondo del PIN. Las animaciones conservan su filter.
+  //   media → blur SOLO en las burbujas del chat, la caja de escribir, los botones de arriba (+ copiar/editar), la barra lateral,
+  //           los menús contextuales, el marco de Personalizar y el fondo de "¿Por dónde empezamos?". Sin blur fade. En el bloqueo solo lleva blur el fondo del PIN.
+  //           La animación de vuelo de la burbuja NO lleva filter(blur) (ni en media ni en baja).
   //   alta  → cada parámetro de blur tal como está definido en cada elemento (no se toca nada).
   // Todo se hace con la clase html.tg-blur-baja / html.tg-blur-media y UNA hoja de estilos dentro de @layer: las declaraciones
   // !important de una capa ganan a las !important sin capa, así que no importa qué tan específico sea el selector original.
@@ -145,7 +146,14 @@
       'top-bar-actions .center-section button.mat-mdc-button',
       'bard-mode-switcher:not(:is(input-area-v2 *)) button',
       'gem-icon-button[data-test-id="prompt-copy-button"]',
-      'gem-icon-button[data-test-id="prompt-edit-button"]'
+      'gem-icon-button[data-test-id="prompt-edit-button"]',
+      // barra lateral (escritorio y vista angosta)
+      'bard-sidenav', 'side-navigation-content', '.sidenav-with-history-container',
+      '.mat-drawer.mat-sidenav', 'mat-sidenav', '[data-tg-capa="blur"]',
+      // pantalla de inicio "¿Por dónde empezamos?": la capa de fondo difuminado (ver tg-fondo-cero-style)
+      'html.tg-cero chat-window',
+      // menús contextuales (ajustes, "+", gem-menu...) y el marco del panel Personalizar (NO su fondo de pantalla completa)
+      '[data-tg-menu-capa="blur"]', '.desktop-settings-menu:not([data-tg-menu-capa])', '#tg-personalizar-panel'
     ].join(', ');
     const est = document.createElement('style');
     est.id = 'tg-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
@@ -158,9 +166,20 @@
         /* BAJA: sin filter(blur) en el fondo del PIN (queda solo oscurecido) ni en los puntitos de "pensando" */
         html.tg-blur-baja #tg-pin .tg-pin-fondo { filter: brightness(0.5) saturate(1.1) !important; inset: 0 !important; }
         html.tg-blur-baja body [data-tg-puntos-retraso="oculto"] { filter: none !important; }
+        /* BAJA: sin blur, los menús contextuales y el marco de Personalizar pasan a fondo OPACO (translúcido sin blur se lee mal) */
+        html.tg-blur-baja [data-tg-menu-capa="blur"],
+        html.tg-blur-baja .desktop-settings-menu:not([data-tg-menu-capa]),
+        html.tg-blur-baja #tg-personalizar-panel {
+          background: rgb(32, 33, 36) !important; background-color: rgb(32, 33, 36) !important; background-image: none !important;
+        }
+        html[data-tema="claro"].tg-blur-baja [data-tg-menu-capa="blur"],
+        html[data-tema="claro"].tg-blur-baja .desktop-settings-menu:not([data-tg-menu-capa]),
+        html[data-tema="claro"].tg-blur-baja #tg-personalizar-panel {
+          background: rgb(244, 246, 251) !important; background-color: rgb(244, 246, 251) !important;
+        }
         /* BAJA y MEDIA: sin blur fade arriba/abajo del chat */
         html.tg-blur-baja #tg-fade-chat, html.tg-blur-media #tg-fade-chat { display: none !important; }
-        /* MEDIA: todo pierde el backdrop-filter MENOS burbujas, caja de escribir y botones de arriba (que siguen con el suyo).
+        /* MEDIA: todo pierde el backdrop-filter MENOS burbujas, caja de escribir, botones de arriba, barra lateral y fondo del inicio.
            La pantalla de bloqueo solo conserva el filter(blur) del fondo del PIN (.tg-pin-fondo), que no es backdrop-filter. */
         html.tg-blur-media *:not(${PERMITIDOS}),
         html.tg-blur-media *:not(${PERMITIDOS})::before,
@@ -2500,7 +2519,7 @@ p.gds-body-s.ng-star-inserted {
       scaleY: sY,
       escalaX: sX,
       escalaY: sY,
-      blur: sinBlur ? 0 : Math.max(0, L(a.blur ?? 0, b.blur ?? 0)),
+      blur: nivelBlur !== 'alta' ? 0 : Math.max(0, L(a.blur ?? 0, b.blur ?? 0)), // media y baja: sin filter(blur) en el vuelo
       backdropFilter: sinBlur ? 'none' : backdropFilterVal
     };
   }
@@ -2559,7 +2578,7 @@ p.gds-body-s.ng-star-inserted {
       // solo se escribe lo que cambió respecto al fotograma anterior
       const tr = `translate(${(destino.left + st.x).toFixed(2)}px, ${(destino.top + st.y).toFixed(2)}px) scaleX(${st.scaleX.toFixed(4)}) scaleY(${st.scaleY.toFixed(4)})`;
       if (tr !== g._tgTr) { g._tgTr = tr; fijar('transform', tr); }
-      const fl = sinBlur ? 'none' : `blur(${st.blur.toFixed(1)}px)`; // baja: ningún filter en la animación
+      const fl = nivelBlur !== 'alta' ? 'none' : `blur(${st.blur.toFixed(1)}px)`; // media y baja: ningún filter en la animación de vuelo
       if (fl !== g._tgFl) { g._tgFl = fl; fijar('filter', fl); }
       if (st.backdropFilter !== undefined && st.backdropFilter !== g._tgBf) {
         g._tgBf = st.backdropFilter;
@@ -5088,7 +5107,12 @@ p.gds-body-s.ng-star-inserted {
     est.id = 'tg-fondo-cero-style';
     est.textContent = `
       
-      html.tg-cero chat-window {
+      /* El fondo se difumina con una capa ::before DETRÁS del contenido en vez de poner el backdrop-filter en <chat-window>:
+         un elemento con backdrop-filter hace que los blur de sus hijos no vean la imagen de fondo, y así la caja de escribir
+         no se difuminaba en esta pantalla. isolation mantiene la capa (z-index -1) justo encima del fondo y debajo del contenido. */
+      html.tg-cero chat-window { isolation: isolate !important; }
+      html.tg-cero chat-window::before {
+        content: '' !important; position: absolute !important; inset: 0 !important; z-index: -1 !important; pointer-events: none !important;
         -webkit-backdrop-filter: blur(${CERO_BLUR_PX}px) brightness(${CERO_BRILLO}) !important;
         backdrop-filter: blur(${CERO_BLUR_PX}px) brightness(${CERO_BRILLO}) !important;
       }
@@ -5112,6 +5136,7 @@ p.gds-body-s.ng-star-inserted {
       if (raiz.classList.contains('tg-cero')) {
         raiz.classList.remove('tg-cero');
         document.querySelectorAll('[data-tg-cero-limpio]').forEach((e) => e.removeAttribute('data-tg-cero-limpio'));
+        document.querySelectorAll('[data-tg-cero-pos]').forEach((e) => { e.removeAttribute('data-tg-cero-pos'); e.style.removeProperty('position'); });
       }
       return;
     }
@@ -5127,6 +5152,12 @@ p.gds-body-s.ng-star-inserted {
       const cs = getComputedStyle(el);
       if (colorConFondo(cs.backgroundColor) || (cs.backgroundImage && cs.backgroundImage !== 'none')) el.setAttribute('data-tg-cero-limpio', '');
     });
+    // la capa ::before es absolute: si <chat-window> está sin posicionar se pone relative (y se devuelve al salir del estado cero)
+    const cw = document.querySelector('chat-window');
+    if (cw && !cw.hasAttribute('data-tg-cero-pos') && getComputedStyle(cw).position === 'static') {
+      cw.setAttribute('data-tg-cero-pos', '');
+      cw.style.setProperty('position', 'relative');
+    }
     raiz.classList.add('tg-cero');
   }
 
