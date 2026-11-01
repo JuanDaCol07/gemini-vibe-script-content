@@ -4753,7 +4753,12 @@ p.gds-body-s.ng-star-inserted {
   const FADE_CHAT = true;
   const FADE_CAPAS = 2;
   const FADE_LITE_ALTO_EXTRA_ABAJO = 70; // px extra hacia ARRIBA del fade lite de abajo (para que llegue a la altura del blur fade)
-  const FADE_LITE_ALFA = 0.92; // cuánto del fondo se ve en el borde de la pantalla (fade lite de Media y Baja; 1 = el mensaje desaparece del todo)
+  // fade lite de Media y Baja: cuánto del fondo se ve en el borde de la pantalla (1 = el mensaje desaparece del todo)
+  const FADE_LITE_ALFA = 0.92;        // fade de ARRIBA
+  const FADE_LITE_ALFA_ABAJO = 1;     // fade de ABAJO (más opaco)
+  // curva del degradado (de adentro hacia el borde): números más altos = el fondo aparece antes / más fuerte
+  const FADE_LITE_CURVA = [0, 0.04, 0.12, 0.26, 0.46, 0.7, 1];             // arriba
+  const FADE_LITE_CURVA_ABAJO = [0, 0.1, 0.26, 0.46, 0.68, 0.88, 1];       // abajo (sube antes: se nota más opaco)
   const FADE_BLURS = [4, 10]; // px por capa (menos capas = menos pasadas de backdrop-filter por fotograma)
   (function () {
     if (!FADE_CHAT) return;
@@ -4858,9 +4863,10 @@ p.gds-body-s.ng-star-inserted {
     const caja = document.createElement('div');
     caja.className = 'tg-fade-caja tg-fade-' + clase;
     if (lite) { // versión lite: el FONDO de pantalla con máscara en degradé (curva ease-in), sin ningún blur
-      const paso = [0, 0.04, 0.12, 0.26, 0.46, 0.7, 1];
+      const paso = clase === 'abajo' ? FADE_LITE_CURVA_ABAJO : FADE_LITE_CURVA;
+      const alfaMax = clase === 'abajo' ? FADE_LITE_ALFA_ABAJO : FADE_LITE_ALFA;
       const mascara = 'linear-gradient(to ' + dir + ', ' + paso.map((a, i) =>
-        'rgba(0,0,0,' + (a * FADE_LITE_ALFA).toFixed(3) + ') ' + Math.round(i / (paso.length - 1) * 100) + '%').join(', ') + ')';
+        'rgba(0,0,0,' + (a * alfaMax).toFixed(3) + ') ' + Math.round(i / (paso.length - 1) * 100) + '%').join(', ') + ')';
       caja.style.cssText = 'overflow:hidden;-webkit-mask-image:' + mascara + ';mask-image:' + mascara + ';';
       const capa = document.createElement('i');
       capa.className = 'tg-fade-fondo';
