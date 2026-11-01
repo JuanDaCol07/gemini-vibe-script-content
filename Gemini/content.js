@@ -5346,13 +5346,35 @@ p.gds-body-s.ng-star-inserted {
     try { actualizarVarSafeTop(); Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
   };
   // TECLADO (app móvil): Flutter llama window.tgSetTeclado(px) con la altura del teclado en px CSS (0 = cerrado).
-  window.tgSetTeclado = (px) => {
-    const v = Math.max(0, Number(px) || 0);
+  // OJO: a veces Android YA encoge el WebView por su cuenta (windowSoftInputMode adjustResize) y a veces no. Si aquí se sumara la
+  // altura completa del teclado, la caja de escribir se desplazaría dos veces (quedaba pegada arriba de la pantalla). Por eso se mide
+  // cuánto se encogió realmente la ventana (alturaBase - innerHeight) y solo se compensa lo que falta.
+  let tecladoDart = 0;                     // altura que informa Flutter (px CSS; 0 = cerrado)
+  let alturaBase = window.innerHeight;     // alto de la ventana con el teclado cerrado (solo crece; se reinicia al girar)
+  let anchoBase = window.innerWidth;
+  function aplicarTeclado() {
+    if (window.innerWidth !== anchoBase) { anchoBase = window.innerWidth; alturaBase = window.innerHeight; } // giro de pantalla
+    else if (window.innerHeight > alturaBase) alturaBase = window.innerHeight;
+    const encogido = Math.max(0, alturaBase - window.innerHeight);   // lo que Android ya redujo la página
+    let efectivo = Math.max(0, tecladoDart - encogido);
+    if (encogido > 0 && efectivo < 40) efectivo = 0;                  // ya se ajustó sola: no se toca (el resto es barra de navegación)
     const r = document.documentElement;
-    if (v > 0) { r.style.setProperty('--tg-teclado', v + 'px'); r.setAttribute('data-tg-teclado', ''); }
-    else { r.removeAttribute('data-tg-teclado'); r.style.removeProperty('--tg-teclado'); }
+    if (efectivo > 0) {
+      const v = Math.round(efectivo) + 'px';
+      if (r.style.getPropertyValue('--tg-teclado') !== v) r.style.setProperty('--tg-teclado', v);
+      if (!r.hasAttribute('data-tg-teclado')) r.setAttribute('data-tg-teclado', '');
+    } else if (r.hasAttribute('data-tg-teclado')) {
+      r.removeAttribute('data-tg-teclado'); r.style.removeProperty('--tg-teclado');
+    }
     try { Tareas.marcar('layout'); } catch (e) { /* aún no está todo creado */ }
+  }
+  window.tgSetTeclado = (px) => {
+    tecladoDart = Math.max(0, Number(px) || 0);
+    aplicarTeclado();
   };
+  // si Android redimensiona la página (antes o después de que llegue el aviso de Flutter), se recalcula al instante
+  window.addEventListener('resize', aplicarTeclado, { passive: true });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', aplicarTeclado, { passive: true });
   // Cuántos px se SUBE el header y sus botones respecto a la posición calculada (ajustable: window.tgSetHeaderOffset(12))
   let headerSubirPx = 8;
   try { const g = localStorage.getItem('tg-header-subir'); if (g !== null && g !== '') headerSubirPx = Number(g) || 0; } catch (e) { /* sin localStorage */ }
