@@ -4068,8 +4068,8 @@ p.gds-body-s.ng-star-inserted {
   // - las respuestas que ya estaban terminadas (historial, chat recargado) y miden más de COLAPSO_UMBRAL_PX arrancan contraídas
   // - contraída: altura COLAPSO_ALTO_PX con desvanecido abajo + botón redondo "expandir"
   // ============================================================================================
-  const COLAPSO_ALTO_PX = 420;     // alto de la respuesta contraída
-  const COLAPSO_UMBRAL_PX = 620;   // desde este alto (contenido completo) se considera "larguísima"
+  const COLAPSO_ALTO_PX = 250;     // alto de la respuesta contraída
+  const COLAPSO_UMBRAL_PX = 420;   // desde este alto (contenido completo) se considera "larguísima"
   const COLAPSO_MS = 380;
   (function () {
     const est = document.createElement('style');
