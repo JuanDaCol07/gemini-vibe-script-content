@@ -74,6 +74,36 @@
       aviso.id = 'tg-kernel-aviso';
       aviso.appendChild(est); aviso.appendChild(caja);
       document.documentElement.appendChild(aviso);
+      // fondo personalizado de Gemini (el mismo que eligió la persona): imagen/GIF desde las preferencias inyectadas,
+      // video desde IndexedDB. Si no hay ninguno, queda el fondo normal del body.
+      try {
+        const pf = (window.TG_PREFS_INICIALES && typeof window.TG_PREFS_INICIALES === 'object') ? window.TG_PREFS_INICIALES : {};
+        if (pf.geminiFondoTipo === 'video') {
+          const r = indexedDB.open('tg-fondos-extension', 1);
+          r.onsuccess = function () {
+            try {
+              const bd = r.result;
+              if (!bd.objectStoreNames.contains('videos')) { bd.close(); return; }
+              const g = bd.transaction('videos', 'readonly').objectStore('videos').get('gemini');
+              g.onsuccess = function () {
+                const blob = g.result;
+                bd.close();
+                if (!blob || !aviso.isConnected) return;
+                const v = document.createElement('video');
+                v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true;
+                v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-1;pointer-events:none;';
+                v.src = URL.createObjectURL(blob);
+                aviso.style.isolation = 'isolate';
+                aviso.insertBefore(v, aviso.firstChild);
+                const pr = v.play(); if (pr && pr.catch) pr.catch(function () {});
+              };
+              g.onerror = function () { bd.close(); };
+            } catch (e) { /* sin video: queda el fondo normal */ }
+          };
+        } else if (typeof pf.geminiFondo === 'string' && pf.geminiFondo) {
+          aviso.style.background = 'url("' + pf.geminiFondo.replace(/"/g, '%22') + '") center / cover no-repeat';
+        }
+      } catch (e) { /* sin fondo personalizado: queda el fondo normal */ }
     };
     if (document.body) montar(); else document.addEventListener('DOMContentLoaded', montar, { once: true });
   }
