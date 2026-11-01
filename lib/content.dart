@@ -36,6 +36,11 @@ class AlmacenPrefs {
     'geminiPinBloqueo',
     'geminiBurbuja',
     'geminiBloqueoActivo',
+    // ajustes que content.js ya enviaba y aquí se descartaban (se perdían al reiniciar la app)
+    'geminiVibesActivo',
+    'geminiBlurNivel',
+    'geminiSinFade',
+    'geminiLenis',
   };
 
   static const String _prefijo = 'tg_';
@@ -63,6 +68,9 @@ class AlmacenPrefs {
   }
 
   File _archivo(String clave) => File('${_dir.path}/$_prefijo$clave.json');
+
+  /// Espera a que terminen todas las escrituras pendientes.
+  Future<void> vaciar() => _cola;
 
   /// Lee todo lo guardado -> Map listo para `window.TG_PREFS_INICIALES`
   Future<Map<String, dynamic>> leerTodo() async {
@@ -137,15 +145,28 @@ class AlmacenPrefs {
     return null;
   }
 
-  Future<void> guardarScriptCache(String script) async {
+  /// Guarda el script en caché. Devuelve false si no se pudo escribir.
+  Future<bool> guardarScriptCache(String script) async {
     try {
       final destino = _archivoScript;
       final tmp = File('${destino.path}.tmp');
       await tmp.writeAsString(script, flush: true);
       await tmp.rename(destino.path);
+      return true;
     } catch (e) {
       debugPrint('[tg] no se pudo guardar el caché del script: $e');
+      return false;
     }
+  }
+
+  /// Fecha en que se guardó por última vez una versión NUEVA del script
+  /// (el caché solo se reescribe cuando el contenido cambia, así que equivale a "última actualización").
+  Future<DateTime?> fechaScriptCache() async {
+    try {
+      final f = _archivoScript;
+      if (await f.exists()) return await f.lastModified();
+    } catch (_) {}
+    return null;
   }
 }
 
@@ -159,7 +180,8 @@ class ContentScreen extends StatefulWidget {
   State<ContentScreen> createState() => _ContentScreenState();
 }
 
-class _ContentScreenState extends State<ContentScreen> {
+class _ContentScreenState extends State<ContentScreen>
+    with WidgetsBindingObserver {
   InAppWebViewController? webViewController;
 
   String _lenis = '';
@@ -169,6 +191,17 @@ class _ContentScreenState extends State<ContentScreen> {
   bool _listo =
       false; // el WebView NO se crea hasta tener scripts y preferencias listos
   bool _avisoMostrado = false;
+
+  // El widget del WebView se crea UNA sola vez y se reutiliza en cada build
+  // (así los rebuilds del Scaffold / MediaQuery no lo tocan).
+  Widget? _webView;
+
+  // ---- TECLADO ----
+  // Antes el Scaffold encogía el WebView en CADA fotograma de la animación del teclado (~20 re-layouts nativos
+  // del WebView + ~20 eventos "resize" para content.js). Ahora el Scaffold no se redimensiona y el hueco del teclado
+  // se aplica UNA sola vez, cuando la animación se asienta.
+  double _tecladoPx = 0;
+  Timer? _tecladoTimer;
 
   // ---- SPLASH (capa negra + logo por encima del WebView) ----
   bool _splashVisible =
@@ -194,9 +227,24 @@ class _ContentScreenState extends State<ContentScreen> {
   static const String _urlScript =
       'https://raw.githubusercontent.com/JuanDaCol07/gemini-vibe-script-content/refs/heads/main/Gemini/content.js';
 
+  // fecha del último commit que tocó content.js (GitHub API, sin token: 60 consultas/hora)
+  static const String _urlUltimoCommit =
+      'https://api.github.com/repos/JuanDaCol07/gemini-vibe-script-content/commits?sha=main&path=Gemini/content.js&per_page=1';
+
+  // ---- ACTUALIZACIONES (solo móvil) ----
+  // El menú "Actualizaciones Gemini Vibes" de content.js habla con estos métodos por el handler 'tgActualizaciones'.
+  static bool get _esMovil => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+  String?
+  _pendienteScript; // versión nueva ya descargada (se aplica con "Actualizar")
+  bool _hayNueva = false;
+  DateTime? _verificadoEn; // última vez que se consultó GitHub con éxito
+  String? _remotaFechaIso; // fecha del último commit en GitHub
+  bool _ocupado = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // una sola vez (antes se llamaba en cada build)
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -243,18 +291,38 @@ class _ContentScreenState extends State<ContentScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _tecladoTimer?.cancel();
     _splashSeguro?.cancel();
     super.dispose();
   }
 
+  // ---------------------------------------------------------------------------
+  // TECLADO: el hueco se aplica una sola vez, cuando la animación se asienta
+  // ---------------------------------------------------------------------------
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    final vista = View.of(context);
+    final nuevo = vista.viewInsets.bottom / vista.devicePixelRatio;
+    _tecladoTimer?.cancel();
+    // cada fotograma de la animación reinicia el temporizador: solo dispara cuando el valor deja de cambiar
+    _tecladoTimer = Timer(const Duration(milliseconds: 70), () {
+      if (!mounted || (nuevo - _tecladoPx).abs() < 1) return;
+      setState(() => _tecladoPx = nuevo);
+    });
+  }
+
   Future<String> _leerPrefsComoJs() async {
+    // TG_ES_MOVIL: content.js lo usa para mostrar el menú "Actualizaciones Gemini Vibes" SOLO en la app móvil
+    final movil = 'window.TG_ES_MOVIL = $_esMovil;';
     try {
       final mapa = await AlmacenPrefs.instancia.leerTodo();
       // jsonEncode produce JS válido; content.js lo lee al arrancar (window.TG_PREFS_INICIALES)
-      return 'window.TG_PREFS_INICIALES = ${jsonEncode(mapa)};';
+      return '$movil window.TG_PREFS_INICIALES = ${jsonEncode(mapa)};';
     } catch (e) {
       debugPrint('[tg] no se pudieron leer las prefs: $e');
-      return 'window.TG_PREFS_INICIALES = {};';
+      return '$movil window.TG_PREFS_INICIALES = {};';
     }
   }
 
@@ -265,6 +333,50 @@ class _ContentScreenState extends State<ContentScreen> {
       debugPrint('[tg] Error cargando Lenis: $e');
       return '';
     }
+  }
+
+  // Descarga el script de GitHub. Devuelve null si no hay conexión / la respuesta no parece JS.
+  Future<String?> _descargarScript({
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    try {
+      // el parámetro t evita que la CDN de GitHub (≈5 min de caché) te devuelva una versión vieja
+      final uri = Uri.parse(
+        '$_urlScript?t=${DateTime.now().millisecondsSinceEpoch}',
+      );
+      final response = await http
+          .get(uri, headers: const {'Cache-Control': 'no-cache'})
+          .timeout(timeout);
+
+      // validación básica: que no sea una página de error / HTML
+      final cuerpo = response.body;
+      final pareceJs = cuerpo.length > 1000 && cuerpo.contains('(function');
+      if (response.statusCode == 200 && pareceJs) return cuerpo;
+    } catch (e) {
+      debugPrint('[tg] no se pudo descargar el script de GitHub: $e');
+    }
+    return null;
+  }
+
+  // Fecha (ISO, UTC) del último commit que modificó content.js. Es solo informativa: si falla devuelve null.
+  Future<String?> _fechaUltimoCommit() async {
+    try {
+      final r = await http
+          .get(
+            Uri.parse(_urlUltimoCommit),
+            headers: const {'Accept': 'application/vnd.github+json'},
+          )
+          .timeout(const Duration(seconds: 6));
+      if (r.statusCode != 200) return null;
+      final lista = jsonDecode(r.body);
+      if (lista is List && lista.isNotEmpty) {
+        final fecha = lista[0]['commit']?['committer']?['date'];
+        if (fecha is String && fecha.isNotEmpty) return fecha;
+      }
+    } catch (e) {
+      debugPrint('[tg] no se pudo leer la fecha del último commit: $e');
+    }
+    return null;
   }
 
   // Descarga el script de GitHub; si falla usa el caché (archivo) y por último los assets
@@ -283,29 +395,18 @@ class _ContentScreenState extends State<ContentScreen> {
       }
     }
 
-    try {
-      // el parámetro t evita que la CDN de GitHub (≈5 min de caché) te devuelva una versión vieja
-      final uri = Uri.parse(
-        '$_urlScript?t=${DateTime.now().millisecondsSinceEpoch}',
-      );
-      final response = await http
-          .get(uri, headers: const {'Cache-Control': 'no-cache'})
-          .timeout(const Duration(seconds: 6));
-
-      // validación básica: que no sea una página de error / HTML
-      final cuerpo = response.body;
-      final pareceJs = cuerpo.length > 1000 && cuerpo.contains('(function');
-      if (response.statusCode == 200 && pareceJs) {
-        final viejo = await almacen.leerScriptCache();
-        scriptFinal = cuerpo;
-        _origenScript = 'github';
-        if (viejo != cuerpo) {
-          await almacen.guardarScriptCache(cuerpo);
-          actualizado = true;
-        }
+    final cuerpo = await _descargarScript();
+    if (cuerpo != null) {
+      _verificadoEn = DateTime.now();
+      final viejo = await almacen.leerScriptCache();
+      scriptFinal = cuerpo;
+      _origenScript = 'github';
+      if (viejo != cuerpo) {
+        await almacen.guardarScriptCache(cuerpo);
+        actualizado = true;
       }
-    } catch (e) {
-      debugPrint('[tg] Sin conexión a GitHub, se usa el caché local: $e');
+    } else {
+      debugPrint('[tg] Sin conexión a GitHub, se usa el caché local');
     }
 
     if (scriptFinal.isEmpty) {
@@ -322,6 +423,130 @@ class _ContentScreenState extends State<ContentScreen> {
       }
     }
     return _ResultadoScript(scriptFinal, actualizado);
+  }
+
+  // ---------------------------------------------------------------------------
+  // ACTUALIZACIONES DESDE EL MENÚ DE content.js (solo móvil)
+  // Handler JS: callHandler('tgActualizaciones', 'estado' | 'verificar' | 'actualizar')
+  // ---------------------------------------------------------------------------
+  Future<Map<String, dynamic>> _estadoActualizacion() async {
+    DateTime? instalada;
+    try {
+      instalada = await AlmacenPrefs.instancia.fechaScriptCache();
+    } catch (_) {}
+    return {
+      'ok': true,
+      'origen': _origenScript,
+      'instaladaIso': instalada?.toUtc().toIso8601String(),
+      'verificadaIso': _verificadoEn?.toUtc().toIso8601String(),
+      'remotaIso': _remotaFechaIso,
+      'hayNueva': _hayNueva,
+    };
+  }
+
+  Future<Map<String, dynamic>> _verificarActualizacion() async {
+    if (_ocupado) return {'ok': false, 'error': 'Hay otra operación en curso.'};
+    _ocupado = true;
+    try {
+      final resultados = await Future.wait<dynamic>([
+        _descargarScript(timeout: const Duration(seconds: 10)),
+        _fechaUltimoCommit(),
+      ]);
+      final cuerpo = resultados[0] as String?;
+      if (cuerpo == null) {
+        return {
+          'ok': false,
+          'error': 'No se pudo conectar con GitHub. Revisa tu conexión.',
+        };
+      }
+      _verificadoEn = DateTime.now();
+      _remotaFechaIso = (resultados[1] as String?) ?? _remotaFechaIso;
+      _hayNueva = cuerpo != _contentJs;
+      _pendienteScript = _hayNueva ? cuerpo : null;
+      return await _estadoActualizacion();
+    } finally {
+      _ocupado = false;
+    }
+  }
+
+  Future<Map<String, dynamic>> _aplicarActualizacion() async {
+    if (_ocupado) return {'ok': false, 'error': 'Hay otra operación en curso.'};
+    _ocupado = true;
+    try {
+      var nuevo = _pendienteScript;
+      if (nuevo == null) {
+        // no se había verificado: se descarga ahora
+        nuevo = await _descargarScript(timeout: const Duration(seconds: 10));
+        if (nuevo == null) {
+          return {
+            'ok': false,
+            'error': 'No se pudo descargar la actualización.',
+          };
+        }
+        if (nuevo == _contentJs) {
+          _hayNueva = false;
+          return {...await _estadoActualizacion(), 'yaActualizado': true};
+        }
+      }
+      final guardado = await AlmacenPrefs.instancia.guardarScriptCache(nuevo);
+      if (!guardado) {
+        return {
+          'ok': false,
+          'error': 'No se pudo guardar la actualización en el dispositivo.',
+        };
+      }
+      _contentJs = nuevo;
+      _pendienteScript = null;
+      _hayNueva = false;
+      _origenScript = 'github';
+      _verificadoEn = DateTime.now();
+      final estado = await _estadoActualizacion();
+      // la respuesta llega primero a content.js (que muestra "Aplicando...") y después se recarga la página
+      final c = webViewController;
+      if (c != null) unawaited(_recargarConScriptsNuevos(c));
+      return {...estado, 'recargando': c != null};
+    } finally {
+      _ocupado = false;
+    }
+  }
+
+  List<UserScript> _construirUserScripts() => [
+    UserScript(
+      source: _prefsInicialesJs,
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+      forMainFrameOnly: true,
+    ),
+    if (_lenis.isNotEmpty)
+      UserScript(
+        source: _lenis,
+        injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
+        forMainFrameOnly: true,
+      ),
+    if (_contentJs.isNotEmpty)
+      UserScript(
+        source: _contentJs,
+        injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
+        forMainFrameOnly: true,
+      ),
+  ];
+
+  // Cambia los UserScripts del WebView que ya existe y recarga la página.
+  // IMPORTANTE: antes se relee el almacén de preferencias; si no, TG_PREFS_INICIALES (que manda sobre lo guardado)
+  // traería los valores de cuando arrancó la app y se perderían los ajustes hechos en esta sesión.
+  Future<void> _recargarConScriptsNuevos(
+    InAppWebViewController controller,
+  ) async {
+    try {
+      // content.js agrupa sus envíos 250 ms: se espera a que lleguen antes de leer
+      await Future.delayed(const Duration(milliseconds: 700));
+      await AlmacenPrefs.instancia.vaciar();
+      _prefsInicialesJs = await _leerPrefsComoJs();
+      await controller.removeAllUserScripts();
+      await controller.addUserScripts(userScripts: _construirUserScripts());
+      await controller.reload();
+    } catch (e) {
+      debugPrint('[tg] no se pudo recargar con el script nuevo: $e');
+    }
   }
 
   // Confirma que content.js realmente corrió; si no, lo inyecta a mano (respaldo)
@@ -403,17 +628,29 @@ class _ContentScreenState extends State<ContentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // se crea una sola vez, cuando todo está listo
+    if (_listo && _webView == null) {
+      _webView = RepaintBoundary(child: _construirWebView());
+    }
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 0, 0, 0),
+      // el teclado NO redimensiona el Scaffold fotograma a fotograma (ver _tecladoPx)
+      resizeToAvoidBottomInset: false,
       body: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.light,
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // capa 1: el WebView (solo se crea cuando todo está listo)
-            if (_listo) _construirWebView(),
+            // capa 1: el WebView, con el hueco del teclado aplicado una sola vez
+            if (_webView != null)
+              Positioned.fill(
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: _tecladoPx),
+                  child: _webView!,
+                ),
+              ),
 
-            // capa 2: fondo negro + logo por encima, con fade out de 1 s
+            // capa 2: fondo negro + logo por encima, con fade out
             if (!_splashQuitado)
               IgnorePointer(
                 ignoring: !_splashVisible,
@@ -455,25 +692,9 @@ class _ContentScreenState extends State<ContentScreen> {
       //  2) Lenis  3) content.js (necesita document.body, por eso AT_DOCUMENT_END)
       // Antes se hacía en onLoadStop, que se dispara varias veces (cada navegación) y duplicaba observers,
       // intervalos y la pantalla de bloqueo; además podía llegar antes de que el script estuviera descargado.
-      initialUserScripts: UnmodifiableListView<UserScript>([
-        UserScript(
-          source: _prefsInicialesJs,
-          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-          forMainFrameOnly: true,
-        ),
-        if (_lenis.isNotEmpty)
-          UserScript(
-            source: _lenis,
-            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
-            forMainFrameOnly: true,
-          ),
-        if (_contentJs.isNotEmpty)
-          UserScript(
-            source: _contentJs,
-            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
-            forMainFrameOnly: true,
-          ),
-      ]),
+      initialUserScripts: UnmodifiableListView<UserScript>(
+        _construirUserScripts(),
+      ),
       initialSettings: InAppWebViewSettings(
         isInspectable: kDebugMode, // solo depuración
         mediaPlaybackRequiresUserGesture: false,
@@ -498,6 +719,29 @@ class _ContentScreenState extends State<ContentScreen> {
             return true;
           },
         );
+
+        // content.js -> Flutter: menú "Actualizaciones Gemini Vibes" (SOLO móvil)
+        if (_esMovil) {
+          controller.addJavaScriptHandler(
+            handlerName: 'tgActualizaciones',
+            callback: (args) async {
+              final accion = args.isNotEmpty ? '${args[0]}' : 'estado';
+              try {
+                switch (accion) {
+                  case 'verificar':
+                    return await _verificarActualizacion();
+                  case 'actualizar':
+                    return await _aplicarActualizacion();
+                  default:
+                    return await _estadoActualizacion();
+                }
+              } catch (e) {
+                debugPrint('[tg] tgActualizaciones("$accion") falló: $e');
+                return {'ok': false, 'error': '$e'};
+              }
+            },
+          );
+        }
       },
       // todo lo que content.js escriba en la consola ([tg]...) o cualquier error de JS aparece en la consola de Flutter
       onConsoleMessage: (controller, msg) {
@@ -512,11 +756,12 @@ class _ContentScreenState extends State<ContentScreen> {
         await _verificarInyeccion(controller, url);
       },
       // si el proceso del WebView muere, no se cierra la app: se recarga
+      // (con las preferencias releídas, para no volver a los valores del arranque)
       onRenderProcessGone: (controller, detail) async {
         debugPrint(
           '[tg] el proceso del WebView terminó (didCrash=${detail.didCrash}); recargando',
         );
-        await controller.reload();
+        await _recargarConScriptsNuevos(controller);
       },
     );
   }

@@ -3453,7 +3453,9 @@ p.gds-body-s.ng-star-inserted {
     fondo: () => hs('svg', { viewBox: '0 0 24 24' },
       hs('rect', { x: 3, y: 4, width: 18, height: 16, rx: 3 }), hs('circle', { cx: 9, cy: 10, r: 1.8 }), hs('path', { d: 'M21 16l-5-5-8 9' })),
     bloqueo: () => hs('svg', { viewBox: '0 0 24 24' },
-      hs('rect', { x: 5, y: 11, width: 14, height: 9, rx: 2.5 }), hs('path', { d: 'M8 11V8a4 4 0 0 1 8 0v3' }), hs('circle', { cx: 12, cy: 15.5, r: 1 }))
+      hs('rect', { x: 5, y: 11, width: 14, height: 9, rx: 2.5 }), hs('path', { d: 'M8 11V8a4 4 0 0 1 8 0v3' }), hs('circle', { cx: 12, cy: 15.5, r: 1 })),
+    actualizar: () => hs('svg', { viewBox: '0 0 24 24' },
+      hs('path', { d: 'M12 4v11M7.5 11 12 15.5 16.5 11' }), hs('path', { d: 'M5 19h14' }))
   };
   function ponerIcono(item, tipo) {
     let icono = item.querySelector('mat-icon, gem-icon');
@@ -3882,7 +3884,106 @@ p.gds-body-s.ng-star-inserted {
     requestAnimationFrame(() => { backdrop.classList.add('tg-visible'); backdrop.querySelector('.tg-p-cerrar').focus({ preventScroll: true }); });
   }
 
-  
+  // ===== PANEL "ACTUALIZACIONES GEMINI VIBES" (SOLO app móvil) =====
+  // Habla con content.dart por el handler 'tgActualizaciones' ('estado' | 'verificar' | 'actualizar').
+  // Reutiliza los mismos ids y clases del panel Personalizar (mismo cristal, mismas píldoras).
+  function llamarActualizaciones(accion) {
+    if (!esAppMovil()) return Promise.reject(new Error('Solo disponible en la app móvil.'));
+    return Promise.resolve(window.flutter_inappwebview.callHandler('tgActualizaciones', accion));
+  }
+  function fechaLarga(iso) {
+    if (!iso) return 'Sin datos';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return 'Sin datos';
+    const dia = d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const hora = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+    return dia.charAt(0).toUpperCase() + dia.slice(1) + ' · ' + hora;
+  }
+
+  function abrirPanelActualizaciones() {
+    if (!esAppMovil()) return;
+    actualizarFondoMenuLateral();
+    const previo = document.getElementById('tg-personalizar-backdrop');
+    if (previo) { if (previo._limpiar) previo._limpiar(); previo.remove(); }
+
+    const SVG_CERRAR = () => hs('svg', { viewBox: '0 0 24 24' }, hs('path', { d: 'M6 6l12 12M18 6L6 18' }));
+    const SVG_REFRESCAR = () => hs('svg', { class: 'tg-p-ico', viewBox: '0 0 24 24' },
+      hs('path', { d: 'M20 12a8 8 0 1 1-2.3-5.7' }), hs('path', { d: 'M20 4v5h-5' }));
+    const SVG_DESCARGAR = () => hs('svg', { class: 'tg-p-ico', viewBox: '0 0 24 24' },
+      hs('path', { d: 'M12 4v11M7.5 11 12 15.5 16.5 11' }), hs('path', { d: 'M5 19h14' }));
+    const fila = (titulo, ref) => h('div', { class: 'tg-p-fila' },
+      h('div', { class: 'tg-p-fila-cab', style: 'flex-wrap:wrap;gap:4px 12px;margin-bottom:0' },
+        h('span', null, titulo),
+        h('span', { class: 'tg-p-valor', 'data-r': ref, style: 'text-align:right' }, '…')));
+
+    const backdrop = h('div', { id: 'tg-personalizar-backdrop' },
+      h('div', { id: 'tg-personalizar-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': ETIQUETA_ACTUALIZAR },
+        h('div', { class: 'tg-p-top' },
+          h('h2', { class: 'tg-p-header' }, ETIQUETA_ACTUALIZAR),
+          h('button', { class: 'tg-p-cerrar', type: 'button', 'aria-label': 'Cerrar' }, SVG_CERRAR())
+        ),
+        h('section', { class: 'tg-p-seccion' },
+          h('p', { class: 'tg-p-sub' }, 'Gemini Vibes se descarga de GitHub. Se actualiza al abrir la app, o aquí mismo sin reiniciarla.'),
+          h('div', { class: 'tg-p-controles' },
+            fila('Última actualización instalada', 'instalada'),
+            fila('Última versión en GitHub', 'remota'),
+            fila('Última verificación', 'verificada'),
+            h('div', { class: 'tg-p-fila' },
+              h('div', { class: 'tg-p-fila-cab', style: 'margin-bottom:0' },
+                h('span', null, 'Estado'),
+                h('span', { class: 'tg-p-valor', 'data-r': 'estado', style: 'text-align:right' }, 'Consultando…')))
+          ),
+          h('div', { class: 'tg-p-acciones', style: 'gap:10px;flex-wrap:wrap' },
+            h('button', { class: 'tg-p-btn', type: 'button', 'data-r': 'verificar' }, SVG_REFRESCAR(), 'Verificar actualizaciones'),
+            h('button', { class: 'tg-p-btn', type: 'button', 'data-r': 'actualizar', hidden: true }, SVG_DESCARGAR(), 'Actualizar ahora')
+          )
+        )
+      )
+    );
+    const q = (r) => backdrop.querySelector('[data-r="' + r + '"]');
+    let ocupado = false;
+
+    function pintar(r, mensaje) {
+      if (r && r.ok !== false) {
+        q('instalada').textContent = r.origen === 'asset' ? 'Versión incluida en la app' : fechaLarga(r.instaladaIso);
+        q('remota').textContent = fechaLarga(r.remotaIso);
+        q('verificada').textContent = r.verificadaIso ? fechaLarga(r.verificadaIso) : 'Aún no verificado';
+        q('actualizar').hidden = !r.hayNueva;
+        q('estado').textContent = mensaje || (r.hayNueva ? 'Hay una versión nueva disponible' : r.verificadaIso ? 'Estás en la última versión' : 'Sin verificar');
+      } else {
+        q('estado').textContent = (r && r.error) || 'No se pudo consultar.';
+      }
+    }
+    function bloquear(v) { ocupado = v; q('verificar').disabled = v; q('actualizar').disabled = v; }
+
+    q('verificar').addEventListener('click', () => {
+      if (ocupado) return;
+      bloquear(true); q('estado').textContent = 'Buscando actualizaciones…';
+      llamarActualizaciones('verificar').then((r) => pintar(r)).catch((e) => pintar({ ok: false, error: String((e && e.message) || e) })).then(() => bloquear(false));
+    });
+    q('actualizar').addEventListener('click', () => {
+      if (ocupado) return;
+      bloquear(true); q('estado').textContent = 'Descargando e instalando…';
+      llamarActualizaciones('actualizar').then((r) => {
+        if (r && r.ok !== false && r.recargando) { pintar(r, 'Listo. La página se recargará en un momento…'); q('actualizar').hidden = true; q('verificar').disabled = true; }
+        else { pintar(r); bloquear(false); }
+      }).catch((e) => { pintar({ ok: false, error: String((e && e.message) || e) }); bloquear(false); });
+    });
+
+    function onTecla(e) { if (e.key === 'Escape') { e.stopPropagation(); cerrar(); } }
+    function limpiar() { document.removeEventListener('keydown', onTecla, true); }
+    function cerrar() { limpiar(); backdrop.classList.remove('tg-visible'); setTimeout(() => backdrop.remove(), 200); }
+    backdrop._limpiar = limpiar;
+    document.addEventListener('keydown', onTecla, true);
+    backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) cerrar(); });
+    backdrop.querySelector('.tg-p-cerrar').addEventListener('click', cerrar);
+    backdrop.querySelector('#tg-personalizar-panel').addEventListener('click', (e) => e.stopPropagation());
+
+    document.body.appendChild(backdrop);
+    requestAnimationFrame(() => backdrop.classList.add('tg-visible'));
+    llamarActualizaciones('estado').then((r) => pintar(r)).catch((e) => pintar({ ok: false, error: String((e && e.message) || e) }));
+  }
+
   function agregarItemFondo(menu) {
     if (!menu) return;
     const items = [...menu.querySelectorAll('.mat-mdc-menu-item')];
@@ -4055,18 +4156,27 @@ p.gds-body-s.ng-star-inserted {
   // <mat-action-list class="mobile-settings-and-help-menu">. Aquí se agrega un botón "Personalizar" justo debajo de "Tema"
   // que abre el mismo panel de personalización (abrirPanelPersonalizar) y cierra la hoja.
   const ID_ITEM_PERSONALIZAR_MOVIL = 'tg-item-personalizar-movil';
+  const ID_ITEM_ACTUALIZAR_MOVIL = 'tg-item-actualizar-movil'; // solo en la app móvil (ver esAppMovil)
+  const ETIQUETA_ACTUALIZAR = 'Actualizaciones Gemini Vibes';
   (function () {
     const est = document.createElement('style');
     est.id = 'tg-personalizar-movil-style';
-    est.textContent = `
-      #${ID_ITEM_PERSONALIZAR_MOVIL} .tg-menu-ico-m { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: inherit; }
-      #${ID_ITEM_PERSONALIZAR_MOVIL} .tg-menu-ico-m svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-      #${ID_ITEM_PERSONALIZAR_MOVIL} mat-icon { display: none !important; }
-    `;
+    est.textContent = ['#' + ID_ITEM_PERSONALIZAR_MOVIL, '#' + ID_ITEM_ACTUALIZAR_MOVIL].map((s) => `
+      ${s} .tg-menu-ico-m { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: inherit; }
+      ${s} .tg-menu-ico-m svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      ${s} mat-icon { display: none !important; }
+    `).join('');
     (document.head || document.documentElement).appendChild(est);
   })();
 
-  function crearItemPersonalizarMovil(lista) {
+  // ¿estamos dentro de la app móvil (WebView de Flutter)? Dart pone window.TG_ES_MOVIL = true y registra el handler 'tgActualizaciones'.
+  // En la extensión de Chrome (escritorio) esto es false y el menú de actualizaciones NO existe.
+  function esAppMovil() {
+    return window.TG_ES_MOVIL === true && !!(window.flutter_inappwebview && typeof window.flutter_inappwebview.callHandler === 'function');
+  }
+
+  function crearItemPersonalizarMovil(lista, cfg) {
+    cfg = cfg || { id: ID_ITEM_PERSONALIZAR_MOVIL, etiqueta: ETIQUETA_PERSONALIZAR, icono: SVG_MENU.personalizar, accion: abrirPanelPersonalizar };
     const items = [...lista.querySelectorAll(':scope > .mat-mdc-list-item')];
     // plantilla: un botón normal (sin flecha a la derecha ni enlace) para heredar el estilo exacto de Gemini
     const plantilla =
@@ -4078,23 +4188,23 @@ p.gds-body-s.ng-star-inserted {
      'aria-expanded', 'href', 'target', 'rel', 'routerlink', 'queryparamshandling']
       .forEach((a) => item.removeAttribute(a));
     item.querySelectorAll('[id], [jslog]').forEach((e) => { e.removeAttribute('id'); e.removeAttribute('jslog'); });
-    item.id = ID_ITEM_PERSONALIZAR_MOVIL;
+    item.id = cfg.id;
     item.setAttribute('type', 'button');
     item.setAttribute('role', 'button');
     item.removeAttribute('disabled');
     item.setAttribute('aria-disabled', 'false');
-    ponerTexto(item, ETIQUETA_PERSONALIZAR);
+    ponerTexto(item, cfg.etiqueta);
     // icono: se reemplaza el glifo de Gemini por el mismo icono SVG que usa el menú de escritorio
     const contIcono = item.querySelector('gem-icon') || item.querySelector('mat-icon');
     if (contIcono) {
       contIcono.querySelectorAll('mat-icon').forEach((m) => m.remove());
-      const span = h('span', { class: 'tg-menu-ico-m', 'aria-hidden': 'true' }, SVG_MENU.personalizar());
+      const span = h('span', { class: 'tg-menu-ico-m', 'aria-hidden': 'true' }, cfg.icono());
       contIcono.appendChild(span);
     }
     item.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      abrirPanelPersonalizar();
+      cfg.accion();
       cerrarMenuAjustes();
     });
     return item;
@@ -4102,7 +4212,15 @@ p.gds-body-s.ng-star-inserted {
 
   function agregarItemMovil() {
     document.querySelectorAll('.mobile-settings-and-help-menu').forEach((lista) => {
-      if (lista.querySelector('#' + ID_ITEM_PERSONALIZAR_MOVIL)) return;
+      // "Actualizaciones Gemini Vibes": SOLO en la app móvil, justo debajo de "Personalizar" (también si Personalizar ya estaba puesto)
+      const colocarActualizaciones = () => {
+        if (!esAppMovil() || lista.querySelector('#' + ID_ITEM_ACTUALIZAR_MOVIL)) return;
+        const base = lista.querySelector('#' + ID_ITEM_PERSONALIZAR_MOVIL);
+        if (!base) return;
+        const it = crearItemPersonalizarMovil(lista, { id: ID_ITEM_ACTUALIZAR_MOVIL, etiqueta: ETIQUETA_ACTUALIZAR, icono: SVG_MENU.actualizar, accion: abrirPanelActualizaciones });
+        if (it) lista.insertBefore(it, base.nextSibling);
+      };
+      if (lista.querySelector('#' + ID_ITEM_PERSONALIZAR_MOVIL)) { colocarActualizaciones(); return; }
       const items = [...lista.children].filter((i) => i.matches && i.matches('.mat-mdc-list-item, [mat-list-item]'));
       if (!items.length) return; // aún no se dibujan las opciones: se reintenta
       // ancla: el ítem "Tema" (por su título o por su icono "routine"); si no se encuentra, antes del primer separador
@@ -4119,6 +4237,7 @@ p.gds-body-s.ng-star-inserted {
       const nuevo = crearItemPersonalizarMovil(lista);
       if (!nuevo) { console.warn('[tg] no se encontró plantilla para el botón Personalizar móvil'); return; }
       lista.insertBefore(nuevo, antesDe);
+      colocarActualizaciones();
       console.log('[tg] botón Personalizar agregado al menú móvil');
     });
   }
