@@ -1395,6 +1395,16 @@
         box-shadow: none !important;
       }
 
+      html.tg-blur-baja input-area-v2 .text-input-field:focus-within {
+  background: rgba(0, 0, 0, 0.75) !important;
+  background-color: rgba(0, 0, 0, 0.75) !important;
+}
+
+html[data-tema="claro"].tg-blur-baja input-area-v2 .text-input-field:focus-within {
+  background: rgba(255, 255, 255, 0.85) !important;
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
+
       /* Texto legible sobre fondos claros */
       input-area-v2 .ql-editor {
         color: var(--tg-texto) !important;
