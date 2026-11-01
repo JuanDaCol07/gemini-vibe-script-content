@@ -170,6 +170,19 @@ class _ContentScreenState extends State<ContentScreen> {
       false; // el WebView NO se crea hasta tener scripts y preferencias listos
   bool _avisoMostrado = false;
 
+  // ---- SPLASH (capa negra + logo por encima del WebView) ----
+  bool _splashVisible =
+      true; // objetivo del fade (true = opaco, false = se desvanece)
+  bool _splashQuitado = false; // cuando termina el fade se saca del árbol
+  Timer? _splashSeguro;
+
+  // Desvanece el splash (1 s). Es idempotente.
+  void _ocultarSplash() {
+    if (!mounted || !_splashVisible) return;
+    _splashSeguro?.cancel();
+    setState(() => _splashVisible = false);
+  }
+
   // ---- AJUSTES DE DESARROLLO ----
   // true  = usa SIEMPRE el content.js de los assets (Gemini/content.js) y NO el de GitHub.
   //         Úsalo mientras pruebas cambios locales: si no, el script de GitHub (y su caché) GANA sobre tu archivo local.
@@ -189,7 +202,7 @@ class _ContentScreenState extends State<ContentScreen> {
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.light,
-        systemNavigationBarColor: Color(0xFF0F172A),
+        systemNavigationBarColor: Color.fromARGB(255, 0, 0, 0),
         systemNavigationBarIconBrightness: Brightness.light,
       ),
     );
@@ -210,6 +223,9 @@ class _ContentScreenState extends State<ContentScreen> {
       _leerPrefsComoJs(),
       _cargarLenis(),
       _sincronizarScriptRemoto(),
+      Future.delayed(
+        const Duration(seconds: 1),
+      ), // <-- Garantiza los 2 segundos mínimos
     ]);
 
     if (!mounted) return;
@@ -221,6 +237,14 @@ class _ContentScreenState extends State<ContentScreen> {
       _fueActualizado = r.actualizado;
       _listo = true;
     });
+    // red de seguridad: si la página nunca confirma la carga, el splash no se queda para siempre
+    _splashSeguro = Timer(const Duration(seconds: 15), _ocultarSplash);
+  }
+
+  @override
+  void dispose() {
+    _splashSeguro?.cancel();
+    super.dispose();
   }
 
   Future<String> _leerPrefsComoJs() async {
@@ -309,7 +333,11 @@ class _ContentScreenState extends State<ContentScreen> {
       // da un momento a que los UserScripts AT_DOCUMENT_END terminen
       await Future.delayed(const Duration(milliseconds: 600));
       final host = url?.host ?? '';
-      if (!host.contains('gemini.google.com')) return;
+      if (!host.contains('gemini.google.com')) {
+        // p. ej. pantalla de login de Google: no hay content.js que esperar, se muestra la página
+        _ocultarSplash();
+        return;
+      }
 
       Future<Map<String, dynamic>> estado() async {
         final r = await controller.evaluateJavascript(
@@ -339,6 +367,10 @@ class _ContentScreenState extends State<ContentScreen> {
     } catch (err) {
       debugPrint('[tg] _verificarInyeccion falló: $err');
     }
+    // página cargada y content.js corrido (o intento de respaldo hecho): se quita el splash
+    // pequeña pausa para que content.js pinte tema/fondo/bloqueo antes de revelar
+    await Future.delayed(const Duration(milliseconds: 250));
+    _ocultarSplash();
   }
 
   void _mostrarAvisoOta() {
@@ -361,7 +393,7 @@ class _ContentScreenState extends State<ContentScreen> {
             ),
           ],
         ),
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: const Color.fromARGB(255, 0, 0, 0),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 4),
@@ -371,90 +403,121 @@ class _ContentScreenState extends State<ContentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_listo) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0F172A),
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: const Color.fromARGB(255, 0, 0, 0),
       body: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.light,
-        child: InAppWebView(
-          initialUrlRequest: URLRequest(
-            url: WebUri('https://gemini.google.com'),
-          ),
-          // Los scripts se inyectan UNA vez por carga de página, en orden:
-          //  1) preferencias (antes de todo, para que el bloqueo/tema/fondos salgan bien al primer frame)
-          //  2) Lenis  3) content.js (necesita document.body, por eso AT_DOCUMENT_END)
-          // Antes se hacía en onLoadStop, que se dispara varias veces (cada navegación) y duplicaba observers,
-          // intervalos y la pantalla de bloqueo; además podía llegar antes de que el script estuviera descargado.
-          initialUserScripts: UnmodifiableListView<UserScript>([
-            UserScript(
-              source: _prefsInicialesJs,
-              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-              forMainFrameOnly: true,
-            ),
-            if (_lenis.isNotEmpty)
-              UserScript(
-                source: _lenis,
-                injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
-                forMainFrameOnly: true,
-              ),
-            if (_contentJs.isNotEmpty)
-              UserScript(
-                source: _contentJs,
-                injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
-                forMainFrameOnly: true,
-              ),
-          ]),
-          initialSettings: InAppWebViewSettings(
-            isInspectable: kDebugMode, // solo depuración
-            mediaPlaybackRequiresUserGesture: false,
-            transparentBackground: true,
-            preferredContentMode: UserPreferredContentMode.MOBILE,
-            hardwareAcceleration: true,
-            supportZoom: false,
-          ),
-          onWebViewCreated: (controller) {
-            webViewController = controller;
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // capa 1: el WebView (solo se crea cuando todo está listo)
+            if (_listo) _construirWebView(),
 
-            // content.js -> Flutter: window.flutter_inappwebview.callHandler('guardarPreferencia', clave, valor)
-            controller.addJavaScriptHandler(
-              handlerName: 'guardarPreferencia',
-              callback: (args) {
-                if (args.length < 2 || args[0] is! String) return false;
-                // sin await: no se bloquea el canal; guardar() nunca lanza
-                unawaited(
-                  AlmacenPrefs.instancia.guardar(args[0] as String, args[1]),
-                );
-                return true;
-              },
-            );
-          },
-          // todo lo que content.js escriba en la consola ([tg]...) o cualquier error de JS aparece en la consola de Flutter
-          onConsoleMessage: (controller, msg) {
-            final t = msg.message;
-            if (t.contains('[tg]') ||
-                msg.messageLevel == ConsoleMessageLevel.ERROR) {
-              debugPrint('[web:${msg.messageLevel}] $t');
-            }
-          },
-          onLoadStop: (controller, url) async {
-            _mostrarAvisoOta();
-            await _verificarInyeccion(controller, url);
-          },
-          // si el proceso del WebView muere, no se cierra la app: se recarga
-          onRenderProcessGone: (controller, detail) async {
-            debugPrint(
-              '[tg] el proceso del WebView terminó (didCrash=${detail.didCrash}); recargando',
-            );
-            await controller.reload();
-          },
+            // capa 2: fondo negro + logo por encima, con fade out de 1 s
+            if (!_splashQuitado)
+              IgnorePointer(
+                ignoring: !_splashVisible,
+                child: AnimatedOpacity(
+                  opacity: _splashVisible ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOut,
+                  onEnd: () {
+                    if (!_splashVisible && mounted) {
+                      setState(() => _splashQuitado = true);
+                    }
+                  },
+                  child: Container(
+                    color: const Color.fromARGB(255, 0, 0, 0),
+                    alignment: Alignment.center,
+                    child: _FadingGeminiLogo(cargando: _listo),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _construirWebView() {
+    return InAppWebView(
+      initialUrlRequest: URLRequest(url: WebUri('https://gemini.google.com')),
+
+      onPermissionRequest: (controller, request) async {
+        return PermissionResponse(
+          resources: request.resources,
+          action: PermissionResponseAction.GRANT,
+        );
+      },
+
+      // Los scripts se inyectan UNA vez por carga de página, en orden:
+      //  1) preferencias (antes de todo, para que el bloqueo/tema/fondos salgan bien al primer frame)
+      //  2) Lenis  3) content.js (necesita document.body, por eso AT_DOCUMENT_END)
+      // Antes se hacía en onLoadStop, que se dispara varias veces (cada navegación) y duplicaba observers,
+      // intervalos y la pantalla de bloqueo; además podía llegar antes de que el script estuviera descargado.
+      initialUserScripts: UnmodifiableListView<UserScript>([
+        UserScript(
+          source: _prefsInicialesJs,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+          forMainFrameOnly: true,
+        ),
+        if (_lenis.isNotEmpty)
+          UserScript(
+            source: _lenis,
+            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
+            forMainFrameOnly: true,
+          ),
+        if (_contentJs.isNotEmpty)
+          UserScript(
+            source: _contentJs,
+            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
+            forMainFrameOnly: true,
+          ),
+      ]),
+      initialSettings: InAppWebViewSettings(
+        isInspectable: kDebugMode, // solo depuración
+        mediaPlaybackRequiresUserGesture: false,
+        transparentBackground: true,
+        preferredContentMode: UserPreferredContentMode.MOBILE,
+        hardwareAcceleration: true,
+        supportZoom: false,
+      ),
+
+      onWebViewCreated: (controller) {
+        webViewController = controller;
+
+        // content.js -> Flutter: window.flutter_inappwebview.callHandler('guardarPreferencia', clave, valor)
+        controller.addJavaScriptHandler(
+          handlerName: 'guardarPreferencia',
+          callback: (args) {
+            if (args.length < 2 || args[0] is! String) return false;
+            // sin await: no se bloquea el canal; guardar() nunca lanza
+            unawaited(
+              AlmacenPrefs.instancia.guardar(args[0] as String, args[1]),
+            );
+            return true;
+          },
+        );
+      },
+      // todo lo que content.js escriba en la consola ([tg]...) o cualquier error de JS aparece en la consola de Flutter
+      onConsoleMessage: (controller, msg) {
+        final t = msg.message;
+        if (t.contains('[tg]') ||
+            msg.messageLevel == ConsoleMessageLevel.ERROR) {
+          debugPrint('[web:${msg.messageLevel}] $t');
+        }
+      },
+      onLoadStop: (controller, url) async {
+        _mostrarAvisoOta();
+        await _verificarInyeccion(controller, url);
+      },
+      // si el proceso del WebView muere, no se cierra la app: se recarga
+      onRenderProcessGone: (controller, detail) async {
+        debugPrint(
+          '[tg] el proceso del WebView terminó (didCrash=${detail.didCrash}); recargando',
+        );
+        await controller.reload();
+      },
     );
   }
 }
@@ -463,4 +526,68 @@ class _ResultadoScript {
   final String script;
   final bool actualizado;
   const _ResultadoScript(this.script, this.actualizado);
+}
+
+class _FadingGeminiLogo extends StatefulWidget {
+  // false = silueta (preparando scripts/prefs) | true = logo Gemini.png (cargando la página)
+  final bool cargando;
+  const _FadingGeminiLogo({required this.cargando});
+
+  @override
+  State<_FadingGeminiLogo> createState() => _FadingGeminiLogoState();
+}
+
+class _FadingGeminiLogoState extends State<_FadingGeminiLogo>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    duration: const Duration(milliseconds: 700),
+    vsync: this,
+  )..repeat(reverse: true);
+
+  // pulso puro de 0 a 1 (el rango de opacidad se calcula en build)
+  late final Animation<double> _pulso = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeInOut,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      // t: 0 = preparando (silueta), 1 = cargando (logo). Cambia suave en 500 ms
+      tween: Tween<double>(end: widget.cargando ? 1.0 : 0.0),
+      duration: const Duration(milliseconds: 500),
+      builder: (context, t, child) {
+        return AnimatedBuilder(
+          animation: _pulso,
+          builder: (context, child) {
+            final minimo = 0.05 + (0.03 - 0.03) * t; // 0.05 -> 0.3
+            final maximo = 0.7 + (1.0 - 0.7) * t; // 0.7  -> 1.0
+            final opacidad = minimo + (maximo - minimo) * _pulso.value;
+            return Opacity(opacity: opacidad, child: child);
+          },
+          child: child,
+        );
+      },
+      child: SizedBox(
+        width: 90,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 500),
+          switchInCurve: Curves.easeIn,
+          switchOutCurve: Curves.easeOut,
+          child: widget.cargando
+              ? Image.asset('Gemini/Gemini.png', key: const ValueKey('logo'))
+              : Image.asset(
+                  'Gemini/Gemini silueta.png',
+                  key: const ValueKey('silueta'),
+                ),
+        ),
+      ),
+    );
+  }
 }
