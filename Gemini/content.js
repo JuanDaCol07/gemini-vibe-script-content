@@ -4845,7 +4845,7 @@ p.gds-body-s.ng-star-inserted {
   // Al enviar el primer mensaje el desenfoque se desvanece y Gemini vuelve a su estilo normal.
   // OJO: el backdrop-filter solo se pone en estado cero (no de forma permanente), porque un elemento con backdrop-filter hace que
   // los blur de sus hijos (burbujas, caja de escribir) ya no vean la imagen de fondo.
-  const CERO_BLUR_PX = 10;     // desenfoque del fondo
+  const CERO_BLUR_PX = 5;     // desenfoque del fondo
   const CERO_BRILLO = 1;       // 1 = sin oscurecer; menor = más oscuro (mejora la lectura del texto)
   (function () {
     const est = document.createElement('style');
