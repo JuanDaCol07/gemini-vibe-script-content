@@ -164,7 +164,7 @@
   // OPACIDAD EXTRA con el desenfoque desactivado: sin blur los fondos translúcidos se leen peor, así que a TODOS los fondos de cristal
   // de la extensión (burbujas, caja de escribir, menús, panel, bloqueo, PIN...) se les suma este valor de opacidad (0.1 = +10 %).
   // 0 = no sumar nada. Se aplica con la variable CSS --tg-sb-extra, que solo existe mientras el ajuste está activado.
-  const SIN_BLUR_OPACIDAD_EXTRA = 0.1;
+  const SIN_BLUR_OPACIDAD_EXTRA = 0.05;
   let sinBlur = false;
   try {
     const sg = localStorage.getItem(SINBLUR_CLAVE_LS);
