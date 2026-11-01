@@ -3955,7 +3955,7 @@ p.gds-body-s.ng-star-inserted {
       }
       .tg-u-fondos {
         position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
-        background: #0f4a63; background: linear-gradient(135deg, color-mix(in srgb, var(--tg-u-acento, #0059ff) 55%, #000), #0b1220);
+        
         -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 52%, rgba(0, 0, 0, 0.55) 80%, transparent 100%);
         mask-image: linear-gradient(to bottom, #000 0%, #000 52%, rgba(0, 0, 0, 0.55) 80%, transparent 100%);
       }
