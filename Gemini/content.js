@@ -3964,7 +3964,7 @@ p.gds-body-s.ng-star-inserted {
         filter: blur(20px) brightness(0.62) saturate(1.2);
         -webkit-mask-image: linear-gradient(to bottom, transparent 15%, #000 85%); mask-image: linear-gradient(to bottom, transparent 15%, #000 85%);
       }
-      .tg-u-fondo, html.tg-blur-baja .tg-u-fondo { inset: 0; filter: brightness(0.62) saturate(1.15) !important; }
+      html.tg-blur-baja .tg-u-fondo { inset: 0; filter: brightness(0.62) saturate(1.15) !important; }
       
 
       .tg-u-titulo { margin-top: 6px; font-size: 15px; font-weight: 600; letter-spacing: 0.01em; padding: 0 44px; }
