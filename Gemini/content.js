@@ -7,6 +7,20 @@
   const BLOQUEO_CLAVE_LS = 'tg-bloqueo-activo';
 
   // ============================================================================================
+  // ESTADO GLOBAL "BLOQUEADO" (ahorro de recursos)
+  // Mientras la pantalla de bloqueo / PIN está encima, NADA de lo demás debe trabajar: planificador de tareas, observers,
+  // intervalos, Lenis, auto-scroll, videos de fondo de Gemini y animaciones CSS quedan en pausa. Al desbloquear se dispara el
+  // evento 'tg-bloqueo-cambio' y cada parte se pone al día (una sola vez, sin repetir lo que se perdió).
+  // ============================================================================================
+  let pantallaBloqueada = false;
+  function fijarPantallaBloqueada(v) {
+    v = !!v;
+    if (pantallaBloqueada === v) return;
+    pantallaBloqueada = v;
+    try { document.dispatchEvent(new CustomEvent('tg-bloqueo-cambio', { detail: { bloqueado: v } })); } catch (e) { /* sin CustomEvent */ }
+  }
+
+  // ============================================================================================
   // PUENTE DE PREFERENCIAS (Flutter WebView <-> chrome.storage)
   // GUARDAR: cada cambio (burbuja, tema, PIN, fondos, interruptor del bloqueo...) se envía a Flutter con
   //     window.flutter_inappwebview.callHandler('guardarPreferencia', clave, valor)
@@ -172,6 +186,11 @@
       html.tg-sin-blur #tg-pin .tg-pin-fondo { filter: brightness(0.5) saturate(1.1) !important; inset: 0 !important; }
       html.tg-sin-blur body [data-tg-puntos-retraso="oculto"] { filter: none !important; }
       html.tg-sin-blur #tg-fade-chat { display: none !important; }
+      /* el interruptor "Desactivar desenfoque" nunca lleva blur (ni con el ajuste apagado ni encendido): su aspecto no cambia al usarlo */
+      html #tg-personalizar-panel .tg-p-toggle.tg-p-ctl-blur,
+      html.tg-ligero #tg-personalizar-panel .tg-p-toggle.tg-p-ctl-blur {
+        -webkit-backdrop-filter: none !important; backdrop-filter: none !important; filter: none !important;
+      }
     `;
     (document.head || document.documentElement).appendChild(est);
   })();
@@ -367,12 +386,16 @@
     (document.head || document.documentElement).appendChild(est);
   })();
   // pausa los videos de fondo cuando la pestaña no se ve (ahorra batería/CPU)
-  document.addEventListener('visibilitychange', () => {
+  // y mientras la pantalla está bloqueada (solo siguen los videos del propio bloqueo / PIN, que es lo único que se ve)
+  const esVideoDelBloqueo = (v) => !!(v.closest && v.closest('#tg-bloqueo, #tg-bloqueo-fondo, #tg-pin'));
+  function sincronizarVideos() {
     document.querySelectorAll('video.tg-medio-video').forEach((v) => {
-      if (document.hidden) v.pause();
-      else if (v.autoplay) { const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); }
+      if (document.hidden || (pantallaBloqueada && !esVideoDelBloqueo(v))) v.pause();
+      else if (v._tgQuiere) { const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); }
     });
-  });
+  }
+  document.addEventListener('visibilitychange', sincronizarVideos);
+  document.addEventListener('tg-bloqueo-cambio', sincronizarVideos);
 
   // pone en un contenedor una imagen (background-image) o un video (<video> de relleno); sin url lo deja como estaba por CSS
   function ponerMedio(el, url, tipo) {
@@ -391,10 +414,12 @@
       v.disablePictureInPicture = true;
       v.setAttribute('aria-hidden', 'true');
       v.autoplay = !sinMovimiento(); // con "reducir movimiento" solo se ve el primer fotograma
+      v._tgQuiere = v.autoplay;      // "debería reproducirse" (sincronizarVideos lo pausa/reanuda según foco y bloqueo)
       v.addEventListener('error', () => avisarTg('No se pudo reproducir el video de fondo (formato no compatible o bloqueado por la página).'));
       v.src = url;
       el.insertBefore(v, el.firstChild);
       if (v.autoplay) { const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); }
+      queueMicrotask(sincronizarVideos); // si nace con la pantalla bloqueada (o la pestaña oculta) y no es del bloqueo, queda en pausa
     } else {
       el.style.backgroundImage = url ? 'url("' + url + '")' : '';
     }
@@ -435,6 +460,9 @@
     estilo.id = 'tg-bloqueo-style';
     estilo.textContent = `
       html.tg-bloqueado { overflow: hidden !important; }
+      /* ahorro: con la página oculta tras el bloqueo no se pinta ni se anima nada del body */
+      html.tg-bloqueo-pausa body { visibility: hidden !important; }
+      html.tg-bloqueo-pausa body *, html.tg-bloqueo-pausa body *::before, html.tg-bloqueo-pausa body *::after { animation-play-state: paused !important; }
       #tg-bloqueo {
         position: fixed; inset: 0; z-index: 2147483647;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -754,9 +782,11 @@
     }
 
     // ---- bloquear ----
+    function pausarCuerpo(v) { raiz.classList.toggle('tg-bloqueo-pausa', !!v); }
     function bloquear(animado) {
       if (bloqueado) return;
       bloqueado = true;
+      fijarPantallaBloqueada(true); // desde ya, nada más de la extensión trabaja
       let desbloqueado = false;
       const pantalla = h('div', { id: 'tg-bloqueo' },
         h('div', { class: 'tg-b-hora' }),
@@ -807,10 +837,11 @@
             { duration: BLOQUEO_DURACION_BODY_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
           );
           animBody = anim;
-          anim.onfinish = () => { if (animBody === anim) { animBody = null; anim.cancel(); } }; // se queda con el estilo inicial
-        }
+          anim.onfinish = () => { if (animBody === anim) { animBody = null; anim.cancel(); } if (!desbloqueado) pausarCuerpo(true); }; // se queda con el estilo inicial
+        } else pausarCuerpo(true);
       } else {
         ponerBodyInicial(); // al cargar: el body ya está en sus propiedades iniciales
+        pausarCuerpo(true);
       }
 
       // 1) deslizar hacia arriba (o Espacio): la pantalla de bloqueo sube y debajo aparece la de PIN
@@ -840,6 +871,8 @@
       function desbloquear() {
         if (desbloqueado) return;
         desbloqueado = true;
+        pausarCuerpo(false);            // el body vuelve a pintarse para la animación de entrada
+        fijarPantallaBloqueada(false);  // y todo lo demás se reanuda
         pantalla.classList.remove('tg-arrastrando');
         pantalla.style.removeProperty('transform');
         window.removeEventListener('keydown', alTeclear, true);
@@ -908,6 +941,27 @@
         bloquear(true);
       }
     }, true);
+
+    // BLOQUEAR AL PERDER EL FOCO
+    // Se vuelve a poner la pantalla de bloqueo (sin animación, nadie la ve) cuando:
+    //  - cambias de pestaña o minimizas (la página pasa a estar oculta), o
+    //  - la ventana pierde el foco (Alt+Tab, clic en otra ventana o en la barra de direcciones).
+    // Excepciones: el foco pasa a un iframe de la propia página, o hubo un clic/toque en la página justo antes (selector de archivos
+    // del sistema: "Subir archivos", "Cambiar fondo"...). BLOQUEO_FOCO_GRACIA_MS = 0 desactiva esa excepción.
+    const BLOQUEO_FOCO_GRACIA_MS = 800;
+    let ultimaInteraccion = -1e9;
+    ['pointerdown', 'mousedown', 'touchstart'].forEach((ev) =>
+      window.addEventListener(ev, () => { ultimaInteraccion = performance.now(); }, { capture: true, passive: true }));
+    function bloquearPorFoco() {
+      if (bloqueado || !vibesOn) return;
+      bloquear(false);
+    }
+    window.addEventListener('blur', (e) => {
+      if (e.target !== window) return;
+      if (BLOQUEO_FOCO_GRACIA_MS > 0 && performance.now() - ultimaInteraccion < BLOQUEO_FOCO_GRACIA_MS) return;
+      setTimeout(() => { if (!document.hasFocus()) bloquearPorFoco(); }, 0); // si el foco fue a un iframe, el documento sigue con foco
+    });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) bloquearPorFoco(); });
 
     bloquear(false); // al cargar la página por primera vez
   })();
@@ -2555,7 +2609,10 @@ p.gds-body-s.ng-star-inserted {
     setTimeout(aterrizar, VUELO_MS + 1500); // seguro: si la pestaña estaba en segundo plano (rAF pausado) no se queda escondida
   }
 
-  const observadorVisibilidad = new IntersectionObserver((entradas) => {
+  const entradasVisPendientes = []; // avisos recibidos con la pantalla bloqueada: se procesan al desbloquear
+  const alCambiarVisibilidad = (entradasNuevas) => {
+    if (pantallaBloqueada) { entradasVisPendientes.push(...entradasNuevas); return; }
+    const entradas = entradasVisPendientes.length ? entradasVisPendientes.splice(0).concat(entradasNuevas) : entradasNuevas;
     entradas.forEach((entrada) => {
       const el = entrada.target;
       if (!el.isConnected) { // Gemini lo quitó del DOM: se deja de vigilar
@@ -2603,7 +2660,9 @@ p.gds-body-s.ng-star-inserted {
         if (el.getAttribute('data-anim') === 'in') { el.removeAttribute('data-origen'); el.removeAttribute('data-sin-anim'); el._visto = false; el.setAttribute('data-anim', 'wait'); }
       }
     });
-  }, { threshold: 0 });
+  };
+  const observadorVisibilidad = new IntersectionObserver(alCambiarVisibilidad, { threshold: 0 });
+  document.addEventListener('tg-bloqueo-cambio', () => { if (!pantallaBloqueada && entradasVisPendientes.length) alCambiarVisibilidad([]); });
 
   function registrarBurbujas(raiz) {
     if (!vibesOn || !raiz.querySelectorAll) return;
@@ -2949,11 +3008,12 @@ p.gds-body-s.ng-star-inserted {
   // si cambia el alto de la ventana, la foto única se vuelve a ajustar
   let ajusteVentanaPendiente = false;
   window.addEventListener('resize', () => {
-    if (ajusteVentanaPendiente) return;
+    if (ajusteVentanaPendiente || pantallaBloqueada) return;
     ajusteVentanaPendiente = true;
     requestAnimationFrame(() => { ajusteVentanaPendiente = false; ajustarCarruseles(document.body); });
   });
   const observadorAncho = new ResizeObserver((entradas) => {
+    if (pantallaBloqueada) return; // al desbloquear se reajusta todo (ver más abajo)
     entradas.forEach((e) => {
       const area = e.target.querySelector && e.target.querySelector('.scrollable-area');
       if (area) ajustarCarrusel(area);
@@ -3630,7 +3690,7 @@ p.gds-body-s.ng-star-inserted {
         h('span', { class: 'tg-p-sw-handle' },
           hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', { d: 'M19.69 5.23 8.96 15.96l-4.23-4.23L2.96 13.5l6 6L21.46 7z' }))));
       swB.addEventListener('click', () => { cambiarSinBlur(!sinBlur); swB.setAttribute('aria-checked', sinBlur ? 'true' : 'false'); });
-      const filaBlur = h('div', { class: 'tg-p-toggle', style: 'margin-top:12px' },
+      const filaBlur = h('div', { class: 'tg-p-toggle tg-p-ctl-blur', style: 'margin-top:12px' },
         h('span', { class: 'tg-p-toggle-txt' },
           h('span', { class: 'tg-p-toggle-tit' }, 'Desactivar desenfoque'),
           h('span', { class: 'tg-p-toggle-sub' }, 'Quita todos los efectos de desenfoque (cristal). Ayuda si va lento.')),
@@ -4049,19 +4109,22 @@ p.gds-body-s.ng-star-inserted {
     let programado = false;
     function correr() {
       programado = false;
-      if (document.hidden) return; // se retoma en visibilitychange
+      if (document.hidden || pantallaBloqueada) return; // se retoma en visibilitychange / al desbloquear
       const lista = Array.from(sucias); sucias.clear();
       lista.forEach((n) => { try { reg.get(n)(); } catch (e) { console.warn('[tg] error en tarea ' + n + ':', e); } });
     }
-    function pedir() { if (!programado) { programado = true; requestAnimationFrame(correr); } }
+    function pedir() { if (!programado && !pantallaBloqueada) { programado = true; requestAnimationFrame(correr); } }
     document.addEventListener('visibilitychange', () => { if (!document.hidden && sucias.size) pedir(); });
+    // al desbloquear se ponen al día TODAS las tareas (durante el bloqueo no corrió ninguna)
+    function reanudar() { reg.forEach((f, n) => sucias.add(n)); if (!document.hidden) pedir(); }
+    document.addEventListener('tg-bloqueo-cambio', () => { if (!pantallaBloqueada) reanudar(); });
     return {
       registrar(n, f) { reg.set(n, f); },
-      marcar(n) { sucias.add(n); if (!document.hidden) pedir(); }
+      marcar(n) { sucias.add(n); if (!document.hidden && !pantallaBloqueada) pedir(); }
     };
   })();
   // setInterval que no trabaja con la pestaña oculta
-  const cada = (fn, ms) => setInterval(() => { if (!document.hidden) { try { fn(); } catch (e) { console.warn('[tg] ' + fn.name + ':', e); } } }, ms);
+  const cada = (fn, ms) => setInterval(() => { if (!document.hidden && !pantallaBloqueada) { try { fn(); } catch (e) { console.warn('[tg] ' + fn.name + ':', e); } } }, ms);
 
   Tareas.registrar('layout', () => { actualizarVarSafeTop(); limpiarCapasEtiqueta(); alinearHeaderAngosto(); alinearMultimedia(); asegurarFadeChat(); });
   Tareas.registrar('menuLateral', () => { marcarCapasMenuLateral(); actualizarFondoMenuLateral(); });
@@ -4238,6 +4301,14 @@ p.gds-body-s.ng-star-inserted {
   const enMarkdown = (n) => !!(n && n.closest && n.closest('.markdown, code-block'));
   const RE_CREANDO_RAPIDO = /^\s*(Creando|Generando)\b/i;
   new MutationObserver((mutaciones) => {
+    if (pantallaBloqueada) {
+      // bloqueado: no se procesa nada; solo se anotan los nodos nuevos (barato) y se procesan al desbloquear
+      for (const m of mutaciones) {
+        for (const n of m.addedNodes) if (n.nodeType === 1 && loteNodos.length < 1500) loteNodos.push(n);
+        if (m.removedNodes.length) loteQuitaron = true;
+      }
+      return;
+    }
     for (const m of mutaciones) {
       for (const n of m.addedNodes) {
         if (n.nodeType === 1) {
@@ -4251,6 +4322,10 @@ p.gds-body-s.ng-star-inserted {
     }
     if (!lotePendiente) { lotePendiente = true; requestAnimationFrame(procesarLote); }
   }).observe(document.body, { childList: true, subtree: true });
+  document.addEventListener('tg-bloqueo-cambio', () => {
+    if (pantallaBloqueada || lotePendiente || (!loteNodos.length && !loteQuitaron)) return;
+    lotePendiente = true; requestAnimationFrame(procesarLote); // lo acumulado durante el bloqueo
+  });
 
   function procesarLote() {
     lotePendiente = false;
@@ -4315,6 +4390,7 @@ p.gds-body-s.ng-star-inserted {
 
   function cuadroAjuste() {
     cuadroScroll = null;
+    if (pantallaBloqueada) return; // se retoma al desbloquear (ver más abajo)
     if (!siguiendoMensaje || !mensajeSeguido || !mensajeSeguido.isConnected) return;
     const cont = contenedorScroll(mensajeSeguido);
     const falta = faltaParaAlinear(mensajeSeguido);
@@ -4345,7 +4421,7 @@ p.gds-body-s.ng-star-inserted {
   }
 
   function activarAjuste() {
-    if (!AUTO_SCROLL || !vibesOn) return;
+    if (!AUTO_SCROLL || !vibesOn || pantallaBloqueada) return;
     desdeEstable = 0;
     if (!cuadroScroll) cuadroScroll = requestAnimationFrame(cuadroAjuste);
   }
@@ -4484,7 +4560,7 @@ p.gds-body-s.ng-star-inserted {
   }
   let marcadoPendiente = false;
   function programarMarcado() {
-    if (marcadoPendiente) return;
+    if (marcadoPendiente || pantallaBloqueada) return;
     marcadoPendiente = true;
     requestAnimationFrame(() => { marcadoPendiente = false; marcarPuntosCarga(); });
   }
@@ -5120,11 +5196,12 @@ p.gds-body-s.ng-star-inserted {
   // el bucle rAF de Lenis solo corre mientras hay actividad (rueda/touch/scroll/teclado) y 1.5 s después; en reposo duerme
   let lenisUltimaAct = 0;
   function bucleLenis(tiempo) {
-    if (!lenis || document.hidden) { lenisRaf = null; return; }
+    if (!lenis || document.hidden || pantallaBloqueada) { lenisRaf = null; return; }
     lenis.raf(tiempo);
     lenisRaf = (performance.now() - lenisUltimaAct < 1500) ? requestAnimationFrame(bucleLenis) : null;
   }
   function despertarLenis() {
+    if (pantallaBloqueada) return;
     lenisUltimaAct = performance.now();
     if (lenis && lenisScroller && lenisScroller.scrollHeight !== lenisAlto) { // el contenido creció: se recalcula el límite (solo al interactuar)
       lenisAlto = lenisScroller.scrollHeight;
@@ -5194,6 +5271,17 @@ p.gds-body-s.ng-star-inserted {
     if (latido % 4 === 0) Tareas.marcar('tema');
   }, 2000);
 
+  // al desbloquear: se re-enganchan observers/Lenis, se reajustan carruseles y se retoman auto-scroll y puntos de carga
+  document.addEventListener('tg-bloqueo-cambio', () => {
+    if (pantallaBloqueada) return;
+    try { observarLayout(); mantenerLenis(); agregarItemMovil(); } catch (e) { console.warn('[tg] al desbloquear:', e); }
+    requestAnimationFrame(() => {
+      try { ajustarCarruseles(document.body); } catch (e) { /* sin carruseles */ }
+      try { marcarPuntosCarga(); } catch (e) { /* sin puntos */ }
+      try { if (siguiendoMensaje) activarAjuste(); } catch (e) { /* sin seguimiento */ }
+    });
+  });
+
   // TEMA AUTOMÁTICO SEGÚN EL COLOR DEL BODY
   // Fondo del body claro -> modo claro. Fondo oscuro -> modo oscuro.
   function parsearColor(texto) {
@@ -5236,11 +5324,12 @@ p.gds-body-s.ng-star-inserted {
 
   let revisionTimer = null;
   function programarRevision() {
+    if (pantallaBloqueada) return; // bloqueado: no se revisa el tema (al desbloquear Tareas lo revisa)
     // Lenis y la propia extensión cambian clases/estilos de <html> muy seguido: se agrupa y se revisa como mucho ~3 veces por segundo
     if (revisionTimer) return;
     revisionTimer = setTimeout(() => {
       revisionTimer = null;
-      requestAnimationFrame(revisarTemaBody);
+      if (!pantallaBloqueada) requestAnimationFrame(revisarTemaBody);
     }, 300);
   }
 
