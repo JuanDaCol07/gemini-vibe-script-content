@@ -1,4 +1,21 @@
 (function () {
+  // ============================================================================================
+  // VERSIÓN Y NOTAS DE VERSIÓN (lo primero del script: es lo único que hay que editar en cada release)
+  // - TG_VERSION: número que se muestra en el menú "Actualizaciones Gemini Vibes" (app móvil).
+  // - TG_NOTAS_VERSION: texto libre de varias líneas; el panel lo muestra con scroll. JavaScript no tiene triple comilla
+  //   como Python: el equivalente son las comillas invertidas, que permiten saltos de línea. Dentro de las notas NO uses
+  //   comillas invertidas ni el signo de dólar seguido de llave.
+  // - content.dart lee ambas variables del script descargado de GitHub (así el panel muestra la versión y las notas NUEVAS
+  //   antes de instalarlas). Por eso cada una debe seguir en una sola declaración, empezando la línea con la palabra const.
+  // ============================================================================================
+  const TG_VERSION = '1.0';
+  const TG_NOTAS_VERSION = `
+• Nuevo menú "Actualizaciones Gemini Vibes" en la app móvil: busca y aplica la última versión sin reiniciar la app.
+• El teclado ya no redimensiona la página: la caja de escribir sube con una transición y el teclado deja de cerrarse.
+• Nivel de rendimiento Medio: el fondo de "¿Por dónde empezamos?" ya no se difumina.
+• Los ajustes de blur, Vibes, difuminado del scroll y scroll suave ahora se conservan al reiniciar la app.
+`;
+
   window.__tgCargado = 'opt-2'; // marcador: Flutter lo lee para confirmar qué versión del script se inyectó
   // PANTALLA DE BLOQUEO (se muestra al cargar la página; ESPACIO la sube y el body entra con zoom;
   // ALT + L la vuelve a bajar para bloquear de nuevo)
@@ -3892,9 +3909,9 @@ p.gds-body-s.ng-star-inserted {
   // ===== PANEL "ACTUALIZACIONES GEMINI VIBES" (SOLO app móvil) =====
   // Habla con content.dart por el handler 'tgActualizaciones' ('estado' | 'verificar' | 'actualizar').
   // Reutiliza los mismos ids y clases del panel Personalizar (mismo cristal, mismas píldoras).
-  function llamarActualizaciones(accion) {
+  function llamarActualizaciones(accion, ...extra) {
     if (!esAppMovil()) return Promise.reject(new Error('Solo disponible en la app móvil.'));
-    return Promise.resolve(window.flutter_inappwebview.callHandler('tgActualizaciones', accion));
+    return Promise.resolve(window.flutter_inappwebview.callHandler('tgActualizaciones', accion, ...extra));
   }
   function fechaLarga(iso) {
     if (!iso) return 'Sin datos';
@@ -3905,6 +3922,86 @@ p.gds-body-s.ng-star-inserted {
     return dia.charAt(0).toUpperCase() + dia.slice(1) + ' · ' + hora;
   }
 
+  // Estilos del panel de actualizaciones (se crean una vez). Reutiliza el contenedor y las variables del panel Personalizar
+  // (#tg-personalizar-backdrop / #tg-personalizar-panel), así hereda el cristal, el tema claro/oscuro y las reglas de nivel de blur:
+  //   ALTA  → cabecera con fondo de pantalla desenfocado en dos capas (blur progresivo: más fuerte hacia abajo) + degradé hacia el panel.
+  //   MEDIA y BAJA → fade LITE: el fondo SIN desenfoque, solo oscurecido y con el mismo degradé (sin filter ni backdrop-filter).
+  //   BAJA además deja el panel con fondo opaco (lo hace la hoja tg-blur).
+  (function () {
+    const est = document.createElement('style');
+    est.id = 'tg-actualizaciones-style';
+    est.textContent = `
+      #tg-personalizar-panel.tg-u-panel {
+        width: min(420px, calc(100vw - 28px)); max-height: min(90vh, 760px); padding: 0;
+        display: flex; flex-direction: column; overflow: hidden; position: relative;
+      }
+      .tg-u-x {
+        position: absolute; top: 12px; left: 12px; z-index: 3; width: 40px; height: 40px; padding: 0; border-radius: 50%; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center; color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(0, 0, 0, calc(0.45 + var(--tg-sb-extra-nb, 0)));
+        -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: transform 0.2s ease;
+        -webkit-tap-highlight-color: transparent; outline: 0;
+      }
+      .tg-u-x:hover, .tg-u-x:active { transform: scale(1.08); }
+      .tg-u-x svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+      .tg-u-cab {
+        position: relative; isolation: isolate; flex: none; color: #fff; text-align: center;
+        display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 20px 26px;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+      }
+      .tg-u-fondos {
+        position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+        background: #0f4a63; background: linear-gradient(135deg, color-mix(in srgb, var(--tg-u-acento, #0059ff) 55%, #000), #0b1220);
+        -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 52%, rgba(0, 0, 0, 0.55) 80%, transparent 100%);
+        mask-image: linear-gradient(to bottom, #000 0%, #000 52%, rgba(0, 0, 0, 0.55) 80%, transparent 100%);
+      }
+      .tg-u-fondo { position: absolute; inset: -24px; background-size: cover; background-position: center; filter: blur(7px) brightness(0.62) saturate(1.2); }
+      .tg-u-fondo-b {
+        filter: blur(20px) brightness(0.62) saturate(1.2);
+        -webkit-mask-image: linear-gradient(to bottom, transparent 15%, #000 85%); mask-image: linear-gradient(to bottom, transparent 15%, #000 85%);
+      }
+      html.tg-blur-media .tg-u-fondo, html.tg-blur-baja .tg-u-fondo { inset: 0; filter: brightness(0.62) saturate(1.15) !important; }
+      html.tg-blur-media .tg-u-fondo-b, html.tg-blur-baja .tg-u-fondo-b { display: none !important; }
+
+      .tg-u-titulo { margin-top: 6px; font-size: 15px; font-weight: 600; letter-spacing: 0.01em; padding: 0 44px; }
+      .tg-u-marca { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 4px; }
+      .tg-u-logo-caja { display: block; width: 72px; height: 72px; }
+      .tg-u-logo { display: block; width: 72px; height: 72px; object-fit: contain; }
+      .tg-u-nombre { font-size: clamp(26px, 8vw, 32px); font-weight: 500; line-height: 1.1; letter-spacing: -0.01em; }
+      .tg-u-sub { min-height: 20px; font-size: 14px; opacity: 0.92; }
+
+      .tg-u-cuerpo { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 4px 18px 20px; }
+      .tg-u-eti { font-size: 13px; font-weight: 600; color: var(--tg-u-acento, #4a8cff); filter: brightness(1.25); }
+      .tg-u-notas {
+        width: 100%; max-height: 180px; min-height: 84px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+        padding: 12px 14px; border-radius: 16px; background: var(--p-card); border: 1px solid var(--p-borde); color: var(--p-texto);
+        font-size: 13.5px; line-height: 1.45; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere;
+        scrollbar-width: thin; scrollbar-color: var(--p-borde) transparent; outline: 0;
+      }
+      .tg-u-btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-width: 220px; height: 46px; padding: 0 26px; margin-top: 4px;
+        border: 0; border-radius: 9999px; cursor: pointer; font: inherit; font-size: 15px; font-weight: 500;
+        background: var(--tg-u-acento, #0059ff); color: var(--tg-u-acento-texto, #fff);
+        transition: transform 0.2s ease, opacity 0.2s ease; -webkit-tap-highlight-color: transparent; outline: 0;
+      }
+      .tg-u-btn:hover { transform: scale(1.04); }
+      .tg-u-btn:active { transform: scale(0.97); }
+      .tg-u-btn:disabled { opacity: 0.65; cursor: default; transform: none; }
+      .tg-u-btn:focus-visible, .tg-u-x:focus-visible { box-shadow: 0 0 0 3px var(--p-hover); }
+      .tg-u-spin { display: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: tgUSpin 0.8s linear infinite; }
+      .tg-u-btn[data-ocupado] .tg-u-spin { display: inline-block; }
+      @keyframes tgUSpin { to { transform: rotate(360deg); } }
+      .tg-u-ok { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 18px; font-weight: 500; color: var(--p-texto); text-align: center; }
+      .tg-u-ok svg { width: 26px; height: 26px; flex: none; fill: none; stroke: var(--tg-u-acento, #4a8cff); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; filter: brightness(1.25); }
+      .tg-u-err { font-size: 13px; color: #ff9b9b; text-align: center; }
+      .tg-u-pie { font-size: 11.5px; color: var(--p-suave); text-align: center; line-height: 1.35; }
+      .tg-u-btn[hidden], .tg-u-ok[hidden], .tg-u-err[hidden] { display: none !important; }
+      @media (prefers-reduced-motion: reduce) { .tg-u-spin { animation: none; } .tg-u-btn, .tg-u-x { transition: none; } }
+    `;
+    (document.head || document.documentElement).appendChild(est);
+  })();
+
   function abrirPanelActualizaciones() {
     if (!esAppMovil()) return;
     actualizarFondoMenuLateral();
@@ -3912,67 +4009,97 @@ p.gds-body-s.ng-star-inserted {
     if (previo) { if (previo._limpiar) previo._limpiar(); previo.remove(); }
 
     const SVG_CERRAR = () => hs('svg', { viewBox: '0 0 24 24' }, hs('path', { d: 'M6 6l12 12M18 6L6 18' }));
-    const SVG_REFRESCAR = () => hs('svg', { class: 'tg-p-ico', viewBox: '0 0 24 24' },
-      hs('path', { d: 'M20 12a8 8 0 1 1-2.3-5.7' }), hs('path', { d: 'M20 4v5h-5' }));
-    const SVG_DESCARGAR = () => hs('svg', { class: 'tg-p-ico', viewBox: '0 0 24 24' },
-      hs('path', { d: 'M12 4v11M7.5 11 12 15.5 16.5 11' }), hs('path', { d: 'M5 19h14' }));
-    const fila = (titulo, ref) => h('div', { class: 'tg-p-fila' },
-      h('div', { class: 'tg-p-fila-cab', style: 'flex-wrap:wrap;gap:4px 12px;margin-bottom:0' },
-        h('span', null, titulo),
-        h('span', { class: 'tg-p-valor', 'data-r': ref, style: 'text-align:right' }, '…')));
+    const SVG_OK = () => hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('circle', { cx: 12, cy: 12, r: 9 }), hs('path', { d: 'M8 12.5l2.7 2.7L16 9.5' }));
+    // si por algo no llega Gemini.png desde Flutter, se dibuja la estrella de Gemini
+    const ESTRELLA = () => hs('svg', { class: 'tg-u-logo', viewBox: '0 0 24 24', 'aria-hidden': 'true' },
+      hs('defs', null, hs('linearGradient', { id: 'tg-u-grad', x1: 0, y1: 1, x2: 1, y2: 0 },
+        hs('stop', { offset: '0%', 'stop-color': '#4285f4' }), hs('stop', { offset: '50%', 'stop-color': '#9b72cb' }), hs('stop', { offset: '100%', 'stop-color': '#d96570' }))),
+      hs('path', { fill: 'url(#tg-u-grad)', d: 'M12 1.5c.6 5.6 4.9 9.9 10.5 10.5-5.6.6-9.9 4.9-10.5 10.5C11.4 17 7.1 12.7 1.5 12 7.1 11.4 11.4 7.1 12 1.5z' }));
 
     const backdrop = h('div', { id: 'tg-personalizar-backdrop' },
-      h('div', { id: 'tg-personalizar-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': ETIQUETA_ACTUALIZAR },
-        h('div', { class: 'tg-p-top' },
-          h('h2', { class: 'tg-p-header' }, ETIQUETA_ACTUALIZAR),
-          h('button', { class: 'tg-p-cerrar', type: 'button', 'aria-label': 'Cerrar' }, SVG_CERRAR())
+      h('div', { id: 'tg-personalizar-panel', class: 'tg-u-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': ETIQUETA_ACTUALIZAR },
+        h('button', { class: 'tg-u-x', type: 'button', 'aria-label': 'Cerrar' }, SVG_CERRAR()),
+        h('div', { class: 'tg-u-cab' },
+          h('div', { class: 'tg-u-fondos', 'aria-hidden': 'true' }, h('div', { class: 'tg-u-fondo' }), h('div', { class: 'tg-u-fondo tg-u-fondo-b' })),
+          h('div', { class: 'tg-u-titulo', 'data-r': 'titulo' }),
+          h('div', { class: 'tg-u-marca' },
+            h('span', { class: 'tg-u-logo-caja', 'data-r': 'logo' }),
+            h('span', { class: 'tg-u-nombre', 'data-r': 'nombre' })),
+          h('div', { class: 'tg-u-sub', 'data-r': 'sub' })
         ),
-        h('section', { class: 'tg-p-seccion' },
-          h('p', { class: 'tg-p-sub' }, 'Gemini Vibes se descarga de GitHub. Se actualiza al abrir la app, o aquí mismo sin reiniciarla.'),
-          h('div', { class: 'tg-p-controles' },
-            fila('Última actualización instalada', 'instalada'),
-            fila('Última versión en GitHub', 'remota'),
-            fila('Última verificación', 'verificada'),
-            h('div', { class: 'tg-p-fila' },
-              h('div', { class: 'tg-p-fila-cab', style: 'margin-bottom:0' },
-                h('span', null, 'Estado'),
-                h('span', { class: 'tg-p-valor', 'data-r': 'estado', style: 'text-align:right' }, 'Consultando…')))
-          ),
-          h('div', { class: 'tg-p-acciones', style: 'gap:10px;flex-wrap:wrap' },
-            h('button', { class: 'tg-p-btn', type: 'button', 'data-r': 'verificar' }, SVG_REFRESCAR(), 'Verificar actualizaciones'),
-            h('button', { class: 'tg-p-btn', type: 'button', 'data-r': 'actualizar', hidden: true }, SVG_DESCARGAR(), 'Actualizar ahora')
-          )
+        h('div', { class: 'tg-u-cuerpo' },
+          h('div', { class: 'tg-u-eti' }, 'Notas de versión:'),
+          h('div', { class: 'tg-u-notas', 'data-r': 'notas', 'data-lenis-prevent': '', tabindex: 0 }),
+          h('div', { class: 'tg-u-ok', 'data-r': 'ok', hidden: true }, SVG_OK(), h('span', null, 'La extensión está actualizada')),
+          h('button', { class: 'tg-u-btn', type: 'button', 'data-r': 'btn' }, h('span', { class: 'tg-u-spin', 'aria-hidden': 'true' }), h('span', { 'data-r': 'btn-txt' }, 'Buscar actualizaciones')),
+          h('div', { class: 'tg-u-err', 'data-r': 'err', role: 'status', hidden: true }),
+          h('div', { class: 'tg-u-pie', 'data-r': 'pie' })
         )
       )
     );
     const q = (r) => backdrop.querySelector('[data-r="' + r + '"]');
-    let ocupado = false;
 
-    function pintar(r, mensaje) {
-      if (r && r.ok !== false) {
-        q('instalada').textContent = r.origen === 'asset' ? 'Versión incluida en la app' : fechaLarga(r.instaladaIso);
-        q('remota').textContent = fechaLarga(r.remotaIso);
-        q('verificada').textContent = r.verificadaIso ? fechaLarga(r.verificadaIso) : 'Aún no verificado';
-        q('actualizar').hidden = !r.hayNueva;
-        q('estado').textContent = mensaje || (r.hayNueva ? 'Hay una versión nueva disponible' : r.verificadaIso ? 'Estás en la última versión' : 'Sin verificar');
-      } else {
-        q('estado').textContent = (r && r.error) || 'No se pudo consultar.';
-      }
+    // colores: el botón toma el color de TU burbuja (así combina con la personalización)
+    backdrop.style.setProperty('--tg-u-acento', burbujaCSS(burbuja, false));
+    backdrop.style.setProperty('--tg-u-acento-texto', burbujaTexto(burbuja));
+    // fondo de la cabecera: tu fondo de pantalla de Gemini (imagen/GIF). Con video o sin fondo queda el degradé (un video aquí costaría fps)
+    if (fondoGeminiTipo === 'imagen' && fondoGeminiActual) {
+      const bg = 'url("' + String(fondoGeminiActual).replace(/"/g, '%22') + '")';
+      backdrop.querySelectorAll('.tg-u-fondo').forEach((f) => { f.style.backgroundImage = bg; });
     }
-    function bloquear(v) { ocupado = v; q('verificar').disabled = v; q('actualizar').disabled = v; }
 
-    q('verificar').addEventListener('click', () => {
-      if (ocupado) return;
-      bloquear(true); q('estado').textContent = 'Buscando actualizaciones…';
-      llamarActualizaciones('verificar').then((r) => pintar(r)).catch((e) => pintar({ ok: false, error: String((e && e.message) || e) })).then(() => bloquear(false));
-    });
-    q('actualizar').addEventListener('click', () => {
-      if (ocupado) return;
-      bloquear(true); q('estado').textContent = 'Descargando e instalando…';
-      llamarActualizaciones('actualizar').then((r) => {
-        if (r && r.ok !== false && r.recargando) { pintar(r, 'Listo. La página se recargará en un momento…'); q('actualizar').hidden = true; q('verificar').disabled = true; }
-        else { pintar(r); bloquear(false); }
-      }).catch((e) => { pintar({ ok: false, error: String((e && e.message) || e) }); bloquear(false); });
+    // icono Gemini.png (llega de Flutter como data URL y se guarda en memoria)
+    function ponerLogo() {
+      const caja = q('logo');
+      caja.textContent = '';
+      caja.appendChild(window.__tgIconoCache ? h('img', { class: 'tg-u-logo', src: window.__tgIconoCache, alt: '' }) : ESTRELLA());
+    }
+    ponerLogo();
+
+    // ---- estado de la pantalla: 'inicio' | 'buscando' | 'nueva' | 'alDia' | 'actualizando' ----
+    const S = { fase: 'inicio', d: null, error: '', notas: null };
+    function render() {
+      const d = S.d;
+      const nueva = S.fase === 'nueva' || S.fase === 'actualizando';
+      const alDia = S.fase === 'alDia';
+      const ocupado = S.fase === 'buscando' || S.fase === 'actualizando';
+      q('titulo').textContent = nueva ? 'Nueva actualización' : 'Actualizaciones';
+      q('nombre').textContent = 'Gemini Vibes ' + (nueva ? ((d && d.remotaVersion) || 'nueva versión') : TG_VERSION);
+      q('sub').textContent = nueva ? '¡Más hermoso que nunca!'
+        : !d ? '' : (d.origen === 'asset' || !d.instaladaIso) ? 'Versión incluida en la app' : 'Actualizado el ' + fechaLarga(d.instaladaIso);
+      const textoNotas = nueva ? (((d && d.remotaNotas) || '').trim() || 'Esta versión no incluye notas.') : (TG_NOTAS_VERSION.trim() || 'Sin notas de versión.');
+      if (S.notas !== textoNotas) { S.notas = textoNotas; q('notas').textContent = textoNotas; q('notas').scrollTop = 0; }
+      q('ok').hidden = !alDia;
+      const btn = q('btn');
+      btn.hidden = alDia;
+      btn.disabled = ocupado;
+      btn.toggleAttribute('data-ocupado', ocupado);
+      q('btn-txt').textContent = S.fase === 'buscando' ? 'Buscando…' : S.fase === 'actualizando' ? 'Actualizando…' : nueva ? 'Actualizar' : 'Buscar actualizaciones';
+      q('err').textContent = S.error;
+      q('err').hidden = !S.error;
+      q('pie').textContent = S.fase === 'actualizando' ? 'Aplicando… la página de Gemini se recargará en un momento.'
+        : nueva ? 'Esta actualización reiniciará la página de Gemini para incluir los nuevos cambios'
+        : !d ? '' : 'Última comprobación de actualizaciones: ' + (d.verificadaIso ? fechaLarga(d.verificadaIso) : 'Nunca');
+    }
+    const msj = (e) => String((e && e.message) || e);
+
+    q('btn').addEventListener('click', () => {
+      if (S.fase === 'buscando' || S.fase === 'actualizando') return;
+      if (S.fase === 'nueva') { // ACTUALIZAR: Dart guarda el script y recarga la página
+        S.fase = 'actualizando'; S.error = ''; render();
+        llamarActualizaciones('actualizar').then((r) => {
+          if (r && r.ok !== false) {
+            S.d = Object.assign(S.d || {}, r);
+            if (!r.recargando) S.fase = r.hayNueva ? 'nueva' : 'alDia'; // con recargando se queda en "Actualizando…" hasta que la página se reinicia
+          } else { S.fase = 'nueva'; S.error = (r && r.error) || 'No se pudo actualizar.'; }
+        }).catch((e) => { S.fase = 'nueva'; S.error = msj(e); }).then(render);
+      } else { // BUSCAR
+        S.fase = 'buscando'; S.error = ''; render();
+        llamarActualizaciones('verificar').then((r) => {
+          if (r && r.ok !== false) { S.d = Object.assign(S.d || {}, r); S.fase = r.hayNueva ? 'nueva' : 'alDia'; }
+          else { S.fase = 'inicio'; S.error = (r && r.error) || 'No se pudo comprobar.'; }
+        }).catch((e) => { S.fase = 'inicio'; S.error = msj(e); }).then(render);
+      }
     });
 
     function onTecla(e) { if (e.key === 'Escape') { e.stopPropagation(); cerrar(); } }
@@ -3981,12 +4108,18 @@ p.gds-body-s.ng-star-inserted {
     backdrop._limpiar = limpiar;
     document.addEventListener('keydown', onTecla, true);
     backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) cerrar(); });
-    backdrop.querySelector('.tg-p-cerrar').addEventListener('click', cerrar);
+    backdrop.querySelector('.tg-u-x').addEventListener('click', cerrar);
     backdrop.querySelector('#tg-personalizar-panel').addEventListener('click', (e) => e.stopPropagation());
 
+    render();
     document.body.appendChild(backdrop);
     requestAnimationFrame(() => backdrop.classList.add('tg-visible'));
-    llamarActualizaciones('estado').then((r) => pintar(r)).catch((e) => pintar({ ok: false, error: String((e && e.message) || e) }));
+    // estado inicial: si ya se había encontrado una versión nueva, se abre directo en la pantalla "Nueva actualización"
+    llamarActualizaciones('estado', !window.__tgIconoCache).then((r) => {
+      if (r && r.icono) { window.__tgIconoCache = r.icono; ponerLogo(); }
+      if (r && r.ok !== false) { S.d = r; S.fase = r.hayNueva ? 'nueva' : 'inicio'; }
+      else S.error = (r && r.error) || 'No se pudo consultar.';
+    }).catch((e) => { S.error = msj(e); }).then(render);
   }
 
   function agregarItemFondo(menu) {
