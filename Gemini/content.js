@@ -84,7 +84,7 @@
   const BLUR_OPACIDAD_EXTRA = 0.05;
   // En "baja", la caja de escribir y los botones de arriba reciben ADEMÁS este extra (se suma al de arriba) para distinguirse sin blur.
   // Se aplica con --tg-sb-extra-ctl, que solo existe en "baja".
-  const BLUR_OPACIDAD_CONTROLES_BAJA = 0;
+  const BLUR_OPACIDAD_CONTROLES_BAJA = 0.2;
   let nivelBlur = 'alta';
   let nivelBlurExplicito = false; // true si el usuario ya eligió un nivel (si no, se migra del ajuste antiguo)
   try {
