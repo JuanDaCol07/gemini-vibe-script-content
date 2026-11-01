@@ -4078,16 +4078,19 @@ p.gds-body-s.ng-star-inserted {
         -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%) !important;
         mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent 100%) !important;
       }
-      .tg-colapso-toggle { display: flex; justify-content: center; margin: 6px 0 0; position: relative; z-index: 1; }
+      .tg-colapso-toggle { display: flex; justify-content: flex-end; margin: 6px 0 0; position: relative; z-index: 1; }
       .response-container[data-tg-colapso="contraida"] > .tg-colapso-toggle { margin-top: -34px; }
       .tg-colapso-btn {
-        width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
-        display: inline-flex; align-items: center; justify-content: center;
+        height: 40px; padding: 0 12px 0 16px; border: 0; border-radius: 9999px; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
         background: var(--tg-input-bg, rgba(0, 0, 0, 0.55)); color: var(--tg-texto, #fff);
+        font: inherit; font-size: 14px; line-height: 1; white-space: nowrap;
         -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
         transition: transform 0.2s ease;
       }
-      .tg-colapso-btn:hover { transform: scale(1.08); }
+      .tg-colapso-btn:hover { transform: scale(1.04); }
+      .tg-colapso-txt::before { content: 'Mostrar mensaje completo'; }
+      .response-container[data-tg-colapso="expandida"] .tg-colapso-txt::before { content: 'Mostrar menos'; }
       .tg-colapso-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.3s ease; }
       .response-container[data-tg-colapso="expandida"] .tg-colapso-btn svg { transform: rotate(180deg); }
       @media (prefers-reduced-motion: reduce) { .tg-colapso-btn, .tg-colapso-btn svg { transition: none; } }
@@ -4124,6 +4127,7 @@ p.gds-body-s.ng-star-inserted {
 
   function crearToggleColapso(r, cont) {
     const btn = h('button', { class: 'tg-colapso-btn', type: 'button', 'aria-label': 'Expandir o contraer respuesta', 'aria-expanded': 'false' },
+      h('span', { class: 'tg-colapso-txt' }),
       hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', { d: 'M6 9l6 6 6-6' })));
     btn.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
