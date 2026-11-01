@@ -9,9 +9,7 @@
   //   antes de instalarlas). Por eso cada una debe seguir en una sola declaración, empezando la línea con la palabra const.
   // ============================================================================================
   const TG_VERSION = '1.0';
-  const TG_NOTAS_VERSION = `
-• arreglo de bugs y mejoras de rendimiento
-`;
+  const TG_NOTAS_VERSION = `• Arreglo de bugs y mejoras de rendimiento`;
 
   window.__tgCargado = 'opt-2'; // marcador: Flutter lo lee para confirmar qué versión del script se inyectó
   // PANTALLA DE BLOQUEO (se muestra al cargar la página; ESPACIO la sube y el body entra con zoom;
