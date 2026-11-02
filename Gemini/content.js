@@ -724,6 +724,7 @@
   // fondo del bloqueo (imagen o video propio; si no hay, la imagen por defecto de la extensión)
   function aplicarFondoBloqueo(f) {
     if (!f) return;
+    f.classList.toggle('tg-bv-enfocar', fondoBienvenidaActivo); // dispara el desenfoque 28→5px en cuanto el fondo existe (clase en la creación, no antes)
     f.classList.toggle('tg-bv-fondo', fondoBienvenidaActivo); // bienvenida: difuminado siempre (ver CSS), sin importar el nivel de blur
     try {
       if (fondoBienvenidaActivo) {
@@ -1261,8 +1262,6 @@
       bloqueado = true;
       fondoBienvenidaActivo = !!bienvenida; // la bienvenida usa el fondo de Gemini difuminado
       aplicarFondoBloqueo(document.getElementById('tg-bloqueo-fondo'));
-      const fondoBv = bienvenida ? document.getElementById('tg-bloqueo-fondo') : null;
-      if (fondoBv) fondoBv.classList.add('tg-bv-enfocar'); // desenfoque 28→5px arranca YA, sin esperar a la canción
       const audio = bienvenida ? audioBienvenida(() => setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS)) : null; // música de fondo solo en la bienvenida
       fijarPantallaBloqueada(true); // desde ya, nada más de la extensión trabaja
       let desbloqueado = false;
