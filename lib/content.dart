@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -193,6 +194,25 @@ class _ContentScreenState extends State<ContentScreen>
       false; // el WebView NO se crea hasta tener scripts y preferencias listos
   bool _avisoMostrado = false;
 
+  // ---- AUDIO DE LA BIENVENIDA ----
+  // content.js pide por el handler 'audioBienvenida' (play / pause / resume / stop). Se reproduce con audioplayers desde los assets:
+  // así no depende del CSP de la página ni de cargar el mp3 como URL dentro del WebView.
+  static const String _audioBienvenidaAsset =
+      'Gemini/Yume 2kki OST Lotus Waters.mp3';
+  static const double _audioBienvenidaVolumen = 1;
+  static const int _audioBienvenidaFadeMs = 2000;
+  AudioPlayer? _audioBienvenida;
+  Future<void>?
+  _audioPreparado; // carga anticipada del mp3 (se lanza al abrir la app)
+  bool _audioSolicitado =
+      false; // content.js ya pidió la música de la bienvenida
+  bool _audioIniciado =
+      false; // la canción ya arrancó (con el fade del splash): antes de eso NINGÚN resume puede hacerla sonar
+  DateTime?
+  _splashFadeInicio; // instante en que empezó el fade del splash (solo para el log)
+  Timer? _audioFade;
+  bool _audioPausadoPorApp = false;
+
   // El widget del WebView se crea UNA sola vez y se reutiliza en cada build
   // (así los rebuilds del Scaffold / MediaQuery no lo tocan).
   Widget? _webView;
@@ -207,6 +227,8 @@ class _ContentScreenState extends State<ContentScreen>
   Timer? _tecladoTimer;
 
   // ---- SPLASH (capa negra + logo por encima del WebView) ----
+  // se completa en el instante en que EMPIEZA el fade del splash (la app ya cargó y se empieza a ver); la canción arranca con él
+  final Completer<void> _splashListo = Completer<void>();
   bool _splashVisible =
       true; // objetivo del fade (true = opaco, false = se desvanece)
   bool _splashQuitado = false; // cuando termina el fade se saca del árbol
@@ -217,6 +239,14 @@ class _ContentScreenState extends State<ContentScreen>
     if (!mounted || !_splashVisible) return;
     _splashSeguro?.cancel();
     setState(() => _splashVisible = false);
+    _splashFadeInicio = DateTime.now();
+    if (!_splashListo.isCompleted)
+      _splashListo
+          .complete(); // <- aquí arranca la música (si la bienvenida la pidió)
+    // la precarga del mp3 se hace en TODOS los arranques; si la bienvenida no la pidió (no hay bienvenida), se libera
+    Timer(const Duration(seconds: 5), () {
+      if (!_audioSolicitado) _liberarAudioBienvenida();
+    });
   }
 
   // ---- AJUSTES DE DESARROLLO ----
@@ -240,7 +270,7 @@ class _ContentScreenState extends State<ContentScreen>
 
   // KERNEL de la app: súbelo (1, 2, 3...) cuando cambies este Dart o agregues algo que el script necesite.
   // Debe coincidir con TG_KERNEL de content.js; si no coinciden, content.js no activa nada y pide instalar la app nueva.
-  static const int _kernel = 1;
+  static const int _kernel = 2;
 
   // Lee TG_KERNEL del texto de un script (null si no existe)
   static int? _kernelDeScript(String? script) {
@@ -260,6 +290,7 @@ class _ContentScreenState extends State<ContentScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _precargarAudioBienvenida(); // la canción se carga mientras la app arranca
     // una sola vez (antes se llamaba en cada build)
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -304,9 +335,137 @@ class _ContentScreenState extends State<ContentScreen>
     _splashSeguro = Timer(const Duration(seconds: 15), _ocultarSplash);
   }
 
+  Future<void> _audioBienvenidaAccion(String accion) async {
+    try {
+      switch (accion) {
+        case 'play':
+          _audioSolicitado = true;
+          // si quedaba un reproductor desvaneciéndose (stop anterior), se descarta y se arma uno nuevo
+          if (_audioFade != null) await _liberarAudioBienvenida();
+          if (_audioBienvenida == null) _precargarAudioBienvenida();
+          final p = _audioBienvenida!;
+          await _audioPreparado; // normalmente ya está listo desde que abrió la app
+          // OBLIGATORIO: la canción NO suena antes ni después del fade del splash; arranca en el instante en que el fade empieza
+          // (y content.js empieza la animación del logo 1 s después)
+          await _splashListo.future.timeout(
+            const Duration(seconds: 20),
+            onTimeout: () {},
+          );
+          if (!identical(_audioBienvenida, p))
+            break; // mientras esperaba llegó un stop (o otro play)
+          if (p.state == PlayerState.playing)
+            await p.seek(
+              Duration.zero,
+            ); // recarga de la página: vuelve a empezar
+          _audioIniciado = true;
+          await p.resume();
+          final desde = _splashFadeInicio;
+          if (desde != null) {
+            debugPrint(
+              '[tg] audioBienvenida: la canción suena ${DateTime.now().difference(desde).inMilliseconds} ms después de empezar el fade del splash',
+            );
+          }
+          break;
+        case 'pause':
+          await _audioBienvenida?.pause();
+          break;
+        case 'resume':
+          if (!_audioPausadoPorApp && _audioIniciado)
+            await _audioBienvenida?.resume();
+          break;
+        case 'stop':
+          _audioSolicitado = false;
+          _audioIniciado = false;
+          _desvanecerAudioBienvenida();
+          break;
+      }
+    } catch (e) {
+      debugPrint('[tg] audioBienvenida("$accion") falló: $e');
+    }
+  }
+
+  // Crea el reproductor y carga el mp3 YA (al abrir la app), para que cuando empiece el fade del splash solo falte darle play.
+  void _precargarAudioBienvenida() {
+    if (_audioBienvenida != null) return;
+    AudioCache.instance = AudioCache(
+      prefix: '',
+    ); // los assets de esta app están en Gemini/..., sin el prefijo "assets/"
+    final p = AudioPlayer();
+    _audioBienvenida = p;
+    _audioPreparado =
+        () async {
+          await p.setReleaseMode(ReleaseMode.loop);
+          await p.setVolume(_audioBienvenidaVolumen);
+          await p.setSource(AssetSource(_audioBienvenidaAsset));
+        }().catchError((Object e) {
+          debugPrint(
+            '[tg] no se pudo precargar la música de la bienvenida: $e',
+          );
+        });
+  }
+
+  Future<void> _liberarAudioBienvenida() async {
+    _audioFade?.cancel();
+    _audioFade = null;
+    final p = _audioBienvenida;
+    _audioBienvenida = null;
+    _audioPreparado = null;
+    _audioIniciado = false;
+    if (p == null) return;
+    try {
+      await p.stop();
+      await p.dispose();
+    } catch (_) {}
+  }
+
+  // baja el volumen poco a poco y libera el reproductor
+  void _desvanecerAudioBienvenida() {
+    final p = _audioBienvenida;
+    if (p == null) return;
+    _audioFade?.cancel();
+    var vol = _audioBienvenidaVolumen;
+    const pasoMs = 15;
+    final bajada = vol / (_audioBienvenidaFadeMs / pasoMs);
+    _audioFade = Timer.periodic(const Duration(milliseconds: pasoMs), (
+      t,
+    ) async {
+      vol -= bajada;
+      if (vol <= 0) {
+        t.cancel();
+        _audioFade = null;
+        if (identical(_audioBienvenida, p)) _audioBienvenida = null;
+        try {
+          await p.stop();
+          await p.dispose();
+        } catch (_) {}
+        return;
+      }
+      try {
+        await p.setVolume(vol);
+      } catch (_) {}
+    });
+  }
+
+  // la música no debe seguir sonando con la app en segundo plano
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _audioPausadoPorApp = true;
+      _audioBienvenida?.pause();
+    } else if (state == AppLifecycleState.resumed) {
+      _audioPausadoPorApp = false;
+      if (_audioIniciado)
+        _audioBienvenida
+            ?.resume(); // antes de que arranque la canción, volver a la app NO debe hacerla sonar
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _audioFade?.cancel();
+    _audioBienvenida?.dispose();
     _tecladoTimer?.cancel();
     _splashSeguro?.cancel();
     super.dispose();
@@ -341,11 +500,28 @@ class _ContentScreenState extends State<ContentScreen>
     );
   }
 
+  // Gemini/Gemini.png -> data URL (se lee una sola vez y se guarda en memoria)
+  String? _logoGeminiCache;
+  Future<String> _cargarLogoGemini() async {
+    if (_logoGeminiCache != null) return _logoGeminiCache!;
+    try {
+      final datos = await rootBundle.load('Gemini/Gemini.png');
+      _logoGeminiCache =
+          'data:image/png;base64,${base64Encode(datos.buffer.asUint8List(datos.offsetInBytes, datos.lengthInBytes))}';
+    } catch (e) {
+      debugPrint('[tg] no se pudo leer Gemini/Gemini.png: $e');
+      return '';
+    }
+    return _logoGeminiCache!;
+  }
+
   Future<String> _leerPrefsComoJs() async {
     // TG_ES_MOVIL: content.js lo usa para mostrar el menú "Actualizaciones Gemini Vibes" SOLO en la app móvil
     // TG_KERNEL_DART: content.js lo compara con su propio TG_KERNEL (si no coinciden, no activa la extensión)
+    // TG_LOGO_GEMINI: Gemini/Gemini.png como data URL; TODO lo que dibuja el logo en content.js (bienvenida, panel de actualizaciones) usa ESTE archivo
+    final logo = await _cargarLogoGemini();
     final movil =
-        'window.TG_ES_MOVIL = $_esMovil; window.TG_KERNEL_DART = $_kernel;';
+        'window.TG_ES_MOVIL = $_esMovil; window.TG_KERNEL_DART = $_kernel; window.TG_LOGO_GEMINI = ${jsonEncode(logo)};';
     try {
       final mapa = await AlmacenPrefs.instancia.leerTodo();
       // jsonEncode produce JS válido; content.js lo lee al arrancar (window.TG_PREFS_INICIALES)
@@ -743,6 +919,16 @@ class _ContentScreenState extends State<ContentScreen>
             unawaited(
               AlmacenPrefs.instancia.guardar(args[0] as String, args[1]),
             );
+            return true;
+          },
+        );
+
+        // content.js -> Flutter: música de fondo de la bienvenida ('play' | 'pause' | 'resume' | 'stop')
+        controller.addJavaScriptHandler(
+          handlerName: 'audioBienvenida',
+          callback: (args) async {
+            if (args.isEmpty) return false;
+            await _audioBienvenidaAccion('${args[0]}');
             return true;
           },
         );

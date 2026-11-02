@@ -19,7 +19,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["img/bloqueo.png"],
+      "resources": ["img/bloqueo.png","Yume 2kki OST Lotus Waters.mp3","Gemini.png","Gemini silueta.png"],
       "matches": ["https://gemini.google.com/*"]
     }
   ]

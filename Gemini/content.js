@@ -12,7 +12,7 @@
 
 
 
-  const TG_KERNEL = 1; // No cambies esto, YO lo cambiare si es nesesario.
+  const TG_KERNEL = 2; // No cambies esto, YO lo cambiare si es nesesario.
 
 
   // ============================================================================================
@@ -65,6 +65,14 @@
     } catch (e) { /* cae al respaldo */ }
     respaldo();
   }
+  // LOGO DE GEMINI: SIEMPRE el archivo Gemini/Gemini.png.
+  //  - app Flutter: Dart lo inyecta como data URL en window.TG_LOGO_GEMINI
+  //  - extensión de Chrome: chrome.runtime.getURL('Gemini.png') (archivo en la raíz de la extensión; debe estar en web_accessible_resources)
+  function urlLogoGemini() {
+    try { if (typeof window.TG_LOGO_GEMINI === 'string' && window.TG_LOGO_GEMINI) return window.TG_LOGO_GEMINI; } catch (e) { /* sin window */ }
+    try { if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) return chrome.runtime.getURL('Gemini.png'); } catch (e) { /* no es una extensión */ }
+    return '';
+  }
   function pantallaKernelIncompatible() {
     const montar = function () {
       if (document.getElementById('tg-kernel-aviso')) return;
@@ -100,7 +108,7 @@
         '#tg-kernel-aviso .tg-k-fondo-b{filter:blur(20px) brightness(1) saturate(1.2);-webkit-mask-image:linear-gradient(to bottom,transparent 15%,#000 85%);mask-image:linear-gradient(to bottom,transparent 15%,#000 85%);}' +
         '#tg-kernel-aviso .tg-k-titulo{margin-top:6px;font-size:15px;font-weight:600;letter-spacing:0.01em;padding:0 44px;}' +
         '#tg-kernel-aviso .tg-k-marca{display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:4px;}' +
-        '#tg-kernel-aviso .tg-k-logo{display:block;width:72px;height:72px;}' +
+        '#tg-kernel-aviso .tg-k-logo{display:block;width:72px;height:72px;object-fit:contain;}' +
         '#tg-kernel-aviso .tg-k-nombre{font-size:clamp(26px,8vw,32px);font-weight:500;line-height:1.1;letter-spacing:-0.01em;}' +
         '#tg-kernel-aviso .tg-k-sub{font-size:14px;opacity:0.92;}' +
         '#tg-kernel-aviso .tg-k-cuerpo{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:4px 18px 20px;}' +
@@ -152,7 +160,10 @@
       fondos.appendChild(f1); fondos.appendChild(f2);
 
       const marca = el('div', 'tg-k-marca');
-      marca.appendChild(svg);
+      const urlLogo = urlLogoGemini(); // app vieja sin TG_LOGO_GEMINI: queda la estrella dibujada
+      let logoEl = svg;
+      if (urlLogo) { logoEl = document.createElement('img'); logoEl.className = 'tg-k-logo'; logoEl.alt = ''; logoEl.src = urlLogo; }
+      marca.appendChild(logoEl);
       marca.appendChild(el('span', 'tg-k-nombre', 'Gemini Vibes nueva versión'));
       const cab = el('div', 'tg-k-cab');
       cab.appendChild(fondos);
@@ -497,12 +508,50 @@
     prefsGuardar({ geminiBloqueoActivo: !!v });
   }
   const MOSTRAR_PANTALLA_BLOQUEO = bloqueoActivoGuardado() && vibesOn; // el cambio se nota la próxima vez que entres a la página
+
+  // ============================================================================================
+  // KERNEL VISTO (pantalla de bienvenida tras actualizar)
+  // - "kernel visto" = el último TG_KERNEL con el que se abrió Gemini Vibes (el de ANTES de actualizar). Se guarda en localStorage y en
+  //   las preferencias (clave geminiKernelVisto; content.dart debe tenerla en clavesValidas).
+  // - Si es distinto al TG_KERNEL de este script (o no existe: primera instalación) se muestra la pantalla de bienvenida, al estilo de
+  //   la de bloqueo. Al deslizarla hacia arriba (o Espacio) entra Gemini con la misma transición de desbloqueo y ENTONCES se actualiza
+  //   la variable. Si la cierras sin deslizar, la bienvenida vuelve a salir la próxima vez.
+  // - Si la pantalla de bloqueo está activada, la bienvenida lleva al PIN como siempre (no se salta la seguridad).
+  // ============================================================================================
+  const KERNEL_VISTO_LS = 'tg-kernel-visto';
+  function kernelVistoGuardado() {
+    try {
+      const g = localStorage.getItem(KERNEL_VISTO_LS);
+      if (g !== null && g !== '') return Number(g);
+    } catch (e) { /* sin localStorage */ }
+    const p = PREFS_INICIALES.geminiKernelVisto;
+    return (p === undefined || p === null || p === '') ? null : Number(p);
+  }
+  function guardarKernelVisto(k) {
+    try { localStorage.setItem(KERNEL_VISTO_LS, String(k)); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiKernelVisto: k });
+  }
+  const BIENVENIDA_PENDIENTE = vibesOn && ES_PAGINA_GEMINI !== TG_KERNEL;
   const BLOQUEO_OPACIDAD_INICIAL = 0;   // opacidad del body al empezar la transición (termina en 1)
   const BLOQUEO_ESCALA_INICIAL = 1.3;   // escala del body al empezar la transición (termina en 1)
   const BLOQUEO_DURACION_MS = 300;     // duración de la subida de la pantalla y de la entrada del body
   const BLOQUEO_DURACION_BODY_MS = BLOQUEO_DURACION_MS * 2.5; // duración de la animación del body (zoom)
   const BLOQUEO_FONDO_ARCHIVO = "img/8e2b943a517014c877bc7f688c5bdad9.jpg"; // fondo detrás del body (archivo dentro de la extensión)
+  // AUDIO DE FONDO DE LA BIENVENIDA: suena en bucle mientras está la pantalla de bienvenida y se apaga (fade) al entrar.
+  // Archivo en la RAÍZ de la extensión (junto a manifest.json); debe estar en web_accessible_resources. En la app Flutter se puede
+  // inyectar una URL/data URL con geminiAudioBienvenida (window.TG_PREFS_INICIALES).
+  const BIENVENIDA_AUDIO_ARCHIVO = "Yume 2kki OST Lotus Waters.mp3";
+  const BIENVENIDA_AUDIO_VOLUMEN = 1; // 0 a 1
+  const BIENVENIDA_AUDIO_FADE_MS = 3000;
+  const BIENVENIDA_SUB_CAMBIO_MS = 4000; // cada cuánto alterna el subtítulo de la bienvenida
+  const BIENVENIDA_MARCA_RETRASO_MS = 800; // la animación del logo empieza este tiempo DESPUÉS de que arranca la canción
+  function urlAudioBienvenida() {
+    try { if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) return chrome.runtime.getURL(encodeURI(BIENVENIDA_AUDIO_ARCHIVO)); } catch (e) { /* no es una extensión */ }
+    return typeof PREFS_INICIALES.geminiAudioBienvenida === 'string' ? PREFS_INICIALES.geminiAudioBienvenida : '';
+  }
   let bloqueoFondoPersonalizado = '';   // imagen (data URL) o video (blob URL) del fondo del bloqueo
+  let fondoBienvenidaActivo = false;   // la pantalla actual es la BIENVENIDA: su fondo es el de Gemini difuminado
+  let bvFondoGemini = { url: '', tipo: 'imagen' }; // copia del fondo custom de Gemini (la rellena aplicarFondo; fondoGeminiActual se declara más abajo)
   let bloqueoFondoTipo = 'imagen';      // 'imagen' | 'video' (los videos se guardan en IndexedDB, ver bdGuardar)
   let bloqueoPinHash = PREFS_INICIALES.geminiPinBloqueo || null; // hash SHA-256 del PIN de 4 dígitos (se guarda en chrome.storage; null = aún no hay PIN)
   const BLOQUEO_PIN_LARGO = 4;          // dígitos del PIN
@@ -655,10 +704,23 @@
     }
   }
 
+  // fondo de la BIENVENIDA = fondo custom de Gemini ({url, tipo}); null si no hay ninguno
+  function medioFondoBienvenida() {
+    if (bvFondoGemini.url) return bvFondoGemini;
+    const pf = PREFS_INICIALES; // antes de que lleguen las preferencias: usa la imagen inyectada para no ver un parpadeo
+    if (typeof pf.geminiFondo === 'string' && pf.geminiFondo && pf.geminiFondoTipo !== 'video') return { url: pf.geminiFondo, tipo: 'imagen' };
+    return null;
+  }
   // fondo del bloqueo (imagen o video propio; si no hay, la imagen por defecto de la extensión)
   function aplicarFondoBloqueo(f) {
     if (!f) return;
+    f.classList.toggle('tg-bv-fondo', fondoBienvenidaActivo); // bienvenida: difuminado siempre (ver CSS), sin importar el nivel de blur
     try {
+      if (fondoBienvenidaActivo) {
+        const mb = medioFondoBienvenida();
+        if (mb) { ponerMedio(f, mb.url, mb.tipo); return; }
+        // sin fondo custom de Gemini: cae al fondo del bloqueo de siempre (también difuminado)
+      }
       if (bloqueoFondoPersonalizado) ponerMedio(f, bloqueoFondoPersonalizado, bloqueoFondoTipo);
       else { const porDefecto = urlFondoBloqueoDefecto(); if (porDefecto) ponerMedio(f, porDefecto, 'imagen'); }
     } catch (e) { /* sin imagen: queda el color liso */ }
@@ -679,7 +741,7 @@
   }
 
   (function pantallaDeBloqueo() {
-    if (!MOSTRAR_PANTALLA_BLOQUEO) return;
+    if (!MOSTRAR_PANTALLA_BLOQUEO && !BIENVENIDA_PENDIENTE) return;
 
     const raiz = document.documentElement;
     let bloqueado = false;
@@ -699,12 +761,10 @@
         gap: 10px; text-align: center; color: #fff; overflow: hidden;
        
         font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
-        -webkit-backdrop-filter: blur(var(--tg-bloqueo-blur, 0px));
-        backdrop-filter: blur(var(--tg-bloqueo-blur, 0px));
-        transition: transform ${BLOQUEO_DURACION_MS}ms cubic-bezier(0.7, 0, 0.2, 1), -webkit-backdrop-filter ${BLOQUEO_DURACION_MS}ms ease, backdrop-filter ${BLOQUEO_DURACION_MS}ms ease;
+        transition: transform ${BLOQUEO_DURACION_MS}ms cubic-bezier(0.7, 0, 0.2, 1);
         user-select: none; cursor: grab; touch-action: none;
       }
-      #tg-bloqueo.tg-subiendo { --tg-bloqueo-blur: 12px; transform: translateY(-100%); }
+      #tg-bloqueo.tg-subiendo { transform: translateY(-100%); }
       #tg-bloqueo.tg-subiendo, #tg-bloqueo.tg-arrastrando { will-change: transform; }
       #tg-bloqueo.tg-arrastrando { transition: none; cursor: grabbing; }
       #tg-bloqueo-fondo {
@@ -712,10 +772,25 @@
         background-color: #0b0b0f;
         background-size: cover; background-position: center; background-repeat: no-repeat;
       }
+      /* BIENVENIDA: fondo custom de Gemini difuminado SIEMPRE (filter, no backdrop-filter: los niveles Baja/Media no lo tocan) */
+      #tg-bloqueo-fondo.tg-bv-fondo { inset: -60px; filter: blur(28px) !important; }
       #tg-bloqueo > * { position: relative; z-index: 1; }
       #tg-bloqueo .tg-b-hora { font-size: clamp(72px, 15vw, 180px); font-weight: 500; line-height: 1; letter-spacing: -0.03em; transform: translateY(-12vh); }
       #tg-bloqueo .tg-b-fecha { font-size: clamp(16px, 2.2vw, 24px); opacity: 0.85; transform: translateY(-12vh); }
-      #tg-bloqueo .tg-b-pista {
+      /* BIENVENIDA (tras actualizar): mismo estilo que la hora y la fecha, pero al centro */
+      /* BIENVENIDA: marca animada (logo grande e invisible que se encoge al centro; luego se va a la izquierda y entra el nombre por la derecha) */
+      #tg-bloqueo .tg-b-bv-marca { display: flex; align-items: center; justify-content: center; }
+      #tg-bloqueo .tg-b-bv-logo { flex: none; display: block; width: clamp(64px, 17vw, 96px); height: clamp(64px, 17vw, 96px); opacity: 0; transform: scale(7); will-change: transform, opacity; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+      #tg-bloqueo .tg-b-bv-caja { display: flex; overflow: hidden; width: 0; flex: none; }
+      #tg-bloqueo .tg-b-bv-nombre { flex: none; white-space: nowrap; font-size: clamp(34px, 9vw, 64px); font-weight: 500; line-height: 1.15; letter-spacing: -0.02em; padding: 0.06em 0.1em 0.1em 0.3em; opacity: 0; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.4); }
+      #tg-bloqueo.tg-bv-pre .tg-b-bv-sub, #tg-bloqueo.tg-bv-pre .tg-b-pista { opacity: 0; }
+      #tg-bloqueo .tg-b-bv-titulo { font-size: clamp(34px, 9vw, 72px); font-weight: 500; line-height: 1.1; letter-spacing: -0.02em; padding: 0 24px; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.4); }
+      #tg-bloqueo .tg-b-bv-sub { font-size: clamp(16px, 2.2vw, 24px); opacity: 0.85; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4); }
+      /* subtítulo que alterna: "¡Su extensión se ha actualizado!" <-> "Versión X" (se apilan y se cruzan suavemente) */
+      #tg-bloqueo .tg-b-bv-sub { display: grid; justify-items: center; text-align: center; padding: 0 24px; }
+      #tg-bloqueo .tg-b-bv-sub > span { grid-area: 1 / 1; transition: opacity 800ms ease, transform 800ms cubic-bezier(0.22, 1, 0.36, 1), filter 800ms ease; }
+      #tg-bloqueo .tg-b-bv-sub > span.tg-off { opacity: 0; transform: translateY(8px); filter: blur(4px); }
+      @media (prefers-reduced-motion: reduce) { #tg-bloqueo .tg-b-bv-sub > span { transition: none; } }      #tg-bloqueo .tg-b-pista {
         position: absolute; bottom: 7vh; left: 50%; transform: translateX(-50%);
         display: flex; flex-direction: column; align-items: center; gap: 12px;
         font-size: 15px; opacity: 0.9; animation: tgBloqueoFlota 2.2s ease-in-out infinite;
@@ -738,6 +813,12 @@
         position: absolute; inset: -60px; z-index: 0; pointer-events: none;
         background-color: #ffffff00; background-size: cover; background-position: center; background-repeat: no-repeat;
         filter: blur(28px) brightness(0.5) saturate(1.1);
+      }
+      /* PIN dentro de la BIENVENIDA: mismo fondo que ella (Gemini difuminado, sin teñir). Clase propia a propósito: las reglas de nivel Baja apuntan a .tg-pin-fondo */
+      #tg-pin .tg-pin-fondo-bv {
+        position: absolute; inset: -60px; z-index: 0; pointer-events: none;
+        background-color: #ffffff00; background-size: cover; background-position: center; background-repeat: no-repeat;
+        filter: blur(28px);
       }
       #tg-pin .tg-pin-contenido {
         position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 14px;
@@ -831,6 +912,7 @@
       }
       const f = document.getElementById('tg-bloqueo-fondo');
       if (f) f.remove();
+      fondoBienvenidaActivo = false;
     }
     function animarBody(desde, hasta, opDesde, opHasta, alTerminar) {
       const b = document.body;
@@ -893,7 +975,11 @@
       );
       // mismo fondo que el bloqueo (queda difuminado por CSS)
       const fondoPin = pin.querySelector('.tg-pin-fondo');
-      if (bloqueoFondoPersonalizado && bloqueoFondoTipo === 'video') {
+      const mediaBv = fondoBienvenidaActivo ? medioFondoBienvenida() : null;
+      if (fondoBienvenidaActivo) { fondoPin.classList.remove('tg-pin-fondo'); fondoPin.classList.add('tg-pin-fondo-bv'); } // igual que el fondo de la bienvenida
+      if (mediaBv) {
+        ponerMedio(fondoPin, mediaBv.url, mediaBv.tipo); // fondo de Gemini (imagen o video), igual que la bienvenida
+      } else if (bloqueoFondoPersonalizado && bloqueoFondoTipo === 'video') {
         ponerMedio(fondoPin, bloqueoFondoPersonalizado, 'video'); // el mismo video, difuminado por el CSS de .tg-pin-fondo
       } else {
         const fondoBloqueo = document.getElementById('tg-bloqueo-fondo');
@@ -1011,21 +1097,115 @@
       };
     }
 
+    // ---- audio de la bienvenida ----
+    // Los navegadores bloquean el audio sin gesto previo: se intenta sonar al instante y, si lo rechazan, empieza con el primer toque/clic/tecla.
+    // En la app Flutter el audio lo reproduce Dart (handler 'audioBienvenida'): evita el CSP de la página y no hay mp3 que cargar como URL.
+    function audioBienvenidaFlutter(alEmpezar) {
+      let activo = true, intentos = 0;
+      const llamar = (accion) => {
+        try {
+          const fl = window.flutter_inappwebview;
+          if (!fl || !fl.callHandler) return false;
+          const r = fl.callHandler('audioBienvenida', accion);
+          if (r && r.catch) r.catch(() => {});
+          return true;
+        } catch (e) { return false; }
+      };
+      // el puente puede tardar en estar listo; el handler responde cuando la canción YA está sonando (Dart espera a que la app termine de cargar)
+      const arrancar = () => {
+        if (!activo) return;
+        const fl = window.flutter_inappwebview;
+        if (fl && fl.callHandler) {
+          try { Promise.resolve(fl.callHandler('audioBienvenida', 'play')).then(alEmpezar, alEmpezar); } catch (e) { alEmpezar(); }
+          return;
+        }
+        if (++intentos < 50) setTimeout(arrancar, 200); else alEmpezar();
+      };
+      const alVisibilidad = () => { if (activo) llamar(document.hidden ? 'pause' : 'resume'); };
+      document.addEventListener('visibilitychange', alVisibilidad);
+      arrancar();
+      return { detener() { if (!activo) return; activo = false; document.removeEventListener('visibilitychange', alVisibilidad); llamar('stop'); } };
+    }
+    function audioBienvenida(alEmpezar) {
+      if (ES_APP_FLUTTER) return audioBienvenidaFlutter(alEmpezar);
+      let avisado = false;
+      const empezar = () => { if (avisado) return; avisado = true; setTimeout(alEmpezar, 0); }; // siempre asíncrono: la pantalla aún se está armando
+      const url = urlAudioBienvenida();
+      let activo = true;
+      if (!url) { empezar(); return { detener() {} }; }
+      const a = new Audio(url);
+      a.loop = true; a.preload = 'auto'; a.volume = BIENVENIDA_AUDIO_VOLUMEN;
+      const GESTOS = ['pointerdown', 'touchstart', 'keydown'];
+      const quitarGestos = () => GESTOS.forEach((ev) => window.removeEventListener(ev, intentar, true));
+      function intentar() {
+        if (!activo || document.hidden || !a.paused) return;
+        try {
+          const pr = a.play();
+          if (pr && pr.then) pr.then(() => { quitarGestos(); empezar(); }, () => { /* sigue esperando un gesto */ }); else { quitarGestos(); empezar(); }
+        } catch (e) { /* sin audio */ }
+      }
+      const alVisibilidad = () => { if (!activo) return; if (document.hidden) a.pause(); else intentar(); };
+      GESTOS.forEach((ev) => window.addEventListener(ev, intentar, true)); // se registra antes que alTeclear, así la tecla Espacio también cuenta
+      document.addEventListener('visibilitychange', alVisibilidad);
+      intentar();
+      setTimeout(empezar, 1200); // si el navegador espera un gesto para dar audio, la animación no se queda esperando
+      return {
+        detener() {
+          if (!activo) return;
+          activo = false;
+          quitarGestos();
+          document.removeEventListener('visibilitychange', alVisibilidad);
+          const paso = 50, bajada = a.volume / Math.max(1, BIENVENIDA_AUDIO_FADE_MS / paso);
+          const id = setInterval(() => {
+            a.volume = Math.max(0, a.volume - bajada);
+            if (a.volume <= 0.001) { clearInterval(id); a.pause(); a.removeAttribute('src'); try { a.load(); } catch (e) { /* nada */ } }
+          }, paso);
+        }
+      };
+    }
+
+    // logo de la bienvenida: SIEMPRE Gemini.png (la estrella dibujada solo sale si el archivo no llegó)
+    function crearLogoBienvenida() {
+      const url = urlLogoGemini();
+      if (url) return h('img', { class: 'tg-b-bv-logo', src: url, alt: '', draggable: 'false' });
+      console.warn('[tg] no llegó Gemini.png a la bienvenida: se dibuja la estrella de respaldo');
+      return hs('svg', { class: 'tg-b-bv-logo', viewBox: '0 0 24 24', 'aria-hidden': 'true' },
+        hs('defs', null,
+          hs('linearGradient', { id: 'tg-bv-grad', x1: '0', y1: '1', x2: '1', y2: '0' },
+            hs('stop', { offset: '0%', 'stop-color': '#4285f4' }),
+            hs('stop', { offset: '50%', 'stop-color': '#9b72cb' }),
+            hs('stop', { offset: '100%', 'stop-color': '#d96570' }))),
+        hs('path', { fill: 'url(#tg-bv-grad)', d: 'M12 1.5c.6 5.6 4.9 9.9 10.5 10.5-5.6.6-9.9 4.9-10.5 10.5C11.4 17 7.1 12.7 1.5 12 7.1 11.4 11.4 7.1 12 1.5z' }));
+    }
+
     // ---- bloquear ----
     function pausarCuerpo(v) { raiz.classList.toggle('tg-bloqueo-pausa', !!v); }
-    function bloquear(animado) {
+    function bloquear(animado, bienvenida) {
       if (bloqueado) return;
       bloqueado = true;
+      fondoBienvenidaActivo = !!bienvenida; // la bienvenida usa el fondo de Gemini difuminado
+      aplicarFondoBloqueo(document.getElementById('tg-bloqueo-fondo'));
+      const audio = bienvenida ? audioBienvenida(() => setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS)) : null; // música de fondo solo en la bienvenida
       fijarPantallaBloqueada(true); // desde ya, nada más de la extensión trabaja
       let desbloqueado = false;
+      let marcaIniciada = false;
       const pantalla = h('div', { id: 'tg-bloqueo' },
-        h('div', { class: 'tg-b-hora' }),
-        h('div', { class: 'tg-b-fecha' }),
+        bienvenida
+          ? [h('div', { class: 'tg-b-bv-marca' },
+               crearLogoBienvenida(),
+               h('div', { class: 'tg-b-bv-caja' }, h('span', { class: 'tg-b-bv-nombre' }, 'Gemini Vibes'))),
+             h('div', { class: 'tg-b-bv-sub' },
+               h('span', { class: 'tg-b-bv-sub-a' }, '¡Su extensión se ha actualizado!'),
+               h('span', { class: 'tg-b-bv-sub-b tg-off' }, 'Versión ' + TG_VERSION))]
+          : [h('div', { class: 'tg-b-hora' }), h('div', { class: 'tg-b-fecha' })],
         h('div', { class: 'tg-b-pista' },
-          h('span', null, 'Presiona'),
-          h('span', { class: 'tg-b-tecla' }, 'Espacio'),
-          h('span', null, 'para continuar'))
+          bienvenida
+            ? h('span', null, 'Desliza hacia arriba para continuar')
+            : [h('span', null, 'Presiona'),
+               h('span', { class: 'tg-b-tecla' }, 'Espacio'),
+               h('span', null, 'para continuar')])
       );
+      if (bienvenida) pantalla.classList.add('tg-bv-pre'); // subtítulo y pista ocultos hasta que les toque en la secuencia
       if (animado) pantalla.classList.add('tg-subiendo'); // empieza arriba y baja
       raiz.appendChild(pantalla);
       raiz.classList.add('tg-bloqueado');
@@ -1033,6 +1213,7 @@
       const elHora = pantalla.querySelector('.tg-b-hora');
       const elFecha = pantalla.querySelector('.tg-b-fecha');
       function actualizarReloj() {
+        if (!elHora || !elFecha) return; // en la bienvenida no hay reloj
         const ahora = new Date();
         elHora.textContent = ahora.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
         const fecha = ahora.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -1041,7 +1222,7 @@
       actualizarReloj();
       let relojId = null; // el reloj solo muestra HH:MM: despierta una vez por minuto, no cada segundo
       const programarReloj = () => { relojId = setTimeout(() => { actualizarReloj(); programarReloj(); }, 60000 - (Date.now() % 60000) + 50); };
-      programarReloj();
+      if (!bienvenida) programarReloj();
 
       // mientras está bloqueado, la página de atrás no recibe clics ni teclas
       const ponerInert = (v) => { if (document.body) document.body.inert = v; };
@@ -1074,15 +1255,78 @@
         pausarCuerpo(true);
       }
 
+      // ---- SECUENCIA DE LA BIENVENIDA (estilo iOS: todo con curvas de frenada larga) ----
+      // 1) el logo nace enorme y casi invisible en el centro y se encoge hasta su tamaño mientras aparece
+      // 2) con el logo ya quieto, el nombre se abre desde la derecha y el grupo (siempre centrado) empuja el logo hacia la izquierda
+      // 3) entran la versión y la pista de deslizar
+      // Arranca cuando la canción empieza a sonar (Dart espera a que termine de cargar la app).
+      function iniciarMarca() {
+        if (marcaIniciada || desbloqueado || !bienvenida) return;
+        marcaIniciada = true;
+        const logo = pantalla.querySelector('.tg-b-bv-logo'), caja = pantalla.querySelector('.tg-b-bv-caja'), nombre = pantalla.querySelector('.tg-b-bv-nombre');
+        const sub = pantalla.querySelector('.tg-b-bv-sub'), pista = pantalla.querySelector('.tg-b-pista');
+        if (!logo || !caja || !nombre) return;
+        // el subtítulo alterna entre las dos frases cada BIENVENIDA_SUB_CAMBIO_MS (empieza con "¡Su extensión se ha actualizado!")
+        const subA = pantalla.querySelector('.tg-b-bv-sub-a'), subB = pantalla.querySelector('.tg-b-bv-sub-b');
+        function alternarSub() {
+          if (desbloqueado || !pantalla.isConnected || !subA || !subB) return;
+          subA.classList.toggle('tg-off');
+          subB.classList.toggle('tg-off');
+          setTimeout(alternarSub, BIENVENIDA_SUB_CAMBIO_MS);
+        }
+        if (sinMovimiento() || !logo.animate) { // sin animaciones: todo directo en su estado final
+          logo.style.opacity = '1'; logo.style.transform = 'none'; caja.style.width = 'auto'; nombre.style.opacity = '1';
+          if (sub) sub.style.opacity = '0.85';
+          if (pista) pista.style.opacity = '0.9';
+          setTimeout(alternarSub, BIENVENIDA_SUB_CAMBIO_MS);
+          return;
+        }
+        const SUAVE = 'cubic-bezier(0.22, 1, 0.36, 1)';   // frenada larga
+const HOJA = 'cubic-bezier(0.32, 0.72, 0, 1)';    // la curva de las hojas y pantallas de iOS
+
+// Animación de escala con rebote estilo iOS (simulando un spring overshoot)
+logo.animate([
+    { transform: 'scale(10)', filter: 'blur(10px)', }, // Nace enorme y borroso
+    { transform: 'scale(1)', filter: 'none' }     // Se acomoda al tamaño final
+], { 
+    duration: 1200, 
+    easing: 'cubic-bezier(0.175, 0.885, 0.32, 1)', // Curva elástica típica de iOS
+    fill: 'both' 
+});
+
+logo.animate([
+    { opacity: 0 }, 
+    { opacity: 1 }
+], { 
+    duration: 700, 
+    delay: 0, 
+    easing: 'cubic-bezier(0.4, 0, 0.2, 1)', 
+    fill: 'both' 
+});
+        setTimeout(() => {
+          if (desbloqueado || !pantalla.isConnected) return;
+          const ancho = caja.scrollWidth; // ancho natural del nombre (el grupo se mantiene centrado mientras crece)
+          const aCaja = caja.animate([{ width: '0px' }, { width: ancho + 'px' }], { duration: 1200, easing: HOJA, fill: 'both' });
+          aCaja.onfinish = () => { caja.style.width = 'auto'; aCaja.cancel(); };
+          nombre.animate(
+            [{ opacity: 0, transform: 'translateX(48px)', filter: 'blur(10px)' }, { opacity: 1, transform: 'translateX(0)', filter: 'none' }],
+            { duration: 1200, delay: 80, easing: SUAVE, fill: 'both' });
+          if (sub) sub.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 0.85, transform: 'translateY(0)' }], { duration: 800, delay: 1200, easing: SUAVE, fill: 'both' });
+          if (pista) pista.animate([{ opacity: 0 }, { opacity: 0.9 }], { duration: 800, delay: 2500, easing: 'ease-out', fill: 'both' });
+          setTimeout(alternarSub, 1700 + BIENVENIDA_SUB_CAMBIO_MS); // 5 s después de que el subtítulo terminó de aparecer
+        }, 1000);
+      }
+
       // 1) deslizar hacia arriba (o Espacio): la pantalla de bloqueo sube y debajo aparece la de PIN
       let enPin = false;
       let pinUI = null;
       function mostrarPin() {
         if (enPin || desbloqueado) return;
+        // bienvenida SIN pantalla de bloqueo activada: se entra directo, con la misma transición de desbloqueo (sin PIN)
+        if (bienvenida && !MOSTRAR_PANTALLA_BLOQUEO) { desbloquear(); return; }
         enPin = true;
         pantalla.classList.remove('tg-arrastrando');
         pantalla.style.removeProperty('transform');
-        pantalla.style.removeProperty('--tg-bloqueo-blur');
         pantalla.style.pointerEvents = 'none';
         pantalla.classList.add('tg-subiendo');
         window.removeEventListener('keydown', alTeclear, true);
@@ -1101,7 +1345,9 @@
       function desbloquear() {
         if (desbloqueado) return;
         desbloqueado = true;
-        pausarCuerpo(false);            // el body vuelve a pintarse para la animación de entrada
+        if (audio) audio.detener();
+        if (bienvenida) guardarKernelVisto(TG_KERNEL); // ya la viste: se actualiza el kernel visto (la bienvenida no vuelve a salir)
+        pausarCuerpo(false);           // el body vuelve a pintarse para la animación de entrada
         fijarPantallaBloqueada(false);  // y todo lo demás se reanuda
         pantalla.classList.remove('tg-arrastrando');
         pantalla.style.removeProperty('transform');
@@ -1137,7 +1383,6 @@
         const ahora = performance.now(), dt = ahora - arrastre.t;
         if (dt > 0) { arrastre.vel = (arrastre.y - e.clientY) / dt; arrastre.t = ahora; arrastre.y = e.clientY; } // px/ms hacia arriba
         pantalla.style.transform = 'translateY(-' + arrastre.distancia + 'px)';
-        pantalla.style.setProperty('--tg-bloqueo-blur', Math.min(12, arrastre.distancia / BLOQUEO_UMBRAL_PX() * 12) + 'px');
       });
       function terminarArrastre(e, permitirDesbloqueo) {
         if (!arrastre || e.pointerId !== arrastre.pointerId) return;
@@ -1148,7 +1393,6 @@
         if (pantalla.hasPointerCapture(e.pointerId)) pantalla.releasePointerCapture(e.pointerId);
         pantalla.classList.remove('tg-arrastrando');
         pantalla.style.removeProperty('transform');
-        pantalla.style.removeProperty('--tg-bloqueo-blur');
         const vel = arrastre_vel;
         if (permitirDesbloqueo && (distancia >= BLOQUEO_UMBRAL_PX() || (vel > BLOQUEO_FLICK_PX_MS && distancia > 30))) mostrarPin();
       }
@@ -1172,7 +1416,7 @@
     // ALT + L: vuelve a bloquear la pantalla (solo si no está ya bloqueada)
     window.addEventListener('keydown', (e) => {
       if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === 'KeyL' || (e.key || '').toLowerCase() === 'l')) {
-        if (bloqueado || !vibesOn) return;
+        if (bloqueado || !vibesOn || !MOSTRAR_PANTALLA_BLOQUEO) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         bloquear(true);
@@ -1190,7 +1434,7 @@
     ['pointerdown', 'mousedown', 'touchstart'].forEach((ev) =>
       window.addEventListener(ev, () => { ultimaInteraccion = performance.now(); }, { capture: true, passive: true }));
     function bloquearPorFoco() {
-      if (bloqueado || !vibesOn) return;
+      if (bloqueado || !vibesOn || !MOSTRAR_PANTALLA_BLOQUEO) return; // sin bloqueo activado (solo bienvenida) no se vuelve a bloquear
       bloquear(false);
     }
     window.addEventListener('blur', (e) => {
@@ -1200,7 +1444,7 @@
     });
     document.addEventListener('visibilitychange', () => { if (document.hidden) bloquearPorFoco(); });
 
-    bloquear(false); // al cargar la página por primera vez
+    bloquear(false, BIENVENIDA_PENDIENTE); // al cargar la página por primera vez (con bienvenida si el kernel cambió)
   })();
 
   // Input tipo file oculto (lo abre el ítem "Cambiar fondo" del menú de ajustes)
@@ -1315,6 +1559,8 @@
     }
     fondoGeminiActual = urlImg;
     fondoGeminiTipo = tipo;
+    bvFondoGemini = { url: urlImg, tipo: tipo };
+    aplicarFondoBloqueo(document.getElementById('tg-bloqueo-fondo')); // si la bienvenida está en pantalla, toma el fondo nuevo
     gestionarVideoGemini(base64Data, tipo);
     avisarCambioFondos();
     // imagen: se pinta en body/.main-container; video: esos quedan transparentes y el <video> fijo se ve detrás
@@ -4262,7 +4508,8 @@ p.gds-body-s.ng-star-inserted {
     function ponerLogo() {
       const caja = q('logo');
       caja.textContent = '';
-      caja.appendChild(window.__tgIconoCache ? h('img', { class: 'tg-u-logo', src: window.__tgIconoCache, alt: '' }) : ESTRELLA());
+      const srcLogo = window.__tgIconoCache || urlLogoGemini(); // Gemini.png (el que manda Dart por TG_LOGO_GEMINI o, en la extensión, el de la carpeta)
+      caja.appendChild(srcLogo ? h('img', { class: 'tg-u-logo', src: srcLogo, alt: '' }) : ESTRELLA());
     }
     ponerLogo();
 

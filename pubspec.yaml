@@ -14,6 +14,7 @@ dependencies:
   shared_preferences: ^2.2.3
   http: ^1.2.0 # <-- Agregá esta línea
   url_launcher: ^6.3.3
+  audioplayers: ^6.7.1
 
 dev_dependencies:
   flutter_test:
@@ -28,3 +29,4 @@ flutter:
     - Gemini/lenis.min.js
     - Gemini/Gemini.png
     - Gemini/Gemini silueta.png
+    - Gemini/Yume 2kki OST Lotus Waters.mp3
