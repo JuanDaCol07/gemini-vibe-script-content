@@ -793,8 +793,7 @@
       }
       /* .tg-bv-enfocar (la pone enfocarFondoBv() cuando el fondo ya está cargado y pintado): estado final 5px + animación tgBvDesenfoque 28→5px */
       #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar {
-        filter: blur(5px);
-        animation: tgBvDesenfoque ${BIENVENIDA_BLUR_MS*1.5}ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+        animation: tgBvDesenfoque ${BIENVENIDA_BLUR_MS*2.5}ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
       }
       @media (prefers-reduced-motion: reduce) { #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar { animation: none; } }
       /* panel de NOVEDADES: el mismo fondo, un poco más oscuro (brillo 0.9) */
