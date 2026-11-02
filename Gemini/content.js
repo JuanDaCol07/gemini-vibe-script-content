@@ -786,14 +786,15 @@
         background-size: cover; background-position: center; background-repeat: no-repeat;
       }
       /* BIENVENIDA: fondo custom de Gemini difuminado SIEMPRE, y la animación 28→5px también corre en Alta, Media y Baja (filter, no backdrop-filter: la hoja @layer tg-blur no lo toca) */
-      @keyframes tgBvDesenfoque { from { filter: blur(28px); } to { filter: blur(5px); } }
+      @keyframes tgBvDesenfoque { from { filter: blur(56px); } to { filter: blur(5px); } }
       #tg-bloqueo-fondo.tg-bv-fondo {
         inset: -60px;
-        filter: blur(28px); /* arranca muy difuminado; sin !important para que la animación pueda actuar */
+        filter: blur(56px); /* arranca muy difuminado; sin !important para que la animación pueda actuar */
       }
       /* .tg-bv-enfocar (la pone enfocarFondoBv() cuando el fondo ya está cargado y pintado): estado final 5px + animación tgBvDesenfoque 28→5px */
       #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar {
-        animation: tgBvDesenfoque ${BIENVENIDA_BLUR_MS*2.5}ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+        filter: blur(5px);
+        animation: tgBvDesenfoque 2.8s cubic-bezier(0.22, 1, 0.36, 1) backwards;
       }
       @media (prefers-reduced-motion: reduce) { #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar { animation: none; } }
       /* panel de NOVEDADES: el mismo fondo, un poco más oscuro (brillo 0.9) */
@@ -1280,7 +1281,10 @@
         bienvenida
           ? [h('div', { class: 'tg-b-bv-marca' },
                crearLogoBienvenida(),
-               h('div', { class: 'tg-b-bv-caja' }, h('span', { class: 'tg-b-bv-nombre' }, 'Gemini Vibes'))),
+               h('div', { class: 'tg-b-bv-caja' },
+                 h('span', { class: 'tg-b-bv-nombre', 'aria-label': 'Gemini Vibes' },
+                   // cada letra va en su propio span para animarla por separado (nacen invisibles; las anima iniciarMarca)
+                   Array.from('Gemini Vibes').map((c) => h('span', { class: 'tg-b-bv-letra', 'aria-hidden': 'true', style: 'display:inline-block;opacity:0;will-change:transform,opacity;' }, c === ' ' ? ' ' : c))))),
              h('div', { class: 'tg-b-bv-sub' },
                h('span', { class: 'tg-b-bv-sub-a' }, '¡Su extensión se ha actualizado!'),
                h('span', { class: 'tg-b-bv-sub-b tg-off' }, 'Versión ' + TG_VERSION))]
@@ -1363,6 +1367,7 @@
         }
         if (sinMovimiento() || !logo.animate) { // sin animaciones: todo directo en su estado final
           logo.style.opacity = '1'; logo.style.transform = 'none'; caja.style.width = 'auto'; nombre.style.opacity = '1';
+          nombre.querySelectorAll('.tg-b-bv-letra').forEach((l) => { l.style.opacity = '1'; });
           if (sub) sub.style.opacity = '0.85';
           if (pista) pista.style.opacity = '0.9';
           setTimeout(alternarSub, BIENVENIDA_SUB_CAMBIO_MS);
@@ -1397,11 +1402,32 @@ logo.animate([
           const ancho = caja.scrollWidth; // ancho natural del nombre (el grupo se mantiene centrado mientras crece)
           const aCaja = caja.animate([{ width: '0px' }, { width: ancho + 'px' }], { duration: 1200, easing: HOJA, fill: 'both' });
           aCaja.onfinish = () => { caja.style.width = 'auto'; aCaja.cancel(); };
-          nombre.animate(
-            bvSinBlur
-              ? [{ opacity: 0, transform: 'translateX(48px)' }, { opacity: 1, transform: 'translateX(0)' }]
-              : [{ opacity: 0, transform: 'translateX(48px)', filter: 'blur(10px)' }, { opacity: 1, transform: 'translateX(0)', filter: 'none' }],
-            { duration: 1200, delay: 80, easing: SUAVE, fill: 'both' });
+          // LETRA POR LETRA: cada letra de "Gemini Vibes" sube desde abajo con rebote suave, una tras otra
+          caja.style.overflow = 'visible'; // el recorte de la caja cortaría las letras mientras suben / rebotan (las letras ya nacen invisibles)
+          nombre.style.opacity = '1';      // el contenedor se muestra; cada letra controla su propia opacidad
+          const LETRA_ESCALONADO_MS = 75;  // retraso entre una letra y la siguiente
+          const LETRA_DURACION_MS = 950;   // duración de cada letra
+          nombre.querySelectorAll('.tg-b-bv-letra').forEach((letra, i) => {
+            letra.animate([
+              { opacity: 0, transform: 'translateY(0.9em)', easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+              { opacity: 1, transform: 'translateY(-0.14em)', offset: 0.55, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, // se pasa un poco
+              { opacity: 1, transform: 'translateY(0.04em)', offset: 0.8, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },   // rebota hacia abajo
+              { opacity: 1, transform: 'translateY(0)' }                                                                  // se asienta
+            ], { duration: LETRA_DURACION_MS, delay: 80 + i * LETRA_ESCALONADO_MS, fill: 'both' });
+          });
+          // SUBIDA CON REBOTE SUAVE: logo + título (.tg-b-bv-marca) y subtítulo suben juntos un poco, pasándose un pelín y asentándose.
+          // Usa la propiedad "translate" (independiente de "transform"), así no pisa las animaciones de escala del logo ni la del subtítulo.
+          const marcaEl = pantalla.querySelector('.tg-b-bv-marca');
+          const subida = Math.max(28, Math.min(Math.round(window.innerHeight * 0.07), 64)); // px que sube el grupo (ajusta el 0.07 si lo quieres más o menos arriba)
+          const reboteSubida = [
+            { translate: '0 0', easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+            { translate: '0 ' + (-subida * 1.14) + 'px', offset: 0.55, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, // se pasa un poco
+            { translate: '0 ' + (-subida * 0.96) + 'px', offset: 0.8, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },  // rebota hacia abajo
+            { translate: '0 ' + (-subida) + 'px' }                                                                   // se asienta
+          ];
+          const opcionesSubida = { duration: 1600, delay: 1200, fill: 'both' }; // delay 1200 = el mismo del fade del subtítulo: sube justo cuando aparece (antes se queda abajo)
+          if (marcaEl && marcaEl.animate) marcaEl.animate(reboteSubida, opcionesSubida);
+          if (sub && sub.animate) sub.animate(reboteSubida, opcionesSubida);
           if (sub) sub.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 0.85, transform: 'translateY(0)' }], { duration: 800, delay: 1200, easing: SUAVE, fill: 'both' });
           if (pista) pista.animate([{ opacity: 0 }, { opacity: 0.9 }], { duration: 800, delay: 2500, easing: 'ease-out', fill: 'both' });
           setTimeout(alternarSub, 1700 + BIENVENIDA_SUB_CAMBIO_MS); // 5 s después de que el subtítulo terminó de aparecer

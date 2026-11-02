@@ -278,7 +278,7 @@ class _ContentScreenState extends State<ContentScreen>
   //         Úsalo mientras pruebas cambios locales: si no, el script de GitHub (y su caché) GANA sobre tu archivo local.
   // false = flujo normal: GitHub -> caché -> assets.
   static const bool _soloAssetLocal =
-      false; // true SOLO mientras pruebas un content.js local (ignora GitHub y el caché)
+      true; // true SOLO mientras pruebas un content.js local (ignora GitHub y el caché)
 
   String _origenScript = 'ninguno'; // 'github' | 'cache' | 'asset' | 'ninguno'
 
