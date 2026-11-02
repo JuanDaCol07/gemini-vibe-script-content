@@ -784,7 +784,7 @@
       #tg-bloqueo-fondo.tg-bv-fondo { inset: -60px; filter: blur(10px) !important; }
       /* panel de NOVEDADES: el mismo fondo, un poco más oscuro (brillo 0.9) */
       #tg-bloqueo-fondo.tg-bv-fondo { transition: filter 600ms linear; }
-      #tg-bloqueo-fondo.tg-bv-fondo.tg-nv-atenuado { filter: blur(56px) !important; }
+      #tg-bloqueo-fondo.tg-bv-fondo.tg-nv-atenuado { filter: blur(56px) brightness(0.8) !important; }
       #tg-bloqueo > * { position: relative; z-index: 1; }
       #tg-bloqueo .tg-b-hora { font-size: clamp(72px, 15vw, 180px); font-weight: 500; line-height: 1; letter-spacing: -0.03em; transform: translateY(-12vh); }
       #tg-bloqueo .tg-b-fecha { font-size: clamp(16px, 2.2vw, 24px); opacity: 0.85; transform: translateY(-12vh); }
