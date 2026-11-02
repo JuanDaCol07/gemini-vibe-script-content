@@ -28,7 +28,8 @@
   const TG_NOTAS_VERSION = `
 • Nuevo menú "Actualizaciones Gemini Vibes" en la app móvil: busca y aplica la última versión sin reiniciar la app.
 • El teclado ya no redimensiona la página: la caja de escribir sube con una transición y el teclado deja de cerrarse.
-• Nivel de rendimiento Medio: el fondo de "¿Por dónde empezamos?" ya no se difumina.
+• Nivel de rendimiento Medio: el fondo de "¿Por dónde empezamos?" conserva su desenfoque; la animación de desenfoque de la bienvenida solo corre en Alta.
+• Las burbujas del chat solo llevan blur mientras están en pantalla (nacen sin blur y lo pierden al salir).
 • Los ajustes de blur, Vibes, difuminado del scroll y scroll suave ahora se conservan al reiniciar la app.
 `;
   const TG_URL_GITHUB_APP = 'https://github.com/JuanDaCol07/gemini-vibe-script-content/releases'; // <-- pon aquí la página de la app
@@ -298,9 +299,9 @@
   //   baja  → NADA de blur (menús y panel Personalizar quedan con fondo opaco; transparencia de tu burbuja fija en 10 %): ni backdrop-filter, ni filter(blur) en animaciones (vuelo de la burbuja, puntitos, fondo del PIN),
   //           ni el blur fade de arriba/abajo del chat (en su lugar va el fade LITE: tu fondo de pantalla con máscara en degradé, sin blur).
   //   media → blur SOLO en las burbujas del chat, la caja de escribir, los botones de arriba (+ copiar/editar), la barra lateral,
-  //           los menús contextuales, el marco de Personalizar (el fondo de "¿Por dónde empezamos?" NO se difumina en media). Sin blur fade (lleva el fade LITE: el fondo en degradé, sin blur). En el bloqueo solo lleva blur el fondo del PIN.
+  //           los menús contextuales, el marco de Personalizar y el fondo de "¿Por dónde empezamos?". Sin blur fade (lleva el fade LITE: el fondo en degradé, sin blur). En el bloqueo solo lleva blur el fondo del PIN.
   //           La animación de vuelo de la burbuja NO lleva filter(blur) (ni en media ni en baja).
-  //           EXCEPCIÓN: el fondo de la BIENVENIDA (#tg-bloqueo-fondo.tg-bv-fondo) SÍ anima su filter(blur) 28→5px en media y baja (CSS puro, sin !important).
+  //           El fondo de la BIENVENIDA (#tg-bloqueo-fondo.tg-bv-fondo) queda fijo en blur(5px) en media y baja (SIN animación); la animación 56→5px solo corre en alta.
   //   alta  → cada parámetro de blur tal como está definido en cada elemento (no se toca nada).
   // Todo se hace con la clase html.tg-blur-baja / html.tg-blur-media y UNA hoja de estilos dentro de @layer: las declaraciones
   // !important de una capa ganan a las !important sin capa, así que no importa qué tan específico sea el selector original.
@@ -402,7 +403,8 @@
       // barra lateral (escritorio y vista angosta)
       'bard-sidenav', 'side-navigation-content', '.sidenav-with-history-container',
       '.mat-drawer.mat-sidenav', 'mat-sidenav', '[data-tg-capa="blur"]',
-      // (la capa de fondo difuminado de "¿Por dónde empezamos?" ya NO está aquí: en "media" el fondo no se difumina en esa pantalla)
+      // fondo difuminado de "¿Por dónde empezamos?": la capa chat-window::before (solo existe con html.tg-cero) conserva su backdrop-filter en "media"
+      'html.tg-cero chat-window',
       // menús contextuales (ajustes, "+", gem-menu...) y el marco del panel Personalizar (NO su fondo de pantalla completa)
       '[data-tg-menu-capa="blur"]', '.desktop-settings-menu:not([data-tg-menu-capa])', '#tg-personalizar-panel'
     ].join(', ');
@@ -725,8 +727,14 @@
   function aplicarFondoBloqueo(f) {
     if (!f) return;
     if (!fondoBienvenidaActivo) f.classList.remove('tg-bv-enfocar'); // la clase que dispara el desenfoque la pone enfocarFondoBv() en bloquear
-    if (fondoBienvenidaActivo) { if (!f.classList.contains('tg-bv-enfocar')) f.style.setProperty('filter', 'blur(28px)'); } // punto de partida garantizado
-    else f.style.removeProperty('filter');
+    if (fondoBienvenidaActivo) {
+      if (nivelBlur !== 'alta') { // media y baja: SIN animación; el fondo nace directo en su desenfoque final (5px)
+        f.style.removeProperty('filter');
+        f.style.setProperty('transition', 'none'); // que no se anime ni siquiera por transición
+        f.classList.add('tg-bv-enfocar');
+        requestAnimationFrame(() => requestAnimationFrame(() => f.style.removeProperty('transition')));
+      } else if (!f.classList.contains('tg-bv-enfocar')) f.style.setProperty('filter', 'blur(56px)'); // alta: punto de partida garantizado (el mismo 56px de la animación)
+    } else f.style.removeProperty('filter');
     f.classList.toggle('tg-bv-fondo', fondoBienvenidaActivo); // bienvenida: difuminado siempre (ver CSS), sin importar el nivel de blur
     try {
       if (fondoBienvenidaActivo) {
@@ -785,18 +793,18 @@
         background-color: #0b0b0f;
         background-size: cover; background-position: center; background-repeat: no-repeat;
       }
-      /* BIENVENIDA: fondo custom de Gemini difuminado SIEMPRE, y la animación 28→5px también corre en Alta, Media y Baja (filter, no backdrop-filter: la hoja @layer tg-blur no lo toca) */
+      /* BIENVENIDA: fondo custom de Gemini difuminado SIEMPRE; la animación 56→5px SOLO corre en nivel Alta (en Media y Baja queda directo en 5px, sin animar) */
       @keyframes tgBvDesenfoque { from { filter: blur(56px); } to { filter: blur(5px); } }
       #tg-bloqueo-fondo.tg-bv-fondo {
         inset: -60px;
         filter: blur(56px); /* arranca muy difuminado; sin !important para que la animación pueda actuar */
       }
       /* .tg-bv-enfocar (la pone enfocarFondoBv() cuando el fondo ya está cargado y pintado): estado final 5px + animación tgBvDesenfoque 28→5px */
-      #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar {
-        filter: blur(5px);
+      #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar { filter: blur(5px); }
+      html:not(.tg-blur-baja):not(.tg-blur-media) #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar {
         animation: tgBvDesenfoque 2.8s cubic-bezier(0.22, 1, 0.36, 1) backwards;
       }
-      @media (prefers-reduced-motion: reduce) { #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar { animation: none; } }
+      @media (prefers-reduced-motion: reduce) { #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar { animation: none !important; } }
       /* panel de NOVEDADES: el mismo fondo, un poco más oscuro (brillo 0.9) */
       #tg-bloqueo-fondo.tg-bv-fondo { transition: filter 600ms linear; }
       #tg-bloqueo-fondo.tg-bv-fondo.tg-nv-atenuado { filter: blur(56px) !important; }
@@ -1271,7 +1279,7 @@
         if (!f) { if ((intento || 0) < 40) setTimeout(() => enfocarFondoBv((intento || 0) + 1), 50); return; }
         enfocarFondoBv.hecho = true;
         f.style.removeProperty('filter');          // quita el 28px inicial puesto en línea; la animación parte de él
-        f.classList.add('tg-bv-enfocar');          // → animation: tgBvDesenfoque (28→5px)
+        f.classList.add('tg-bv-enfocar');          // → en Alta: animation tgBvDesenfoque (56→5px); en Media/Baja ya estaba en 5px
       }
       const audio = bienvenida ? audioBienvenida(() => { enfocarFondoBv(); setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS); }) : null; // música de fondo solo en la bienvenida
       fijarPantallaBloqueada(true); // desde ya, nada más de la extensión trabaja
@@ -1886,6 +1894,14 @@ logo.animate([
       [data-anim="wait"] {
         opacity: 0 !important;
         /* fuera de pantalla / escondidas: sin blur de fondo (no se ve y cuesta pintar) */
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+
+      /* BLUR DE BURBUJAS SOLO EN PANTALLA: nacen SIN blur; el observador de visibilidad les pone data-tg-blur al aparecer en pantalla y se lo quita al salir.
+         (:not([data-tg-blur]) suma especificidad: gana al backdrop-filter !important de la burbuja sin tocar nada más) */
+      .user-query-bubble-with-background:not([data-tg-blur]),
+      .response-container:not([data-tg-blur]) {
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
       }
@@ -3364,6 +3380,7 @@ p.gds-body-s.ng-star-inserted {
       }
       if (entrada.isIntersecting) {
         el._visto = true;
+        el.setAttribute('data-tg-blur', ''); // apareció en pantalla: se le pone el blur
         if (el._vuelo) return; // está volando desde la caja de escribir: el clon se encarga de mostrarla
         if (temporizadores.has(el) || el.getAttribute('data-anim') === 'in') return;
         temporizadores.set(el, setTimeout(() => {
@@ -3390,6 +3407,7 @@ p.gds-body-s.ng-star-inserted {
 
         }, ESPERA_VISIBLE_MS));
       } else {
+        el.removeAttribute('data-tg-blur'); // salió de la pantalla: se le quita el blur
         if (temporizadores.has(el)) {
           clearTimeout(temporizadores.get(el));
           temporizadores.delete(el);
