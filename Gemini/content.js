@@ -100,7 +100,7 @@
         '#tg-kernel-aviso .tg-k-velo{position:absolute;inset:0;pointer-events:none;background:transparent;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);}' +
         '#tg-kernel-aviso.tg-k-claro .tg-k-velo{background:transparent;}' +
         '#tg-kernel-aviso .tg-k-panel{position:relative;width:min(420px,calc(100vw - 28px));max-height:min(90vh,760px);display:flex;flex-direction:column;overflow:hidden;' +
-        'border-radius:28px;background:var(--k-panel);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 24px 80px rgba(0,0,0,0.45);color:var(--k-texto);}' +
+        'border-radius:28px;background:var(--k-panel);-webkit-backdrop-filter:blur(var(--tg-bf14, 14px));backdrop-filter:blur(var(--tg-bf14, 14px));box-shadow:0 24px 80px rgba(0,0,0,0.45);color:var(--k-texto);}' +
         '#tg-kernel-aviso .tg-k-cab{position:relative;isolation:isolate;flex:none;color:#fff;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;' +
         'padding:18px 20px 26px;text-shadow:0 2px 10px rgba(0,0,0,0.45);}' +
         '#tg-kernel-aviso .tg-k-fondos{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none;' +
@@ -368,6 +368,67 @@
     try { localStorage.setItem(BLUR_NIVEL_LS, n); } catch (e) { /* sin localStorage */ }
     prefsGuardar({ geminiBlurNivel: n });
     aplicarNivelBlur();
+
+  // ===== MODO TÁCTIL RÁPIDO (solo app móvil / ES_APP_FLUTTER) =====
+  // 1) toque inmediato en botones (sin espera de doble-toque ni resaltado) · 2) la caja de escribir pierde el blur mientras se escribe
+  // 3) los botones de arriba pierden el blur mientras se hace scroll (se re-desenfocaban en cada fotograma) · 4) radio de 14px -> 9px.
+  // Todo cuelga de html.tg-movil: en la extensión de Chrome no se activa. Dentro de @layer para ganar a los !important sin capa.
+  const MOVIL_OPACIDAD_ESCRIBIENDO = 0.3; // oscuridad/claridad que se SUMA a la caja al quitarle el blur (sube si la quieres más opaca)
+  const MOVIL_OPACIDAD_SCROLL = 0.3;      // igual, para los botones de arriba mientras se hace scroll
+  (function () {
+    if (typeof ES_APP_FLUTTER === 'undefined' || !ES_APP_FLUTTER) return;
+    const r = document.documentElement;
+    r.classList.add('tg-movil');
+    const st = document.createElement('style');
+    st.id = 'tg-movil-rapido';
+    const BOTONES_ARRIBA = [
+      'top-bar-actions button.mat-mdc-icon-button', '.side-nav-menu-button button.mat-mdc-icon-button',
+      'chat-app-side-nav-menu-button button.mat-mdc-icon-button', 'top-bar-actions .left-section button.mat-mdc-button',
+      'top-bar-actions .center-section button.mat-mdc-button', 'bard-mode-switcher:not(:is(input-area-v2 *)) button'
+    ].map((x) => 'html.tg-movil.tg-scrolleando ' + x).join(',\n');
+    st.textContent = `
+      @layer tg-blur {
+        html.tg-movil { --tg-bf14: 9px; }
+        html.tg-movil :is(button, [role="button"], [role="menuitem"], a, summary, label, input, textarea, select) {
+          touch-action: manipulation !important; -webkit-tap-highlight-color: transparent !important;
+        }
+        html.tg-movil:not(.tg-blur-baja)[data-tg-teclado] input-area-v2 .text-input-field,
+        html.tg-movil:not(.tg-blur-baja)[data-tg-teclado] input-area-v2 .input-area-fieldset > .text-input-field,
+        html.tg-movil:not(.tg-blur-baja) input-area-v2 .text-input-field:focus-within,
+        html.tg-movil:not(.tg-blur-baja) input-area-v2 .input-area-fieldset > .text-input-field:focus-within {
+          -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+          box-shadow: inset 0 0 0 100vmax rgba(0, 0, 0, ${MOVIL_OPACIDAD_ESCRIBIENDO}) !important;
+        }
+        html[data-tema="claro"].tg-movil:not(.tg-blur-baja)[data-tg-teclado] input-area-v2 .text-input-field,
+        html[data-tema="claro"].tg-movil:not(.tg-blur-baja)[data-tg-teclado] input-area-v2 .input-area-fieldset > .text-input-field,
+        html[data-tema="claro"].tg-movil:not(.tg-blur-baja) input-area-v2 .text-input-field:focus-within,
+        html[data-tema="claro"].tg-movil:not(.tg-blur-baja) input-area-v2 .input-area-fieldset > .text-input-field:focus-within {
+          box-shadow: inset 0 0 0 100vmax rgba(255, 255, 255, ${MOVIL_OPACIDAD_ESCRIBIENDO}) !important;
+        }
+        ${BOTONES_ARRIBA.replace(/html\.tg-movil\.tg-scrolleando/g, 'html.tg-movil:not(.tg-blur-baja).tg-scrolleando')} {
+          -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+          box-shadow: inset 0 0 0 100vmax rgba(0, 0, 0, ${MOVIL_OPACIDAD_SCROLL}) !important;
+        }
+        ${BOTONES_ARRIBA.replace(/html\.tg-movil\.tg-scrolleando/g, 'html[data-tema="claro"].tg-movil:not(.tg-blur-baja).tg-scrolleando')} {
+          box-shadow: inset 0 0 0 100vmax rgba(255, 255, 255, ${MOVIL_OPACIDAD_SCROLL}) !important;
+        }
+      }`;
+    document.head.appendChild(st);
+    // clase tg-scrolleando mientras el chat se desplaza (un solo temporizador; solo toca el DOM al empezar y al terminar)
+    let activo = false, ultimo = 0, timer = null;
+    const FIN_MS = 180;
+    function revisar() {
+      timer = null;
+      const falta = FIN_MS - (performance.now() - ultimo);
+      if (falta > 10) { timer = setTimeout(revisar, falta); return; }
+      activo = false; r.classList.remove('tg-scrolleando');
+    }
+    document.addEventListener('scroll', () => {
+      ultimo = performance.now();
+      if (!activo) { activo = true; r.classList.add('tg-scrolleando'); }
+      if (!timer) timer = setTimeout(revisar, FIN_MS);
+    }, { capture: true, passive: true });
+  })();
     try { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); } catch (e) { /* aún no está todo creado */ }
   }
   function esTactil() { return !!(window.matchMedia && window.matchMedia('(hover: none)').matches); }
@@ -957,7 +1018,7 @@
         background: none; border: 0; color: #fff; font: inherit; font-size: 16px; cursor: pointer; padding: 8px 12px; border-radius: 9999px;
         transition: background-color 0.15s ease, transform 0.2s ease; -webkit-tap-highlight-color: transparent; outline: 0;
       }
-      #tg-pin .tg-pin-accion:hover { background: rgba(255, 255, 255, 0.12); }
+      @media (hover: hover) { #tg-pin .tg-pin-accion:hover { background: rgba(255, 255, 255, 0.12); } }
       #tg-pin .tg-pin-accion:active { transform: scale(0.95); }
       #tg-pin .tg-pin-accion:focus-visible { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5); }
       #tg-pin .tg-pin-olvido { font-size: 14px; opacity: 0.9; }
@@ -2038,8 +2099,8 @@ logo.animate([
       /* EFECTO BLUR EN LA BARRA LATERAL (SIDENAV) */
       bard-sidenav, side-navigation-content, .sidenav-with-history-container {
         background-color: var(--tg-sidebar-bg) !important;
-        backdrop-filter: blur(14px) !important;
-        -webkit-backdrop-filter: blur(14px) !important;
+        backdrop-filter: blur(var(--tg-bf14, 14px)) !important;
+        -webkit-backdrop-filter: blur(var(--tg-bf14, 14px)) !important;
       }
 
       .user-query-bubble-with-background {
@@ -2426,9 +2487,11 @@ top-bar-actions .center-section button.mat-mdc-button {
   overflow: hidden !important;
   transition: transform 0.2s ease !important;
 }
+@media (hover: hover) {
 top-bar-actions bard-mode-switcher button:hover,
 top-bar-actions [data-test-id="bard-mode-menu-button"]:hover {
   transform: scale(1.04) !important;
+}
 }
 top-bar-actions bard-mode-switcher button .mat-mdc-button-persistent-ripple,
 top-bar-actions bard-mode-switcher button .mat-mdc-button-ripple {
@@ -2466,8 +2529,10 @@ bard-mode-switcher:not(:is(input-area-v2 *)) button
   overflow: hidden !important;
   transition: transform 0.2s ease !important;
 }
+@media (hover: hover) {
 bard-mode-switcher:not(:is(input-area-v2 *)) button:hover {
   transform: scale(1.04) !important;
+}
 }
 bard-mode-switcher:not(:is(input-area-v2 *)) button :is(.mat-mdc-button-persistent-ripple, .mdc-button__ripple, .mat-mdc-button-ripple) {
   border-radius: 9999px !important;
@@ -2513,8 +2578,8 @@ mat-sidenav,
   background: var(--tg-sidebar-bg) !important;
   background-color: var(--tg-sidebar-bg) !important;
   background-image: none !important;
-  -webkit-backdrop-filter: blur(14px) !important;
-  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(var(--tg-bf14, 14px)) !important;
+  backdrop-filter: blur(var(--tg-bf14, 14px)) !important;
 }
 /* una sola capa con blur: las de dentro quedan sin fondo (un blur dentro de otro no ve la imagen de fondo) */
 .mat-drawer.mat-sidenav .mat-drawer-inner-container,
@@ -2809,9 +2874,11 @@ gem-icon-button[data-test-id="prompt-edit-button"] button {
   align-items: center !important;
   justify-content: center !important;
 }
+@media (hover: hover) {
 gem-icon-button[data-test-id="prompt-copy-button"]:hover,
 gem-icon-button[data-test-id="prompt-edit-button"]:hover {
   transform: scale(1.08) !important;
+}
 }
 gem-icon-button[data-test-id="prompt-copy-button"] .mat-mdc-button-persistent-ripple,
 gem-icon-button[data-test-id="prompt-copy-button"] .mat-mdc-button-ripple,
@@ -3554,7 +3621,7 @@ p.gds-body-s.ng-star-inserted {
         width: 50px !important; height: 50px !important; padding: 0 !important; border-radius: 50% !important;
         background: transparent !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;
       }
-      ${SEL_PANEL} .arrow-back-container .arrow-back-button:hover { transform: scale(1.08) !important; }
+      @media (hover: hover) { ${SEL_PANEL} .arrow-back-container .arrow-back-button:hover { transform: scale(1.08) !important; } }
       ${SEL_PANEL} .arrow-back-container :is(mat-icon, gem-icon) { color: var(--tg-texto) !important; font-size: 26px !important; }
       ${SEL_PANEL} [data-tg-nombre] {
         display: inline-flex !important; align-items: center !important; gap: 10px !important;
@@ -3884,8 +3951,8 @@ p.gds-body-s.ng-star-inserted {
       background: var(--tg-sidebar-efectivo, var(--tg-sidebar-bg, rgba(0, 0, 0, 0.45))) !important;
       background-color: var(--tg-sidebar-efectivo, var(--tg-sidebar-bg, rgba(0, 0, 0, 0.45))) !important;
       background-image: none !important;
-      -webkit-backdrop-filter: blur(14px) !important;
-      backdrop-filter: blur(14px) !important;
+      -webkit-backdrop-filter: blur(var(--tg-bf14, 14px)) !important;
+      backdrop-filter: blur(var(--tg-bf14, 14px)) !important;
       border: 0 !important;
       border-radius: 18px !important;
       box-shadow: none !important;
@@ -3996,7 +4063,7 @@ p.gds-body-s.ng-star-inserted {
       border: 0;
       border-radius: 28px;
       box-shadow: 0 24px 80px var(--p-sombra);
-      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      backdrop-filter: blur(var(--tg-bf14, 14px)); -webkit-backdrop-filter: blur(var(--tg-bf14, 14px));
       color: var(--p-texto);
       padding: 24px 28px 26px;
       transform: translateY(14px) scale(0.98);
@@ -4014,7 +4081,7 @@ p.gds-body-s.ng-star-inserted {
       background: var(--p-card); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       color: var(--p-texto); transition: transform 0.2s ease;
     }
-    .tg-p-cerrar:hover { transform: scale(1.08); }
+    @media (hover: hover) { .tg-p-cerrar:hover { transform: scale(1.08); } }
     .tg-p-cerrar svg, .tg-p-ico { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
     .tg-p-seccion { margin-top: 22px; }
@@ -4036,7 +4103,7 @@ p.gds-body-s.ng-star-inserted {
       border: 2px solid transparent; outline: 0; transition: transform 0.15s ease, box-shadow 0.15s ease;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
     }
-    .tg-p-color:hover { transform: scale(1.12); }
+    @media (hover: hover) { .tg-p-color:hover { transform: scale(1.12); } }
     .tg-p-color.tg-sel { box-shadow: 0 0 0 2px var(--p-panel), 0 0 0 4px var(--p-texto); }
     .tg-p-color-libre {
       position: relative; overflow: hidden;
@@ -4094,7 +4161,7 @@ p.gds-body-s.ng-star-inserted {
       border: 1px solid var(--p-borde); background: var(--p-card); color: var(--p-texto) !important; font: inherit; font-size: 14px;
       backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); transition: transform 0.2s ease, background 0.15s ease;
     }
-    .tg-p-btn:hover { transform: scale(1.04); background: var(--p-hover); }
+    @media (hover: hover) { .tg-p-btn:hover { transform: scale(1.04); background: var(--p-hover); } }
     .tg-p-btn[hidden] { display: none; }
 
     .tg-p-fondos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
@@ -4147,7 +4214,7 @@ p.gds-body-s.ng-star-inserted {
     .tg-p-switch[aria-checked="true"] .tg-p-sw-track { background: var(--sw-on); border-color: var(--sw-on); }
     .tg-p-switch[aria-checked="true"] .tg-p-sw-handle { left: 24px; width: 24px; height: 24px; background: var(--sw-on-manija); }
     .tg-p-switch[aria-checked="true"] .tg-p-sw-handle svg { opacity: 1; }
-    .tg-p-switch:hover .tg-p-sw-handle { filter: brightness(1.12); }
+    @media (hover: hover) { .tg-p-switch:hover .tg-p-sw-handle { filter: brightness(1.12); } }
     .tg-p-switch:focus-visible .tg-p-sw-track { box-shadow: 0 0 0 3px var(--p-hover); }
     /* mini pantalla de Gemini */
     .tg-m-lateral {
@@ -4751,7 +4818,7 @@ p.gds-body-s.ng-star-inserted {
         background: var(--tg-u-acento, #0059ff); color: var(--tg-u-acento-texto, #fff);
         transition: transform 0.2s ease, opacity 0.2s ease; -webkit-tap-highlight-color: transparent; outline: 0;
       }
-      .tg-u-btn:hover { transform: scale(1.04); }
+      @media (hover: hover) { .tg-u-btn:hover { transform: scale(1.04); } }
       .tg-u-btn:active { transform: scale(0.97); }
       .tg-u-btn:disabled { opacity: 0.65; cursor: default; transform: none; }
       .tg-u-btn:focus-visible, .tg-u-x:focus-visible { box-shadow: 0 0 0 3px var(--p-hover); }
@@ -5272,7 +5339,7 @@ p.gds-body-s.ng-star-inserted {
         -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
         transition: transform 0.2s ease;
       }
-      .tg-colapso-btn:hover { transform: scale(1.04); }
+      @media (hover: hover) { .tg-colapso-btn:hover { transform: scale(1.04); } }
       .tg-colapso-txt::before { content: 'Mostrar mensaje completo'; }
       .response-container[data-tg-colapso="expandida"] .tg-colapso-txt::before { content: 'Mostrar menos'; }
       .tg-colapso-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.3s ease; }
