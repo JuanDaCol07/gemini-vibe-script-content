@@ -238,6 +238,9 @@
   // evento 'tg-bloqueo-cambio' y cada parte se pone al día (una sola vez, sin repetir lo que se perdió).
   // ============================================================================================
   let pantallaBloqueada = false;
+  // true mientras el body está escalado (bloqueado o durante el zoom de entrada/salida): en ese tiempo NO se mide el layout
+  // (getBoundingClientRect devolvería medidas escaladas y el header / burbujas quedarían mal colocados)
+  let cuerpoEscalado = false;
   function fijarPantallaBloqueada(v) {
     v = !!v;
     if (pantallaBloqueada === v) return;
@@ -423,6 +426,11 @@
         html[data-tema="claro"].tg-blur-baja .desktop-settings-menu:not([data-tg-menu-capa]),
         html[data-tema="claro"].tg-blur-baja #tg-personalizar-panel {
           background: rgb(244, 246, 251) !important; background-color: rgb(244, 246, 251) !important;
+        }
+        /* BAJA y MEDIA: el subtítulo alterno de la BIENVENIDA no usa filter(blur) al cruzarse (solo opacidad + desplazamiento) */
+        html.tg-blur-baja #tg-bloqueo .tg-b-bv-sub > span, html.tg-blur-baja #tg-bloqueo .tg-b-bv-sub > span.tg-off,
+        html.tg-blur-media #tg-bloqueo .tg-b-bv-sub > span, html.tg-blur-media #tg-bloqueo .tg-b-bv-sub > span.tg-off {
+          filter: none !important; transition-property: opacity, transform !important;
         }
         /* MEDIA: todo pierde el backdrop-filter MENOS burbujas, caja de escribir, botones de arriba, barra lateral y fondo del inicio.
            La pantalla de bloqueo solo conserva el filter(blur) del fondo del PIN (.tg-pin-fondo), que no es backdrop-filter. */
@@ -773,7 +781,10 @@
         background-size: cover; background-position: center; background-repeat: no-repeat;
       }
       /* BIENVENIDA: fondo custom de Gemini difuminado SIEMPRE (filter, no backdrop-filter: los niveles Baja/Media no lo tocan) */
-      #tg-bloqueo-fondo.tg-bv-fondo { inset: -60px; filter: blur(28px) !important; }
+      #tg-bloqueo-fondo.tg-bv-fondo { inset: -60px; filter: blur(10px) !important; }
+      /* panel de NOVEDADES: el mismo fondo, un poco más oscuro (brillo 0.9) */
+      #tg-bloqueo-fondo.tg-bv-fondo { transition: filter 600ms linear; }
+      #tg-bloqueo-fondo.tg-bv-fondo.tg-nv-atenuado { filter: blur(56px) !important; }
       #tg-bloqueo > * { position: relative; z-index: 1; }
       #tg-bloqueo .tg-b-hora { font-size: clamp(72px, 15vw, 180px); font-weight: 500; line-height: 1; letter-spacing: -0.03em; transform: translateY(-12vh); }
       #tg-bloqueo .tg-b-fecha { font-size: clamp(16px, 2.2vw, 24px); opacity: 0.85; transform: translateY(-12vh); }
@@ -794,6 +805,7 @@
         position: absolute; bottom: 7vh; left: 50%; transform: translateX(-50%);
         display: flex; flex-direction: column; align-items: center; gap: 12px;
         font-size: 15px; opacity: 0.9; animation: tgBloqueoFlota 2.2s ease-in-out infinite;
+        width: max-content; max-width: calc(100vw - 16px); white-space: nowrap; /* una sola línea */
       }
       #tg-bloqueo .tg-b-tecla {
         min-width: 220px; padding: 10px 28px; border-radius: 12px;
@@ -801,6 +813,41 @@
         background: rgba(255, 255, 255, calc(0.12 + var(--tg-sb-extra-nb, 0))); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
         font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase;
       }
+      /* BIENVENIDA: NOVEDADES de la actualización (tarjeta blanca dentro de la propia pantalla; sube desde abajo y hay que volver a deslizar) */
+      #tg-novedades > .tg-b-nv { position: absolute; top: 0; left: 0; right: 0; bottom: calc(7vh + 56px); padding: 16px; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1; }
+      #tg-novedades .tg-b-nv-tarjeta { pointer-events: auto; width: min(420px, 100%); max-height: 100%; display: flex; flex-direction: column; background: #ffffff; color: #1f1f1f; text-align: left; cursor: grab;
+        border-radius: 28px; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35); overflow: hidden; transform: translateY(120vh); transition: transform 520ms cubic-bezier(0.32, 0.72, 0, 1); will-change: transform; }
+      #tg-novedades .tg-b-nv.tg-nv-visible .tg-b-nv-tarjeta { transform: translateY(0); }
+      #tg-novedades .tg-b-nv-cab { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 22px 8px; text-align: center; }
+      #tg-novedades .tg-b-nv-logo { display: block; width: 44px; height: 44px; object-fit: contain; margin-bottom: 4px; }
+      #tg-novedades .tg-b-nv-titulo { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
+      #tg-novedades .tg-b-nv-version { font-size: 13px; color: #5f6368; }
+      #tg-novedades .tg-b-nv-lista { flex: 1 1 auto; min-height: 0; overflow-y: auto; touch-action: pan-y; margin: 0; padding: 10px 24px 22px; list-style: none; user-select: text; cursor: auto; }
+      #tg-novedades .tg-b-nv-lista li { position: relative; padding: 8px 0 8px 18px; font-size: 14.5px; line-height: 1.45; color: #3c4043; overflow-wrap: anywhere; }
+      #tg-novedades .tg-b-nv-lista li::before { content: ''; position: absolute; left: 0; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: var(--tg-nv-acento, #1a73e8); }
+      @media (prefers-reduced-motion: reduce) { #tg-novedades .tg-b-nv-tarjeta { transition: none; } }
+      /* PANEL DE NOVEDADES: pantalla propia, deslizante, separada de la bienvenida (mismo fondo, sube desde abajo y se desliza hacia arriba para entrar) */
+      #tg-novedades {
+        position: fixed; inset: 0; z-index: 2147483647;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; overflow: hidden;
+        font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        transition: transform 800ms cubic-bezier(0.32, 0.72, 0, 1); /* frenada larga estilo iOS: entra y sale suave */
+        user-select: none; cursor: grab; touch-action: none;
+      }
+      #tg-novedades.tg-subiendo { transform: translateY(-100%); }
+      #tg-novedades.tg-abajo { transform: translateY(100%); }
+      #tg-novedades.tg-abajo, #tg-novedades.tg-subiendo { will-change: transform; }
+      #tg-novedades.tg-subiendo, #tg-novedades.tg-arrastrando { will-change: transform; }
+      #tg-novedades.tg-arrastrando { transition: none; cursor: grabbing; }
+      /* la tarjeta ya no sube sola desde abajo: el que se desliza es el panel completo */
+      #tg-novedades .tg-b-nv-tarjeta { transform: none; transition: none; }
+      #tg-novedades .tg-b-pista {
+        position: absolute; bottom: 7vh; left: 50%; transform: translateX(-50%);
+        display: flex; flex-direction: column; align-items: center; gap: 12px;
+        font-size: 15px; opacity: 0.9; animation: tgBloqueoFlota 2.2s ease-in-out infinite;
+        width: max-content; max-width: calc(100vw - 16px); white-space: nowrap;
+      }
+      @media (prefers-reduced-motion: reduce) { #tg-novedades .tg-b-pista { animation: none; } }
       /* PANTALLA DE PIN (aparece debajo al deslizar la pantalla de bloqueo hacia arriba) */
       #tg-pin {
         position: fixed; inset: 0; z-index: 2147483646; overflow: hidden; color: #fff;
@@ -897,6 +944,7 @@
       const b = document.body;
       if (!b) return;
       crearFondoDetras();
+      cuerpoEscalado = true;
       raiz.style.setProperty('background-color', colorFondoBody(), 'important');
       b.style.setProperty('min-height', '100vh', 'important');
       b.style.setProperty('transform', 'scale(' + BLOQUEO_ESCALA_INICIAL + ')'); // sin !important: las animaciones no vencen a un !important
@@ -913,6 +961,22 @@
       const f = document.getElementById('tg-bloqueo-fondo');
       if (f) f.remove();
       fondoBienvenidaActivo = false;
+      // el body ya está en escala 1: se vuelve a medir TODO al instante (header, burbujas, multimedia, fade...)
+      cuerpoEscalado = false;
+      try { firmaHeader = null; Tareas.ahora(); ajustarCarruseles(document.body); } catch (e) { /* aún no está todo creado */ }
+    }
+    // al desbloquear: mide y coloca todo con el body en escala 1 (sin pintar), ANTES de empezar el zoom, para que los
+    // elementos salgan ya bien colocados desde el primer frame de la animación
+    function alinearAlInstante() {
+      const b = document.body;
+      if (!b) return;
+      if (animBody) { animBody.cancel(); animBody = null; }
+      const tAnt = b.style.getPropertyValue('transform');
+      b.style.setProperty('transform', 'none');
+      cuerpoEscalado = false;
+      try { firmaHeader = null; Tareas.ahora(); ajustarCarruseles(document.body); } catch (e) { /* aún no está todo creado */ }
+      cuerpoEscalado = true;
+      if (tAnt) b.style.setProperty('transform', tAnt); else b.style.removeProperty('transform');
     }
     function animarBody(desde, hasta, opDesde, opHasta, alTerminar) {
       const b = document.body;
@@ -1285,9 +1349,11 @@
 const HOJA = 'cubic-bezier(0.32, 0.72, 0, 1)';    // la curva de las hojas y pantallas de iOS
 
 // Animación de escala con rebote estilo iOS (simulando un spring overshoot)
+// En nivel de blur Baja/Media la animación no lleva filter(blur) (solo escala)
+const bvSinBlur = nivelBlur !== 'alta';
 logo.animate([
-    { transform: 'scale(10)',  }, // Nace enorme y borroso
-    { transform: 'scale(1)', filter: 'none' }     // Se acomoda al tamaño final
+    bvSinBlur ? { transform: 'scale(10)' } : { transform: 'scale(10)', filter: 'blur(10px)', }, // Nace enorme (y borroso solo en Alta)
+    bvSinBlur ? { transform: 'scale(1)' } : { transform: 'scale(1)', filter: 'none' }     // Se acomoda al tamaño final
 ], { 
     duration: 1200, 
     easing: 'cubic-bezier(0.175, 0.885, 0.32, 1)', // Curva elástica típica de iOS
@@ -1309,7 +1375,9 @@ logo.animate([
           const aCaja = caja.animate([{ width: '0px' }, { width: ancho + 'px' }], { duration: 1200, easing: HOJA, fill: 'both' });
           aCaja.onfinish = () => { caja.style.width = 'auto'; aCaja.cancel(); };
           nombre.animate(
-            [{ opacity: 0, transform: 'translateX(48px)', }, { opacity: 1, transform: 'translateX(0)', filter: 'none' }],
+            bvSinBlur
+              ? [{ opacity: 0, transform: 'translateX(48px)' }, { opacity: 1, transform: 'translateX(0)' }]
+              : [{ opacity: 0, transform: 'translateX(48px)', filter: 'blur(10px)' }, { opacity: 1, transform: 'translateX(0)', filter: 'none' }],
             { duration: 1200, delay: 80, easing: SUAVE, fill: 'both' });
           if (sub) sub.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 0.85, transform: 'translateY(0)' }], { duration: 800, delay: 1200, easing: SUAVE, fill: 'both' });
           if (pista) pista.animate([{ opacity: 0 }, { opacity: 0.9 }], { duration: 800, delay: 2500, easing: 'ease-out', fill: 'both' });
@@ -1320,17 +1388,99 @@ logo.animate([
       // 1) deslizar hacia arriba (o Espacio): la pantalla de bloqueo sube y debajo aparece la de PIN
       let enPin = false;
       let pinUI = null;
+      let novedadesAbiertas = false; // BIENVENIDA: ya se muestran las novedades; el siguiente deslizamiento entra a Gemini
+      // BIENVENIDA: las notas de versión van en su PROPIO panel deslizante (#tg-novedades), separado de la bienvenida.
+      // La bienvenida sube, el panel de novedades baja desde arriba y, al deslizarlo hacia arriba, se entra a Gemini.
+      let pantallaNv = null;
+      let arrastreNv = null;
+      function abrirNovedades() {
+        if (novedadesAbiertas || desbloqueado) return;
+        const items = String(TG_NOTAS_VERSION || '').split(/\r?\n/).map((l) => l.replace(/^\s*[•\-*]\s*/, '').trim()).filter(Boolean);
+        if (!items.length) { desbloquear(); return; } // sin notas: se entra directo
+        novedadesAbiertas = true;
+        let acento = '#1a73e8';
+        try { acento = burbujaCSS(burbuja, false); } catch (e) { /* sin burbuja: azul por defecto */ }
+        const caja = document.createElement('div');
+        caja.className = 'tg-b-nv tg-nv-visible';
+        caja.style.setProperty('--tg-nv-acento', acento);
+        const tarjeta = document.createElement('div');
+        tarjeta.className = 'tg-b-nv-tarjeta';
+        const cab = document.createElement('div'); cab.className = 'tg-b-nv-cab';
+        const urlLogo = urlLogoGemini();
+        if (urlLogo) { const lg = document.createElement('img'); lg.className = 'tg-b-nv-logo'; lg.alt = ''; lg.src = urlLogo; lg.draggable = false; cab.appendChild(lg); }
+        const tit = document.createElement('h2'); tit.className = 'tg-b-nv-titulo'; tit.textContent = 'Novedades de la actualización';
+        const ver = document.createElement('div'); ver.className = 'tg-b-nv-version'; ver.textContent = 'Versión ' + TG_VERSION;
+        cab.appendChild(tit); cab.appendChild(ver);
+        const lista = document.createElement('ul'); lista.className = 'tg-b-nv-lista';
+        items.forEach((t) => { const li = document.createElement('li'); li.textContent = t; lista.appendChild(li); });
+        tarjeta.appendChild(cab); tarjeta.appendChild(lista);
+        caja.appendChild(tarjeta);
+        pantallaNv = h('div', { id: 'tg-novedades' }, caja,
+          h('div', { class: 'tg-b-pista' }, h('span', null, 'Desliza hacia arriba para continuar')));
+        pantallaNv.classList.add('tg-abajo'); // nace debajo, fuera de la pantalla, y sube
+        raiz.appendChild(pantallaNv);
+        // la bienvenida se va hacia arriba (si aún estaba a la vista) mientras el panel de novedades sube desde abajo
+        pantalla.style.pointerEvents = 'none';
+        pantalla.classList.remove('tg-arrastrando');
+        pantalla.style.removeProperty('transform');
+        pantalla.style.transition = 'transform 800ms cubic-bezier(0.32, 0.72, 0, 1)'; // la bienvenida también se va suave
+        pantalla.classList.add('tg-subiendo');
+        void pantallaNv.offsetHeight;
+        requestAnimationFrame(() => { if (pantallaNv && !desbloqueado) pantallaNv.classList.remove('tg-abajo'); });
+        const fondoNv = document.getElementById('tg-bloqueo-fondo');
+        if (fondoNv) fondoNv.classList.add('tg-nv-atenuado');
+        activarArrastreNovedades(pantallaNv);
+      }
+      // mismo gesto que la bienvenida: deslizar hacia arriba (o flick) para continuar
+      function activarArrastreNovedades(el) {
+        el.addEventListener('pointerdown', (e) => {
+          if (!e.isPrimary || e.button !== 0 || desbloqueado) return;
+          const ls = e.target && e.target.closest ? e.target.closest('.tg-b-nv-lista') : null;
+          if (ls && ls.scrollHeight > ls.clientHeight + 1) return; // la lista se desplaza sola
+          arrastreNv = { pointerId: e.pointerId, inicioY: e.clientY, distancia: 0, t: performance.now(), y: e.clientY, vel: 0 };
+          el.classList.add('tg-arrastrando');
+          el.setPointerCapture(e.pointerId);
+        });
+        el.addEventListener('pointermove', (e) => {
+          if (!arrastreNv || e.pointerId !== arrastreNv.pointerId) return;
+          arrastreNv.distancia = Math.max(0, arrastreNv.inicioY - e.clientY);
+          const ahora = performance.now(), dt = ahora - arrastreNv.t;
+          if (dt > 0) { arrastreNv.vel = (arrastreNv.y - e.clientY) / dt; arrastreNv.t = ahora; arrastreNv.y = e.clientY; }
+          el.style.transform = 'translateY(-' + arrastreNv.distancia + 'px)';
+        });
+        const terminar = (e, permitir) => {
+          if (!arrastreNv || e.pointerId !== arrastreNv.pointerId) return;
+          if (permitir) arrastreNv.distancia = Math.max(0, arrastreNv.inicioY - e.clientY);
+          const distancia = arrastreNv.distancia, vel = arrastreNv.vel;
+          arrastreNv = null;
+          if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+          el.classList.remove('tg-arrastrando');
+          el.style.removeProperty('transform');
+          if (permitir && (distancia >= BLOQUEO_UMBRAL_PX() || (vel > BLOQUEO_FLICK_PX_MS && distancia > 30))) desbloquear();
+        };
+        el.addEventListener('pointerup', (e) => terminar(e, true));
+        el.addEventListener('pointercancel', (e) => terminar(e, false));
+      }
+      // BIENVENIDA + PIN correcto: se cierra el PIN y baja el panel de novedades (todavía falta deslizarlo para entrar)
+      function pinCorrectoBienvenida() {
+        if (!enPin || desbloqueado) return;
+        enPin = false;
+        if (pinUI) { pinUI.cerrar(true); pinUI = null; }
+        window.addEventListener('keydown', alTeclear, true);
+        abrirNovedades();
+      }
       function mostrarPin() {
         if (enPin || desbloqueado) return;
-        // bienvenida SIN pantalla de bloqueo activada: se entra directo, con la misma transición de desbloqueo (sin PIN)
-        if (bienvenida && !MOSTRAR_PANTALLA_BLOQUEO) { desbloquear(); return; }
+        if (novedadesAbiertas) { desbloquear(); return; } // 2.º deslizamiento (ya pasó el PIN): se entra a Gemini
+        // bienvenida SIN pantalla de bloqueo activada: sin PIN, directo a las novedades
+        if (bienvenida && !MOSTRAR_PANTALLA_BLOQUEO) { abrirNovedades(); return; }
         enPin = true;
         pantalla.classList.remove('tg-arrastrando');
         pantalla.style.removeProperty('transform');
         pantalla.style.pointerEvents = 'none';
         pantalla.classList.add('tg-subiendo');
         window.removeEventListener('keydown', alTeclear, true);
-        pinUI = crearPantallaPin({ alCorrecto: desbloquear, alVolver: volverABloqueo });
+        pinUI = crearPantallaPin({ alCorrecto: bienvenida ? pinCorrectoBienvenida : desbloquear, alVolver: volverABloqueo });
       }
       // ESC en la pantalla de PIN: la pantalla de bloqueo vuelve a bajar
       function volverABloqueo() {
@@ -1357,9 +1507,18 @@ logo.animate([
         clearTimeout(relojId);
         ponerInert(false);
         if (pinUI) { pinUI.cerrar(true); pinUI = null; }
+        alinearAlInstante();
         animarBody(BLOQUEO_ESCALA_INICIAL, 1, BLOQUEO_OPACIDAD_INICIAL, 1, quitarBodyInicial);
         // (el estilo inicial sigue puesto hasta que termina la animación; la animación lo tapa sin saltos)
         pantalla.classList.add('tg-subiendo');
+        if (pantallaNv) {
+          const nv = pantallaNv; pantallaNv = null;
+          nv.classList.remove('tg-arrastrando');
+          nv.style.removeProperty('transform');
+          nv.classList.remove('tg-abajo');
+          nv.classList.add('tg-subiendo');
+          setTimeout(() => nv.remove(), 900);
+        }
         setTimeout(() => {
           pantalla.remove();
           raiz.classList.remove('tg-bloqueado');
@@ -1373,6 +1532,8 @@ logo.animate([
       let arrastre = null;
       pantalla.addEventListener('pointerdown', (e) => {
         if (!e.isPrimary || e.button !== 0 || desbloqueado || enPin) return;
+        const ls = e.target && e.target.closest ? e.target.closest('.tg-b-nv-lista') : null;
+        if (ls && ls.scrollHeight > ls.clientHeight + 1) return; // la lista de novedades se desplaza sola (scroll), no arrastra la pantalla
         arrastre = { pointerId: e.pointerId, inicioY: e.clientY, distancia: 0, t: performance.now(), y: e.clientY, vel: 0 };
         pantalla.classList.add('tg-arrastrando');
         pantalla.setPointerCapture(e.pointerId);
@@ -4882,18 +5043,21 @@ p.gds-body-s.ng-star-inserted {
     let programado = false;
     function correr() {
       programado = false;
-      if (document.hidden || pantallaBloqueada) return; // se retoma en visibilitychange / al desbloquear
+      if (document.hidden || pantallaBloqueada || cuerpoEscalado) return; // se retoma en visibilitychange / al desbloquear / al terminar el zoom
       const lista = Array.from(sucias); sucias.clear();
       lista.forEach((n) => { try { reg.get(n)(); } catch (e) { console.warn('[tg] error en tarea ' + n + ':', e); } });
     }
-    function pedir() { if (!programado && !pantallaBloqueada) { programado = true; requestAnimationFrame(correr); } }
+    function pedir() { if (!programado && !pantallaBloqueada && !cuerpoEscalado) { programado = true; requestAnimationFrame(correr); } }
     document.addEventListener('visibilitychange', () => { if (!document.hidden && sucias.size) pedir(); });
     // al desbloquear se ponen al día TODAS las tareas (durante el bloqueo no corrió ninguna)
     function reanudar() { reg.forEach((f, n) => sucias.add(n)); if (!document.hidden) pedir(); }
     document.addEventListener('tg-bloqueo-cambio', () => { if (!pantallaBloqueada) reanudar(); });
+    // ahora(): corre TODAS las tareas de inmediato y de forma síncrona (sin esperar al siguiente frame)
+    function ahora() { reg.forEach((f, n) => sucias.add(n)); programado = false; correr(); }
     return {
       registrar(n, f) { reg.set(n, f); },
-      marcar(n) { sucias.add(n); if (!document.hidden && !pantallaBloqueada) pedir(); }
+      marcar(n) { sucias.add(n); if (!document.hidden && !pantallaBloqueada && !cuerpoEscalado) pedir(); },
+      ahora
     };
   })();
   // setInterval que no trabaja con la pestaña oculta
@@ -6188,7 +6352,7 @@ p.gds-body-s.ng-star-inserted {
     if (pantallaBloqueada) return;
     try { observarLayout(); mantenerLenis(); agregarItemMovil(); } catch (e) { console.warn('[tg] al desbloquear:', e); }
     requestAnimationFrame(() => {
-      try { ajustarCarruseles(document.body); } catch (e) { /* sin carruseles */ }
+      try { if (!cuerpoEscalado) ajustarCarruseles(document.body); } catch (e) { /* sin carruseles */ }
       try { marcarPuntosCarga(); } catch (e) { /* sin puntos */ }
       try { if (siguiendoMensaje) activarAjuste(); } catch (e) { /* sin seguimiento */ }
     });
