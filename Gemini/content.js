@@ -1443,23 +1443,43 @@ logo.animate([
         });
         el.addEventListener('pointermove', (e) => {
           if (!arrastreNv || e.pointerId !== arrastreNv.pointerId) return;
-          arrastreNv.distancia = Math.max(0, arrastreNv.inicioY - e.clientY);
+          // distancia con signo: positivo = hacia arriba (continuar), negativo = hacia abajo (volver a la bienvenida, gesto oculto)
+          arrastreNv.distancia = arrastreNv.inicioY - e.clientY;
           const ahora = performance.now(), dt = ahora - arrastreNv.t;
           if (dt > 0) { arrastreNv.vel = (arrastreNv.y - e.clientY) / dt; arrastreNv.t = ahora; arrastreNv.y = e.clientY; }
-          el.style.transform = 'translateY(-' + arrastreNv.distancia + 'px)';
+          el.style.transform = 'translateY(' + (-arrastreNv.distancia) + 'px)';
         });
         const terminar = (e, permitir) => {
           if (!arrastreNv || e.pointerId !== arrastreNv.pointerId) return;
-          if (permitir) arrastreNv.distancia = Math.max(0, arrastreNv.inicioY - e.clientY);
+          if (permitir) arrastreNv.distancia = arrastreNv.inicioY - e.clientY;
           const distancia = arrastreNv.distancia, vel = arrastreNv.vel;
           arrastreNv = null;
           if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
           el.classList.remove('tg-arrastrando');
           el.style.removeProperty('transform');
-          if (permitir && (distancia >= BLOQUEO_UMBRAL_PX() || (vel > BLOQUEO_FLICK_PX_MS && distancia > 30))) desbloquear();
+          if (!permitir) return;
+          if (distancia >= BLOQUEO_UMBRAL_PX() || (vel > BLOQUEO_FLICK_PX_MS && distancia > 30)) desbloquear();
+          else if (-distancia >= BLOQUEO_UMBRAL_PX() || (vel < -BLOQUEO_FLICK_PX_MS && -distancia > 30)) volverABienvenida();
         };
         el.addEventListener('pointerup', (e) => terminar(e, true));
         el.addEventListener('pointercancel', (e) => terminar(e, false));
+      }
+      // Gesto oculto: desde el panel de novedades, deslizar hacia abajo devuelve a la pantalla de bienvenida (sin ninguna pista en pantalla)
+      let pinYaPasado = false;
+      function volverABienvenida() {
+        if (!pantallaNv || desbloqueado) return;
+        const nv = pantallaNv; pantallaNv = null;
+        novedadesAbiertas = false;
+        nv.style.pointerEvents = 'none';
+        nv.classList.add('tg-abajo'); // el panel de novedades se hunde por abajo
+        setTimeout(() => nv.remove(), 900);
+        const fondoNv = document.getElementById('tg-bloqueo-fondo');
+        if (fondoNv) fondoNv.classList.remove('tg-nv-atenuado');
+        pantalla.style.removeProperty('pointer-events');
+        pantalla.classList.remove('tg-arrastrando');
+        pantalla.style.removeProperty('transform');
+        pantalla.classList.remove('tg-subiendo'); // la bienvenida baja otra vez desde arriba
+        window.addEventListener('keydown', alTeclear, true);
       }
       // BIENVENIDA + PIN correcto: se cierra el PIN y baja el panel de novedades (todavía falta deslizarlo para entrar)
       function pinCorrectoBienvenida() {
@@ -1467,13 +1487,14 @@ logo.animate([
         enPin = false;
         if (pinUI) { pinUI.cerrar(true); pinUI = null; }
         window.addEventListener('keydown', alTeclear, true);
+        pinYaPasado = true;
         abrirNovedades();
       }
       function mostrarPin() {
         if (enPin || desbloqueado) return;
         if (novedadesAbiertas) { desbloquear(); return; } // 2.º deslizamiento (ya pasó el PIN): se entra a Gemini
         // bienvenida SIN pantalla de bloqueo activada: sin PIN, directo a las novedades
-        if (bienvenida && !MOSTRAR_PANTALLA_BLOQUEO) { abrirNovedades(); return; }
+        if (bienvenida && (!MOSTRAR_PANTALLA_BLOQUEO || pinYaPasado)) { abrirNovedades(); return; } // (si ya pasó el PIN y volvió a la bienvenida, no se pide otra vez)
         enPin = true;
         pantalla.classList.remove('tg-arrastrando');
         pantalla.style.removeProperty('transform');
