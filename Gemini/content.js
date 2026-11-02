@@ -696,7 +696,8 @@
   })();
   // pausa los videos de fondo cuando la pestaña no se ve (ahorra batería/CPU)
   // y mientras la pantalla está bloqueada (solo siguen los videos del propio bloqueo / PIN, que es lo único que se ve)
-  const esVideoDelBloqueo = (v) => !!(v.closest && v.closest('#tg-bloqueo, #tg-bloqueo-fondo, #tg-pin'));
+  // con el PIN abierto, el bloqueo ya está fuera de la pantalla (subió): sus videos se pausan, solo sigue el del propio PIN
+  const esVideoDelBloqueo = (v) => !!(v.closest && v.closest(document.getElementById('tg-pin') ? '#tg-pin' : '#tg-bloqueo, #tg-bloqueo-fondo, #tg-pin'));
   function sincronizarVideos() {
     document.querySelectorAll('video.tg-medio-video').forEach((v) => {
       if (document.hidden || (pantallaBloqueada && !esVideoDelBloqueo(v))) v.pause();
@@ -804,6 +805,7 @@
         user-select: none; cursor: grab; touch-action: none;
       }
       #tg-bloqueo.tg-subiendo { transform: translateY(-100%); }
+      #tg-bloqueo.tg-subiendo .tg-b-pista { animation-play-state: paused; }
       #tg-bloqueo.tg-subiendo, #tg-bloqueo.tg-arrastrando { will-change: transform; }
       #tg-bloqueo.tg-arrastrando { transition: none; cursor: grabbing; }
       #tg-bloqueo-fondo {
@@ -901,12 +903,14 @@
         position: absolute; inset: -60px; z-index: 0; pointer-events: none;
         background-color: #ffffff00; background-size: cover; background-position: center; background-repeat: no-repeat;
         filter: blur(28px) brightness(0.5) saturate(1.1);
+        transform: translateZ(0); /* capa propia: el blur se calcula una vez y no se repite al tocar las teclas */
       }
       /* PIN dentro de la BIENVENIDA: mismo fondo que ella (Gemini difuminado, sin teñir). Clase propia a propósito: las reglas de nivel Baja apuntan a .tg-pin-fondo */
       #tg-pin .tg-pin-fondo-bv {
         position: absolute; inset: -60px; z-index: 0; pointer-events: none;
         background-color: #ffffff00; background-size: cover; background-position: center; background-repeat: no-repeat;
         filter: blur(28px);
+        transform: translateZ(0);
       }
       #tg-pin .tg-pin-contenido {
         position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 14px;
@@ -934,13 +938,15 @@
       #tg-pin .tg-pin-tecla {
         width: var(--tg-k); height: var(--tg-k); padding: 0; margin: 0; box-sizing: border-box; border-radius: 50%; cursor: pointer;
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-        border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(0, 0, 0, calc(0.4 + var(--tg-sb-extra-nb, 0))); color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(0, 0, 0, calc(0.45 + var(--tg-sb-extra-nb, 0))); color: #fff;
         font-family: inherit; -webkit-tap-highlight-color: transparent; touch-action: manipulation; outline: 0;
-        -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-        transition: transform 0.2s ease, background-color 0.15s ease, border-color 0.15s ease;
+        /* SIN backdrop-filter a propósito: el fondo del PIN ya va desenfocado (28px), así que un segundo blur por tecla casi no se nota
+           pero obligaba a re-desenfocar 10 capas en cada toque (eso era el lag). Mismo aspecto, toque instantáneo. */
+        -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+        will-change: transform; transition: transform 0.12s ease, background-color 0.1s ease, border-color 0.1s ease;
       }
-      #tg-pin .tg-pin-tecla:hover { transform: scale(1.06); }
-      #tg-pin .tg-pin-tecla:active, #tg-pin .tg-pin-tecla.tg-pulsada { transform: scale(0.92); background: rgba(255, 255, 255, 0.28); border-color: rgba(255, 255, 255, 0.6); transition-duration: 0.05s; }
+      @media (hover: hover) { #tg-pin .tg-pin-tecla:hover { transform: scale(1.06); } } /* en el celular el hover se queda pegado: solo con mouse */
+      #tg-pin .tg-pin-tecla:active, #tg-pin .tg-pin-tecla.tg-pulsada { transform: scale(0.92); background: rgba(255, 255, 255, 0.28); border-color: rgba(255, 255, 255, 0.6); transition-duration: 0s; }
       #tg-pin .tg-pin-tecla:focus-visible { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5); }
       #tg-pin .tg-pin-tecla-num { font-size: calc(var(--tg-k) * 0.44); font-weight: 400; line-height: 1; }
       #tg-pin .tg-pin-tecla-letras { font-size: calc(var(--tg-k) * 0.13); font-weight: 600; letter-spacing: 0.2em; text-indent: 0.2em; line-height: 1; min-height: calc(var(--tg-k) * 0.13); opacity: 0.9; }
@@ -1093,6 +1099,7 @@
         if (imagen) fondoPin.style.backgroundImage = imagen;
       }
       raiz.appendChild(pin);
+      try { sincronizarVideos(); } catch (e) { /* sin videos */ }
 
       const elSub = pin.querySelector('.tg-pin-sub');
       const elTitulo = pin.querySelector('.tg-pin-titulo');
@@ -1175,11 +1182,27 @@
           opc.alVolver();
         }
       }
-      pin.querySelectorAll('.tg-pin-tecla').forEach((b) => b.addEventListener('click', () => anadirDigito(b.getAttribute('data-d'))));
-      elBorrar.addEventListener('click', () => {
+      // Los dígitos entran en el pointerdown (al TOCAR), no en el click (que espera a soltar el dedo). El click queda solo como respaldo
+      // (lector de pantalla / teclado sin eventos de puntero) y se ignora si ya lo atendió el pointerdown de ese mismo toque.
+      const accionarBorrar = () => {
         if (ocupado || cerrado) return;
         if (digitos.length) borrarDigito(); else opc.alVolver();
-      });
+      };
+      function alTocar(b, accion) {
+        let ultimoToque = -1e9;
+        b.addEventListener('pointerdown', (e) => {
+          if (e.pointerType === 'mouse' && e.button !== 0) return;
+          ultimoToque = performance.now();
+          if (b.classList.contains('tg-pin-tecla')) { b.classList.add('tg-pulsada'); setTimeout(() => b.classList.remove('tg-pulsada'), 110); }
+          accion();
+        });
+        b.addEventListener('click', (e) => {
+          if (e.detail !== 0 && performance.now() - ultimoToque < 800) return; // ya lo hizo el pointerdown
+          accion();
+        });
+      }
+      pin.querySelectorAll('.tg-pin-tecla').forEach((b) => alTocar(b, () => anadirDigito(b.getAttribute('data-d'))));
+      alTocar(elBorrar, accionarBorrar);
       elOlvido.addEventListener('click', () => {
         if (ocupado || cerrado) return;
         if (window.confirm('¿Restablecer el PIN? Se desbloqueará la pantalla y deberás crear uno nuevo la próxima vez que la bloquees.')) {
@@ -1197,7 +1220,7 @@
           cerrado = true;
           window.removeEventListener('keydown', tecla, true);
           pin.classList.remove('tg-pin-visible');
-          setTimeout(() => pin.remove(), conAnimacion ? 400 : 0);
+          setTimeout(() => { pin.remove(); try { sincronizarVideos(); } catch (e) { /* sin videos */ } }, conAnimacion ? 400 : 0); // al quitarse el PIN, los videos del bloqueo se reanudan
         }
       };
     }
