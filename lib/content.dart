@@ -147,13 +147,37 @@ class AlmacenPrefs {
     return null;
   }
 
-  /// Guarda el script en caché. Devuelve false si no se pudo escribir.
+  /// Guarda el script en caché. Devuelve false si no se pudo escribir (o si lo escrito no coincide al releerlo).
   Future<bool> guardarScriptCache(String script) async {
     try {
+      if (!_listo) await init();
       final destino = _archivoScript;
       final tmp = File('${destino.path}.tmp');
       await tmp.writeAsString(script, flush: true);
-      await tmp.rename(destino.path);
+      try {
+        await tmp.rename(destino.path);
+      } catch (e) {
+        // algunos dispositivos no reemplazan un archivo existente con rename: se borra el viejo y se reintenta
+        debugPrint('[tg] rename falló ($e), reintentando');
+        if (await destino.exists()) await destino.delete();
+        try {
+          await tmp.rename(destino.path);
+        } catch (_) {
+          await destino.writeAsString(
+            script,
+            flush: true,
+          ); // último recurso: escritura directa
+          if (await tmp.exists()) await tmp.delete();
+        }
+      }
+      // verificación: lo que quedó en disco debe ser exactamente lo descargado
+      final leido = await destino.readAsString();
+      if (leido != script) {
+        debugPrint(
+          '[tg] el caché del script no coincide tras guardarlo (${leido.length} vs ${script.length})',
+        );
+        return false;
+      }
       return true;
     } catch (e) {
       debugPrint('[tg] no se pudo guardar el caché del script: $e');
@@ -253,7 +277,8 @@ class _ContentScreenState extends State<ContentScreen>
   // true  = usa SIEMPRE el content.js de los assets (Gemini/content.js) y NO el de GitHub.
   //         Úsalo mientras pruebas cambios locales: si no, el script de GitHub (y su caché) GANA sobre tu archivo local.
   // false = flujo normal: GitHub -> caché -> assets.
-  static const bool _soloAssetLocal = true; // <-- CAMBIAR A FALSE PARA PUBLICAR
+  static const bool _soloAssetLocal =
+      false; // true SOLO mientras pruebas un content.js local (ignora GitHub y el caché)
 
   String _origenScript = 'ninguno'; // 'github' | 'cache' | 'asset' | 'ninguno'
 
@@ -270,7 +295,7 @@ class _ContentScreenState extends State<ContentScreen>
 
   // KERNEL de la app: súbelo (1, 2, 3...) cuando cambies este Dart o agregues algo que el script necesite.
   // Debe coincidir con TG_KERNEL de content.js; si no coinciden, content.js no activa nada y pide instalar la app nueva.
-  static const int _kernel = 2;
+  static const int _kernel = 3;
 
   // Lee TG_KERNEL del texto de un script (null si no existe)
   static int? _kernelDeScript(String? script) {
@@ -555,7 +580,11 @@ class _ContentScreenState extends State<ContentScreen>
           .timeout(timeout);
 
       // validación básica: que no sea una página de error / HTML
-      final cuerpo = response.body;
+      // OJO: response.body decodifica en latin1 si el servidor no manda charset (acentos, "¿", "•" quedaban rotos al guardarlos).
+      // Se decodifica SIEMPRE como UTF-8 y se normalizan los saltos de línea, así lo descargado, lo guardado y lo comparado es idéntico.
+      final cuerpo = utf8
+          .decode(response.bodyBytes, allowMalformed: false)
+          .replaceAll('\r\n', '\n');
       final pareceJs = cuerpo.length > 1000 && cuerpo.contains('(function');
       if (response.statusCode == 200 && pareceJs) return cuerpo;
     } catch (e) {

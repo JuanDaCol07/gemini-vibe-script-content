@@ -12,7 +12,7 @@
 
 
 
-  const TG_KERNEL = 2; // No cambies esto, YO lo cambiare si es nesesario.
+  const TG_KERNEL = 3; // No cambies esto, YO lo cambiare si es nesesario.
 
 
   // ============================================================================================
