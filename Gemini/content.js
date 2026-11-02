@@ -553,6 +553,7 @@
   const BIENVENIDA_AUDIO_FADE_MS = 3000;
   const BIENVENIDA_SUB_CAMBIO_MS = 4000; // cada cuánto alterna el subtítulo de la bienvenida
   const BIENVENIDA_MARCA_RETRASO_MS = 800; // la animación del logo empieza este tiempo DESPUÉS de que arranca la canción
+  const BIENVENIDA_BLUR_MS = Math.round(BIENVENIDA_MARCA_RETRASO_MS * 0.6); // el desenfoque 28→5px dura menos que el retraso: termina ANTES de que empiece el logo
   function urlAudioBienvenida() {
     try { if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) return chrome.runtime.getURL(encodeURI(BIENVENIDA_AUDIO_ARCHIVO)); } catch (e) { /* no es una extensión */ }
     return typeof PREFS_INICIALES.geminiAudioBienvenida === 'string' ? PREFS_INICIALES.geminiAudioBienvenida : '';
@@ -781,13 +782,17 @@
         background-size: cover; background-position: center; background-repeat: no-repeat;
       }
       /* BIENVENIDA: fondo custom de Gemini difuminado SIEMPRE (filter, no backdrop-filter: los niveles Baja/Media no lo tocan) */
-     @keyframes tgBvDesenfoque { from { filter: blur(28px); } to { filter: blur(5px); } }
-#tg-bloqueo-fondo.tg-bv-fondo {
-  inset: -60px;
-  filter: blur(5px); /* sin !important: un !important le gana a las animaciones y no se vería la transición */
-  animation: tgBvDesenfoque 2000ms 1s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-}
-@media (prefers-reduced-motion: reduce) { #tg-bloqueo-fondo.tg-bv-fondo { animation: none; } }
+      @keyframes tgBvDesenfoque { from { filter: blur(28px); } to { filter: blur(5px); } }
+      #tg-bloqueo-fondo.tg-bv-fondo {
+        inset: -60px;
+        filter: blur(28px); /* arranca muy difuminado; sin !important para que la animación pueda actuar */
+      }
+      /* al arrancar la canción se añade .tg-bv-enfocar: 28px → 5px, terminando justo cuando empieza la animación del logo */
+      #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar {
+        filter: blur(5px);
+        animation: tgBvDesenfoque ${BIENVENIDA_BLUR_MS*1.5}ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+      }
+      @media (prefers-reduced-motion: reduce) { #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar { animation: none; } }
       /* panel de NOVEDADES: el mismo fondo, un poco más oscuro (brillo 0.9) */
       #tg-bloqueo-fondo.tg-bv-fondo { transition: filter 600ms linear; }
       #tg-bloqueo-fondo.tg-bv-fondo.tg-nv-atenuado { filter: blur(56px) !important; }
@@ -1255,6 +1260,8 @@
       bloqueado = true;
       fondoBienvenidaActivo = !!bienvenida; // la bienvenida usa el fondo de Gemini difuminado
       aplicarFondoBloqueo(document.getElementById('tg-bloqueo-fondo'));
+      const fondoBv = bienvenida ? document.getElementById('tg-bloqueo-fondo') : null;
+      if (fondoBv) fondoBv.classList.add('tg-bv-enfocar'); // desenfoque 28→5px arranca YA, sin esperar a la canción
       const audio = bienvenida ? audioBienvenida(() => setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS)) : null; // música de fondo solo en la bienvenida
       fijarPantallaBloqueada(true); // desde ya, nada más de la extensión trabaja
       let desbloqueado = false;
