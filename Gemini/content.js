@@ -300,6 +300,7 @@
   //   media → blur SOLO en las burbujas del chat, la caja de escribir, los botones de arriba (+ copiar/editar), la barra lateral,
   //           los menús contextuales, el marco de Personalizar (el fondo de "¿Por dónde empezamos?" NO se difumina en media). Sin blur fade (lleva el fade LITE: el fondo en degradé, sin blur). En el bloqueo solo lleva blur el fondo del PIN.
   //           La animación de vuelo de la burbuja NO lleva filter(blur) (ni en media ni en baja).
+  //           EXCEPCIÓN: el fondo de la BIENVENIDA (#tg-bloqueo-fondo.tg-bv-fondo) SÍ anima su filter(blur) 28→5px en media y baja (CSS puro, sin !important).
   //   alta  → cada parámetro de blur tal como está definido en cada elemento (no se toca nada).
   // Todo se hace con la clase html.tg-blur-baja / html.tg-blur-media y UNA hoja de estilos dentro de @layer: las declaraciones
   // !important de una capa ganan a las !important sin capa, así que no importa qué tan específico sea el selector original.
@@ -781,7 +782,7 @@
         background-color: #0b0b0f;
         background-size: cover; background-position: center; background-repeat: no-repeat;
       }
-      /* BIENVENIDA: fondo custom de Gemini difuminado SIEMPRE (filter, no backdrop-filter: los niveles Baja/Media no lo tocan) */
+      /* BIENVENIDA: fondo custom de Gemini difuminado SIEMPRE, y la animación 28→5px también corre en Alta, Media y Baja (filter, no backdrop-filter: la hoja @layer tg-blur no lo toca) */
       @keyframes tgBvDesenfoque { from { filter: blur(28px); } to { filter: blur(5px); } }
       #tg-bloqueo-fondo.tg-bv-fondo {
         inset: -60px;
