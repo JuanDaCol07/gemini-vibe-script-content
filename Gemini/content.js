@@ -781,9 +781,15 @@
         background-size: cover; background-position: center; background-repeat: no-repeat;
       }
       /* BIENVENIDA: fondo custom de Gemini difuminado SIEMPRE (filter, no backdrop-filter: los niveles Baja/Media no lo tocan) */
-      #tg-bloqueo-fondo.tg-bv-fondo { inset: -60px; filter: blur(5px) !important; }
+     @keyframes tgBvDesenfoque { from { filter: blur(28px); } to { filter: blur(5px); } }
+#tg-bloqueo-fondo.tg-bv-fondo {
+  inset: -60px;
+  filter: blur(5px); /* sin !important: un !important le gana a las animaciones y no se vería la transición */
+  animation: tgBvDesenfoque 2000ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) { #tg-bloqueo-fondo.tg-bv-fondo { animation: none; } }
       /* panel de NOVEDADES: el mismo fondo, un poco más oscuro (brillo 0.9) */
-      #tg-bloqueo-fondo.tg-bv-fondo { transition: filter 1000ms linear; }
+      #tg-bloqueo-fondo.tg-bv-fondo { transition: filter 600ms linear; }
       #tg-bloqueo-fondo.tg-bv-fondo.tg-nv-atenuado { filter: blur(56px) !important; }
       #tg-bloqueo > * { position: relative; z-index: 1; }
       #tg-bloqueo .tg-b-hora { font-size: clamp(72px, 15vw, 180px); font-weight: 500; line-height: 1; letter-spacing: -0.03em; transform: translateY(-12vh); }
