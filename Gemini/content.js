@@ -1415,17 +1415,12 @@ logo.animate([
               { opacity: 1, transform: 'translateY(0)' }                                                                  // se asienta
             ], { duration: LETRA_DURACION_MS, delay: 80 + i * LETRA_ESCALONADO_MS, fill: 'both' });
           });
-          // SUBIDA CON REBOTE SUAVE: logo + título (.tg-b-bv-marca) y subtítulo suben juntos un poco, pasándose un pelín y asentándose.
+          // SUBIDA SUAVE (sin rebote): logo + título (.tg-b-bv-marca) y subtítulo suben juntos un poco, con ease in-out.
           // Usa la propiedad "translate" (independiente de "transform"), así no pisa las animaciones de escala del logo ni la del subtítulo.
           const marcaEl = pantalla.querySelector('.tg-b-bv-marca');
           const subida = Math.max(28, Math.min(Math.round(window.innerHeight * 0.07), 64)); // px que sube el grupo (ajusta el 0.07 si lo quieres más o menos arriba)
-          const reboteSubida = [
-            { translate: '0 0', easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
-            { translate: '0 ' + (-subida * 1.14) + 'px', offset: 0.55, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, // se pasa un poco
-            { translate: '0 ' + (-subida * 0.96) + 'px', offset: 0.8, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },  // rebota hacia abajo
-            { translate: '0 ' + (-subida) + 'px' }                                                                   // se asienta
-          ];
-          const opcionesSubida = { duration: 1600, delay: 1200, fill: 'both' }; // delay 1200 = el mismo del fade del subtítulo: sube justo cuando aparece (antes se queda abajo)
+          const reboteSubida = [{ translate: '0 0' }, { translate: '0 ' + (-subida) + 'px' }];
+          const opcionesSubida = { duration: 1400, delay: 1200, easing: 'ease-in-out', fill: 'both' }; // delay 1200 = el mismo del fade del subtítulo: sube justo cuando aparece (antes se queda abajo)
           if (marcaEl && marcaEl.animate) marcaEl.animate(reboteSubida, opcionesSubida);
           if (sub && sub.animate) sub.animate(reboteSubida, opcionesSubida);
           if (sub) sub.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 0.85, transform: 'translateY(0)' }], { duration: 800, delay: 1200, easing: SUAVE, fill: 'both' });
