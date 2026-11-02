@@ -3939,7 +3939,7 @@ p.gds-body-s.ng-star-inserted {
     #tg-personalizar-backdrop {
       --p-panel: var(--tg-sidebar-efectivo, var(--tg-sidebar-bg, rgba(0, 0, 0, 0.45)));
       --p-ia: var(--tg-resp-bg, rgba(0, 0, 0, 0.8));
-      --p-card: var(--tg-input-bg, rgba(0, 0, 0, 0.55));
+      --p-card: var(--tg-input-bg, rgba(0, 0, 0, 0.75));
       --p-texto: var(--tg-texto, #ffffff);
       --p-suave: var(--tg-texto-suave, rgba(255, 255, 255, 0.7));
       --p-borde: rgba(255, 255, 255, 0.14);
