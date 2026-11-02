@@ -231,6 +231,7 @@
   // Se activa/desactiva con el interruptor del panel Personalizar. Se guarda en chrome.storage (geminiBloqueoActivo) y se
   // copia en localStorage para poder leerlo al instante al cargar la página (chrome.storage es asíncrono y habría parpadeo).
   const BLOQUEO_CLAVE_LS = 'tg-bloqueo-activo';
+  const BIENVENIDA_CLAVE_LS = 'tg-bienvenida-activa'; // interruptor "Mostrar bienvenida" (clave de preferencias: geminiBienvenidaActiva; content.dart debe tenerla en clavesValidas). Por defecto ENCENDIDO
 
   // ============================================================================================
   // ESTADO GLOBAL "BLOQUEADO" (ahorro de recursos)
@@ -287,6 +288,10 @@
   })();
   // el interruptor del bloqueo se lee de forma síncrona al cargar: el valor inyectado se copia antes a localStorage
   (function () {
+    const vb = PREFS_INICIALES.geminiBienvenidaActiva;
+    if (vb === true || vb === false || vb === 'true' || vb === 'false') {
+      try { localStorage.setItem(BIENVENIDA_CLAVE_LS, (vb === true || vb === 'true') ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+    }
     const v = PREFS_INICIALES.geminiBloqueoActivo;
     if (v === true || v === false || v === 'true' || v === 'false') {
       try { localStorage.setItem(BLOQUEO_CLAVE_LS, (v === true || v === 'true') ? '1' : '0'); } catch (e) { /* sin localStorage */ }
@@ -519,6 +524,13 @@
     prefsGuardar({ geminiBloqueoActivo: !!v });
   }
   const MOSTRAR_PANTALLA_BLOQUEO = bloqueoActivoGuardado() && vibesOn; // el cambio se nota la próxima vez que entres a la página
+  // interruptor "Mostrar bienvenida" (INDEPENDIENTE del bloqueo): la bienvenida de INICIO sale al entrar a la página aunque el bloqueo esté apagado
+  function bienvenidaActivaGuardada() { try { return localStorage.getItem(BIENVENIDA_CLAVE_LS) !== '0'; } catch (e) { return true; } }
+  function guardarBienvenidaActiva(v) {
+    try { localStorage.setItem(BIENVENIDA_CLAVE_LS, v ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiBienvenidaActiva: !!v });
+  }
+  const MOSTRAR_BIENVENIDA = bienvenidaActivaGuardada() && vibesOn;
 
   // ============================================================================================
   // KERNEL VISTO (pantalla de bienvenida tras actualizar)
@@ -546,8 +558,8 @@
   //  · ACTUALIZACIÓN (BIENVENIDA_PENDIENTE): el kernel guardado NO coincide con TG_KERNEL (o no existe: primera instalación). Sale UNA vez por cada
   //    kernel nuevo, OBLIGATORIAMENTE (aunque la pantalla de bienvenida esté desactivada en Personalizar). Subtítulos "¡Su extensión se ha actualizado!"
   //    ↔ "Versión X"; al deslizar: PIN (si la pantalla está activada) → novedades de la actualización → Gemini. Al entrar a Gemini se guarda el kernel visto.
-  //  · INICIO (sin actualización): solo si la opción de Personalizar está activada. Subtítulos "¡Más hermoso que nunca!" ↔ "¡Bienvenido de vuelta!";
-  //    al deslizar: PIN (si lo tienes) → directo a Gemini, SIN novedades.
+  //  · INICIO (sin actualización): solo si el interruptor "Mostrar bienvenida" de Personalizar está activado (independiente del bloqueo). Subtítulos
+  //    "¡Más hermoso que nunca!" ↔ "¡Bienvenido de vuelta!"; al deslizar: PIN (solo si el interruptor "Pantalla de bloqueo" está activado) → directo a Gemini, SIN novedades.
   const BIENVENIDA_PENDIENTE = vibesOn && kernelVistoGuardado() !== TG_KERNEL;
   const BLOQUEO_OPACIDAD_INICIAL = 0;   // opacidad del body al empezar la transición (termina en 1)
   const BLOQUEO_ESCALA_INICIAL = 1.3;   // escala del body al empezar la transición (termina en 1)
@@ -768,7 +780,7 @@
   }
 
   (function pantallaDeBloqueo() {
-    if (!MOSTRAR_PANTALLA_BLOQUEO && !BIENVENIDA_PENDIENTE) return;
+    if (!MOSTRAR_PANTALLA_BLOQUEO && !BIENVENIDA_PENDIENTE && !MOSTRAR_BIENVENIDA) return;
 
     const raiz = document.documentElement;
     let bloqueado = false;
@@ -1552,6 +1564,7 @@ logo.animate([
       function mostrarPin() {
         if (enPin || desbloqueado) return;
         if (novedadesAbiertas) { desbloquear(); return; } // 2.º deslizamiento (ya pasó el PIN): se entra a Gemini
+        if (bienvenida === 'inicio' && !MOSTRAR_PANTALLA_BLOQUEO) { desbloquear(); return; } // bienvenida de inicio sin bloqueo activado: sin PIN, entra a Gemini
         // bienvenida SIN pantalla de bloqueo activada: sin PIN, directo a las novedades
         if (esActualizacion && (!MOSTRAR_PANTALLA_BLOQUEO || pinYaPasado)) { abrirNovedades(); return; } // (si ya pasó el PIN y volvió a la bienvenida, no se pide otra vez)
         enPin = true;
@@ -1685,8 +1698,9 @@ logo.animate([
     });
     document.addEventListener('visibilitychange', () => { if (document.hidden) bloquearPorFoco(); });
 
-    // al cargar la página por primera vez: bienvenida de ACTUALIZACIÓN si el kernel cambió; si no, bienvenida de INICIO cuando la opción está activada
-    bloquear(false, BIENVENIDA_PENDIENTE ? 'actualizacion' : (MOSTRAR_PANTALLA_BLOQUEO ? 'inicio' : false));
+    // al cargar la página por primera vez: bienvenida de ACTUALIZACIÓN si el kernel cambió; si no, bienvenida de INICIO si "Mostrar bienvenida" está activo;
+    // si no, la pantalla del reloj (solo llegamos aquí con el bloqueo activado)
+    bloquear(false, BIENVENIDA_PENDIENTE ? 'actualizacion' : (MOSTRAR_BIENVENIDA ? 'inicio' : false));
   })();
 
   // Input tipo file oculto (lo abre el ítem "Cambiar fondo" del menú de ajustes)
@@ -2937,6 +2951,10 @@ p.gds-body-s.ng-star-inserted {
         aplicarVibes();
       }
     }
+    const bvAct = result.geminiBienvenidaActiva;
+    if (bvAct === true || bvAct === false || bvAct === 'true' || bvAct === 'false') {
+      try { localStorage.setItem(BIENVENIDA_CLAVE_LS, (bvAct === true || bvAct === 'true') ? '1' : '0'); } catch (e) { /* sin localStorage */ }
+    }
     const activo = result.geminiBloqueoActivo;
     if (activo === true || activo === false || activo === 'true' || activo === 'false') {
       try { localStorage.setItem(BLOQUEO_CLAVE_LS, (activo === true || activo === 'true') ? '1' : '0'); } catch (e) { /* sin localStorage */ }
@@ -3006,7 +3024,7 @@ p.gds-body-s.ng-star-inserted {
   };
 
   // Cargar preferencias guardadas / inyectadas
-  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiBlurNivel', 'geminiPerfil', 'geminiSinBlur', 'geminiSinFade', 'geminiLenis', 'geminiVibesActivo'], aplicarPreferencias);
+  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiBienvenidaActiva', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiBlurNivel', 'geminiPerfil', 'geminiSinBlur', 'geminiSinFade', 'geminiLenis', 'geminiVibesActivo'], aplicarPreferencias);
 
   // Evento al seleccionar imagen o video
   const esVideoArchivo = (f) => !!f && (/^video\//i.test(f.type) || /\.(mp4|webm|mov|m4v|ogv)$/i.test(f.name || ''));
@@ -4332,6 +4350,19 @@ p.gds-body-s.ng-star-inserted {
                   hs('path', { d: 'M19.69 5.23 8.96 15.96l-4.23-4.23L2.96 13.5l6 6L21.46 7z' }))
               )
             )
+          ),
+          h('div', { class: 'tg-p-toggle', style: 'margin-top:12px' },
+            h('span', { class: 'tg-p-toggle-txt' },
+              h('span', { class: 'tg-p-toggle-tit' }, 'Mostrar bienvenida'),
+              h('span', { class: 'tg-p-toggle-sub' }, 'Al entrar a la página (sin depender del bloqueo)')
+            ),
+            h('button', { class: 'tg-p-switch', type: 'button', role: 'switch', 'aria-checked': 'true', 'aria-label': 'Mostrar la pantalla de bienvenida al entrar a la página', 'data-r': 'sw-bienvenida' },
+              h('span', { class: 'tg-p-sw-track' }),
+              h('span', { class: 'tg-p-sw-handle' },
+                hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' },
+                  hs('path', { d: 'M19.69 5.23 8.96 15.96l-4.23-4.23L2.96 13.5l6 6L21.46 7z' }))
+              )
+            )
           )
         ),
         h('section', { class: 'tg-p-seccion' },
@@ -4578,6 +4609,10 @@ p.gds-body-s.ng-star-inserted {
     const pintarSwitch = () => sw.setAttribute('aria-checked', bloqueoActivoGuardado() ? 'true' : 'false');
     sw.addEventListener('click', () => { guardarBloqueoActivo(!bloqueoActivoGuardado()); pintarSwitch(); });
     pintarSwitch();
+    const swBv = q('sw-bienvenida');
+    const pintarSwitchBv = () => swBv.setAttribute('aria-checked', bienvenidaActivaGuardada() ? 'true' : 'false');
+    swBv.addEventListener('click', () => { guardarBienvenidaActiva(!bienvenidaActivaGuardada()); pintarSwitchBv(); });
+    pintarSwitchBv();
     q('reset-bloqueo').addEventListener('click', () => {
       bloqueoFondoPersonalizado = '';
       bloqueoFondoTipo = 'imagen';
