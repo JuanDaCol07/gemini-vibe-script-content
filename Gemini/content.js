@@ -724,7 +724,9 @@
   // fondo del bloqueo (imagen o video propio; si no hay, la imagen por defecto de la extensión)
   function aplicarFondoBloqueo(f) {
     if (!f) return;
-    f.classList.toggle('tg-bv-enfocar', fondoBienvenidaActivo); // dispara el desenfoque 28→5px en cuanto el fondo existe (clase en la creación, no antes)
+    if (!fondoBienvenidaActivo) f.classList.remove('tg-bv-enfocar'); // la clase que dispara el desenfoque la pone enfocarFondoBv() en bloquear
+    if (fondoBienvenidaActivo) { if (!f.classList.contains('tg-bv-enfocar')) f.style.setProperty('filter', 'blur(28px)'); } // punto de partida garantizado
+    else f.style.removeProperty('filter');
     f.classList.toggle('tg-bv-fondo', fondoBienvenidaActivo); // bienvenida: difuminado siempre (ver CSS), sin importar el nivel de blur
     try {
       if (fondoBienvenidaActivo) {
@@ -789,7 +791,7 @@
         inset: -60px;
         filter: blur(28px); /* arranca muy difuminado; sin !important para que la animación pueda actuar */
       }
-      /* al arrancar la canción se añade .tg-bv-enfocar: 28px → 5px, terminando justo cuando empieza la animación del logo */
+      /* .tg-bv-enfocar (la pone enfocarFondoBv() cuando el fondo ya está cargado y pintado): estado final 5px + animación tgBvDesenfoque 28→5px */
       #tg-bloqueo-fondo.tg-bv-fondo.tg-bv-enfocar {
         filter: blur(5px);
         animation: tgBvDesenfoque ${BIENVENIDA_BLUR_MS*1.5}ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
@@ -1262,7 +1264,16 @@
       bloqueado = true;
       fondoBienvenidaActivo = !!bienvenida; // la bienvenida usa el fondo de Gemini difuminado
       aplicarFondoBloqueo(document.getElementById('tg-bloqueo-fondo'));
-      const audio = bienvenida ? audioBienvenida(() => setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS)) : null; // música de fondo solo en la bienvenida
+      // Desenfoque del fondo de la bienvenida (28→5px): se dispara EXACTAMENTE cuando la canción empieza a sonar (callback de audioBienvenida)
+      function enfocarFondoBv(intento) {
+        if (!bienvenida || enfocarFondoBv.hecho) return;
+        const f = document.getElementById('tg-bloqueo-fondo');
+        if (!f) { if ((intento || 0) < 40) setTimeout(() => enfocarFondoBv((intento || 0) + 1), 50); return; }
+        enfocarFondoBv.hecho = true;
+        f.style.removeProperty('filter');          // quita el 28px inicial puesto en línea; la animación parte de él
+        f.classList.add('tg-bv-enfocar');          // → animation: tgBvDesenfoque (28→5px)
+      }
+      const audio = bienvenida ? audioBienvenida(() => { enfocarFondoBv(); setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS); }) : null; // música de fondo solo en la bienvenida
       fijarPantallaBloqueada(true); // desde ya, nada más de la extensión trabaja
       let desbloqueado = false;
       let marcaIniciada = false;
