@@ -542,7 +542,13 @@
     try { localStorage.setItem(KERNEL_VISTO_LS, String(k)); } catch (e) { /* sin localStorage */ }
     prefsGuardar({ geminiKernelVisto: k });
   }
-  const BIENVENIDA_PENDIENTE = vibesOn && ES_PAGINA_GEMINI !== TG_KERNEL;
+  // DOS BIENVENIDAS (la misma pantalla, distinto subtítulo y recorrido):
+  //  · ACTUALIZACIÓN (BIENVENIDA_PENDIENTE): el kernel guardado NO coincide con TG_KERNEL (o no existe: primera instalación). Sale UNA vez por cada
+  //    kernel nuevo, OBLIGATORIAMENTE (aunque la pantalla de bienvenida esté desactivada en Personalizar). Subtítulos "¡Su extensión se ha actualizado!"
+  //    ↔ "Versión X"; al deslizar: PIN (si la pantalla está activada) → novedades de la actualización → Gemini. Al entrar a Gemini se guarda el kernel visto.
+  //  · INICIO (sin actualización): solo si la opción de Personalizar está activada. Subtítulos "¡Más hermoso que nunca!" ↔ "¡Bienvenido de vuelta!";
+  //    al deslizar: PIN (si lo tienes) → directo a Gemini, SIN novedades.
+  const BIENVENIDA_PENDIENTE = vibesOn && kernelVistoGuardado() !== TG_KERNEL;
   const BLOQUEO_OPACIDAD_INICIAL = 0;   // opacidad del body al empezar la transición (termina en 1)
   const BLOQUEO_ESCALA_INICIAL = 1.3;   // escala del body al empezar la transición (termina en 1)
   const BLOQUEO_DURACION_MS = 300;     // duración de la subida de la pantalla y de la entrada del body
@@ -1267,8 +1273,9 @@
 
     // ---- bloquear ----
     function pausarCuerpo(v) { raiz.classList.toggle('tg-bloqueo-pausa', !!v); }
-    function bloquear(animado, bienvenida) {
+    function bloquear(animado, bienvenida) { // bienvenida: false (reloj) | 'actualizacion' | 'inicio'
       if (bloqueado) return;
+      const esActualizacion = bienvenida === 'actualizacion'; // solo esta lleva novedades y guarda el kernel visto
       bloqueado = true;
       fondoBienvenidaActivo = !!bienvenida; // la bienvenida usa el fondo de Gemini difuminado
       aplicarFondoBloqueo(document.getElementById('tg-bloqueo-fondo'));
@@ -1294,8 +1301,8 @@
                    // cada letra va en su propio span para animarla por separado (nacen invisibles; las anima iniciarMarca)
                    Array.from('Gemini Vibes').map((c) => h('span', { class: 'tg-b-bv-letra', 'aria-hidden': 'true', style: 'display:inline-block;opacity:0;will-change:transform,opacity;' }, c === ' ' ? ' ' : c))))),
              h('div', { class: 'tg-b-bv-sub' },
-               h('span', { class: 'tg-b-bv-sub-a' }, '¡Su extensión se ha actualizado!'),
-               h('span', { class: 'tg-b-bv-sub-b tg-off' }, 'Versión ' + TG_VERSION))]
+               h('span', { class: 'tg-b-bv-sub-a' }, esActualizacion ? '¡Su extensión se ha actualizado!' : '¡Más hermoso que nunca!'),
+               h('span', { class: 'tg-b-bv-sub-b tg-off' }, esActualizacion ? 'Versión ' + TG_VERSION : '¡Bienvenido de vuelta!'))]
           : [h('div', { class: 'tg-b-hora' }), h('div', { class: 'tg-b-fecha' })],
         h('div', { class: 'tg-b-pista' },
           bienvenida
@@ -1365,7 +1372,7 @@
         const logo = pantalla.querySelector('.tg-b-bv-logo'), caja = pantalla.querySelector('.tg-b-bv-caja'), nombre = pantalla.querySelector('.tg-b-bv-nombre');
         const sub = pantalla.querySelector('.tg-b-bv-sub'), pista = pantalla.querySelector('.tg-b-pista');
         if (!logo || !caja || !nombre) return;
-        // el subtítulo alterna entre las dos frases cada BIENVENIDA_SUB_CAMBIO_MS (empieza con "¡Su extensión se ha actualizado!")
+        // el subtítulo alterna entre las dos frases cada BIENVENIDA_SUB_CAMBIO_MS (actualización: "¡Su extensión se ha actualizado!" ↔ "Versión X"; inicio: "¡Más hermoso que nunca!" ↔ "¡Bienvenido de vuelta!")
         const subA = pantalla.querySelector('.tg-b-bv-sub-a'), subB = pantalla.querySelector('.tg-b-bv-sub-b');
         function alternarSub() {
           if (desbloqueado || !pantalla.isConnected || !subA || !subB) return;
@@ -1546,14 +1553,14 @@ logo.animate([
         if (enPin || desbloqueado) return;
         if (novedadesAbiertas) { desbloquear(); return; } // 2.º deslizamiento (ya pasó el PIN): se entra a Gemini
         // bienvenida SIN pantalla de bloqueo activada: sin PIN, directo a las novedades
-        if (bienvenida && (!MOSTRAR_PANTALLA_BLOQUEO || pinYaPasado)) { abrirNovedades(); return; } // (si ya pasó el PIN y volvió a la bienvenida, no se pide otra vez)
+        if (esActualizacion && (!MOSTRAR_PANTALLA_BLOQUEO || pinYaPasado)) { abrirNovedades(); return; } // (si ya pasó el PIN y volvió a la bienvenida, no se pide otra vez)
         enPin = true;
         pantalla.classList.remove('tg-arrastrando');
         pantalla.style.removeProperty('transform');
         pantalla.style.pointerEvents = 'none';
         pantalla.classList.add('tg-subiendo');
         window.removeEventListener('keydown', alTeclear, true);
-        pinUI = crearPantallaPin({ alCorrecto: bienvenida ? pinCorrectoBienvenida : desbloquear, alVolver: volverABloqueo });
+        pinUI = crearPantallaPin({ alCorrecto: esActualizacion ? pinCorrectoBienvenida : desbloquear, alVolver: volverABloqueo });
       }
       // ESC en la pantalla de PIN: la pantalla de bloqueo vuelve a bajar
       function volverABloqueo() {
@@ -1569,7 +1576,7 @@ logo.animate([
         if (desbloqueado) return;
         desbloqueado = true;
         if (audio) audio.detener();
-        if (bienvenida) guardarKernelVisto(TG_KERNEL); // ya la viste: se actualiza el kernel visto (la bienvenida no vuelve a salir)
+        if (esActualizacion) guardarKernelVisto(TG_KERNEL); // ya la viste: se actualiza el kernel visto (la bienvenida no vuelve a salir)
         pausarCuerpo(false);           // el body vuelve a pintarse para la animación de entrada
         fijarPantallaBloqueada(false);  // y todo lo demás se reanuda
         pantalla.classList.remove('tg-arrastrando');
@@ -1678,7 +1685,8 @@ logo.animate([
     });
     document.addEventListener('visibilitychange', () => { if (document.hidden) bloquearPorFoco(); });
 
-    bloquear(false, BIENVENIDA_PENDIENTE); // al cargar la página por primera vez (con bienvenida si el kernel cambió)
+    // al cargar la página por primera vez: bienvenida de ACTUALIZACIÓN si el kernel cambió; si no, bienvenida de INICIO cuando la opción está activada
+    bloquear(false, BIENVENIDA_PENDIENTE ? 'actualizacion' : (MOSTRAR_PANTALLA_BLOQUEO ? 'inicio' : false));
   })();
 
   // Input tipo file oculto (lo abre el ítem "Cambiar fondo" del menú de ajustes)
