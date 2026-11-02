@@ -785,7 +785,7 @@
 #tg-bloqueo-fondo.tg-bv-fondo {
   inset: -60px;
   filter: blur(5px); /* sin !important: un !important le gana a las animaciones y no se vería la transición */
-  animation: tgBvDesenfoque 2000ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: tgBvDesenfoque 2000ms 1s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 @media (prefers-reduced-motion: reduce) { #tg-bloqueo-fondo.tg-bv-fondo { animation: none; } }
       /* panel de NOVEDADES: el mismo fondo, un poco más oscuro (brillo 0.9) */
