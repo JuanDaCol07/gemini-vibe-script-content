@@ -1286,7 +1286,7 @@ const HOJA = 'cubic-bezier(0.32, 0.72, 0, 1)';    // la curva de las hojas y pan
 
 // Animación de escala con rebote estilo iOS (simulando un spring overshoot)
 logo.animate([
-    { transform: 'scale(10)', filter: 'blur(10px)', }, // Nace enorme y borroso
+    { transform: 'scale(10)',  }, // Nace enorme y borroso
     { transform: 'scale(1)', filter: 'none' }     // Se acomoda al tamaño final
 ], { 
     duration: 1200, 
@@ -1309,7 +1309,7 @@ logo.animate([
           const aCaja = caja.animate([{ width: '0px' }, { width: ancho + 'px' }], { duration: 1200, easing: HOJA, fill: 'both' });
           aCaja.onfinish = () => { caja.style.width = 'auto'; aCaja.cancel(); };
           nombre.animate(
-            [{ opacity: 0, transform: 'translateX(48px)', filter: 'blur(10px)' }, { opacity: 1, transform: 'translateX(0)', filter: 'none' }],
+            [{ opacity: 0, transform: 'translateX(48px)', }, { opacity: 1, transform: 'translateX(0)', filter: 'none' }],
             { duration: 1200, delay: 80, easing: SUAVE, fill: 'both' });
           if (sub) sub.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 0.85, transform: 'translateY(0)' }], { duration: 800, delay: 1200, easing: SUAVE, fill: 'both' });
           if (pista) pista.animate([{ opacity: 0 }, { opacity: 0.9 }], { duration: 800, delay: 2500, easing: 'ease-out', fill: 'both' });
