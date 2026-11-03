@@ -1928,7 +1928,9 @@ logo.animate([
         const miniU = prevG.querySelector('.tg-ob-mini-u');
         const pintarFondosOb = () => {
           if (!prevG.isConnected) return;
-          ponerMedio(prevG, fondoGeminiActual, fondoGeminiTipo);
+          // sin cambios del usuario: SIEMPRE los fondos por defecto (Gemini: el vertical, porque la vista previa es vertical)
+          if (fondoGeminiActual && !fondoPorDefecto) ponerMedio(prevG, fondoGeminiActual, fondoGeminiTipo);
+          else ponerMedio(prevG, urlFondoDefecto(true) || urlFondoDefecto(false) || fondoGeminiActual, 'imagen');
           ponerMedio(prevB, bloqueoFondoPersonalizado || urlFondoBloqueoDefecto(), bloqueoFondoPersonalizado ? bloqueoFondoTipo : 'imagen');
         };
         prevG.addEventListener('click', () => elegirArchivoFondo('gemini'));
@@ -1986,6 +1988,7 @@ logo.animate([
           scroll, h('div', { class: 'tg-ob-pie' }, sig)));
         // al estar ya dentro del DOM de la página, se pinta todo
         Promise.resolve().then(() => { pintarFondosOb(); pintarBurbujaOb(); pintarNivel(); });
+        setTimeout(pintarFondosOb, 700); // por si el fondo por defecto termina de cargar un instante después
         return pagina;
       }
 
