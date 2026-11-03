@@ -38,6 +38,13 @@ class AlmacenPrefs {
     'geminiPinBloqueo',
     'geminiBurbuja',
     'geminiBloqueoActivo',
+    // bienvenida: interruptor "Mostrar bienvenida" y el TG_FIX con el que se vio la última bienvenida de actualización
+    'geminiBienvenidaActiva',
+    'geminiFixVisto',
+    // guía "Antes de comenzar..." (primera vez) y música de bienvenida personalizada (data URL + nombre del archivo)
+    'geminiOnboardingVisto',
+    'geminiAudioBienvenida',
+    'geminiAudioBienvenidaNombre',
     // ajustes que content.js ya enviaba y aquí se descartaban (se perdían al reiniciar la app)
     'geminiVibesActivo',
     'geminiBlurNivel',
@@ -92,6 +99,22 @@ class AlmacenPrefs {
       }
     }
     return out;
+  }
+
+  /// Lee UNA preferencia (espera a que terminen las escrituras pendientes). null si no existe.
+  Future<dynamic> leerClave(String clave) async {
+    try {
+      await _cola;
+      String? json = _sp.getString('$_prefijo$clave');
+      if (json == null) {
+        final f = _archivo(clave);
+        if (await f.exists()) json = await f.readAsString();
+      }
+      if (json != null && json.isNotEmpty) return jsonDecode(json);
+    } catch (e) {
+      debugPrint('[tg] no se pudo leer "$clave": $e');
+    }
+    return null;
   }
 
   /// Guarda (o borra si valor == null) una preferencia. Nunca lanza excepciones.
@@ -295,13 +318,38 @@ class _ContentScreenState extends State<ContentScreen>
 
   // KERNEL de la app: súbelo (1, 2, 3...) cuando cambies este Dart o agregues algo que el script necesite.
   // Debe coincidir con TG_KERNEL de content.js; si no coinciden, content.js no activa nada y pide instalar la app nueva.
-  static const int _kernel = 3;
+  static const int _kernel =
+      4; // OJO: si cambias esto, también cambia TG_KERNEL en content.js
 
   // Lee TG_KERNEL del texto de un script (null si no existe)
   static int? _kernelDeScript(String? script) {
     if (script == null) return null;
     final m = RegExp(r'const\s+TG_KERNEL\s*=\s*(\d+)\s*;').firstMatch(script);
     return m == null ? null : int.tryParse(m.group(1)!);
+  }
+
+  // Lee TG_VERSION del texto de un script. Acepta un texto fijo ('1.0') o la fórmula actual de content.js
+  // ('0.' + TG_KERNEL + (TG_FIX > 0 ? '.' + TG_FIX : '')), que se calcula aquí con TG_KERNEL y TG_FIX. Si cambias la fórmula en content.js, cámbiala también aquí.
+  static String? _versionDeScript(String? script) {
+    if (script == null) return null;
+    final fija = RegExp(
+      r"const\s+TG_VERSION\s*=\s*'([^']*)'\s*;",
+    ).firstMatch(script);
+    if (fija != null) return fija.group(1);
+    final k = _kernelDeScript(script);
+    if (k == null) return null;
+    final f = RegExp(r'const\s+TG_FIX\s*=\s*(\d+)\s*;').firstMatch(script);
+    final fix = f == null ? 0 : (int.tryParse(f.group(1)!) ?? 0);
+    return fix > 0 ? '0.$k.$fix' : '0.$k';
+  }
+
+  // Lee TG_NOTAS_VERSION (texto entre comillas invertidas) del texto de un script
+  static String? _notasDeScript(String? script) {
+    if (script == null) return null;
+    final m = RegExp(
+      r'const\s+TG_NOTAS_VERSION\s*=\s*`([\s\S]*?)`\s*;',
+    ).firstMatch(script);
+    return m?.group(1)?.trim();
   }
 
   String?
@@ -398,6 +446,11 @@ class _ContentScreenState extends State<ContentScreen>
           if (!_audioPausadoPorApp && _audioIniciado)
             await _audioBienvenida?.resume();
           break;
+        case 'recargar':
+          // la música personalizada cambió (o se quitó): se descarta el reproductor y se prepara otra vez con la fuente nueva
+          await _liberarAudioBienvenida();
+          _precargarAudioBienvenida();
+          break;
         case 'stop':
           _audioSolicitado = false;
           _audioIniciado = false;
@@ -421,7 +474,32 @@ class _ContentScreenState extends State<ContentScreen>
         () async {
           await p.setReleaseMode(ReleaseMode.loop);
           await p.setVolume(_audioBienvenidaVolumen);
-          await p.setSource(AssetSource(_audioBienvenidaAsset));
+          // música personalizada (data URL guardada por content.js); si no hay o falla, la canción original de los assets
+          Source fuente = AssetSource(_audioBienvenidaAsset);
+          try {
+            final custom = await AlmacenPrefs.instancia.leerClave(
+              'geminiAudioBienvenida',
+            );
+            if (custom is String && custom.startsWith('data:')) {
+              final coma = custom.indexOf(',');
+              if (coma > 0) {
+                fuente = BytesSource(base64Decode(custom.substring(coma + 1)));
+              }
+            }
+          } catch (e) {
+            debugPrint(
+              '[tg] música personalizada ilegible, se usa la original: $e',
+            );
+          }
+          try {
+            await p.setSource(fuente);
+          } catch (e) {
+            if (fuente is AssetSource) rethrow;
+            debugPrint(
+              '[tg] la música personalizada no se pudo cargar, se usa la original: $e',
+            );
+            await p.setSource(AssetSource(_audioBienvenidaAsset));
+          }
         }().catchError((Object e) {
           debugPrint(
             '[tg] no se pudo precargar la música de la bienvenida: $e',
@@ -540,13 +618,39 @@ class _ContentScreenState extends State<ContentScreen>
     return _logoGeminiCache!;
   }
 
+  // Fondos por defecto (adaptativos): Gemini/Gemini-wallpaper-default.png (horizontal) y Gemini/Gemini-wallpaper-default-mobil.png (vertical).
+  // Se leen una sola vez y se guardan en memoria; deben estar declarados en los assets del pubspec.yaml.
+  final Map<String, String> _fondosDefectoCache = {};
+  Future<String> _cargarFondoDefecto(String ruta) async {
+    final guardado = _fondosDefectoCache[ruta];
+    if (guardado != null) return guardado;
+    try {
+      final datos = await rootBundle.load(ruta);
+      final url =
+          'data:image/png;base64,${base64Encode(datos.buffer.asUint8List(datos.offsetInBytes, datos.lengthInBytes))}';
+      _fondosDefectoCache[ruta] = url;
+      return url;
+    } catch (e) {
+      debugPrint('[tg] no se pudo leer $ruta: $e');
+      return '';
+    }
+  }
+
   Future<String> _leerPrefsComoJs() async {
     // TG_ES_MOVIL: content.js lo usa para mostrar el menú "Actualizaciones Gemini Vibes" SOLO en la app móvil
     // TG_KERNEL_DART: content.js lo compara con su propio TG_KERNEL (si no coinciden, no activa la extensión)
     // TG_LOGO_GEMINI: Gemini/Gemini.png como data URL; TODO lo que dibuja el logo en content.js (bienvenida, panel de actualizaciones) usa ESTE archivo
+    // TG_FONDO_DEFECTO / TG_FONDO_DEFECTO_MOVIL: fondos por defecto (horizontal / vertical) como data URL; content.js los usa si el usuario no puso uno propio
     final logo = await _cargarLogoGemini();
+    final fondoH = await _cargarFondoDefecto(
+      'Gemini/Gemini-wallpaper-default.png',
+    );
+    final fondoV = await _cargarFondoDefecto(
+      'Gemini/Gemini-wallpaper-default-mobil.png',
+    );
     final movil =
-        'window.TG_ES_MOVIL = $_esMovil; window.TG_KERNEL_DART = $_kernel; window.TG_LOGO_GEMINI = ${jsonEncode(logo)};';
+        'window.TG_ES_MOVIL = $_esMovil; window.TG_KERNEL_DART = $_kernel; window.TG_LOGO_GEMINI = ${jsonEncode(logo)}; '
+        'window.TG_FONDO_DEFECTO = ${jsonEncode(fondoH)}; window.TG_FONDO_DEFECTO_MOVIL = ${jsonEncode(fondoV)};';
     try {
       final mapa = await AlmacenPrefs.instancia.leerTodo();
       // jsonEncode produce JS válido; content.js lo lee al arrancar (window.TG_PREFS_INICIALES)
@@ -679,6 +783,9 @@ class _ContentScreenState extends State<ContentScreen>
       'kernelDart': _kernel,
       // kernel del script nuevo ya descargado (null si no hay nuevo o no declara kernel); content.js decide qué hacer
       'remotaKernel': _kernelDeScript(_pendienteScript),
+      // versión y notas del script nuevo (las muestra el panel "Actualizaciones Gemini Vibes" antes de instalar)
+      'remotaVersion': _versionDeScript(_pendienteScript),
+      'remotaNotas': _notasDeScript(_pendienteScript),
     };
   }
 

@@ -12,7 +12,18 @@
 
 
 
-  const TG_KERNEL = 3; // No cambies esto, YO lo cambiare si es nesesario.
+  const TG_KERNEL = 4; // No cambies esto, YO lo cambiare si es nesesario.
+
+  // ============================================================================================
+  // TG_FIX (versión de arreglos: decide cuándo sale la bienvenida de ACTUALIZACIÓN con las novedades)
+  // - Sube de 1 en 1 CADA VEZ que se modifica este archivo (es un número, no depende del kernel).
+  // - Al entrar a Gemini tras ver la bienvenida se guarda como "fix visto" (geminiFixVisto). Si el "fix visto" es distinto a este
+  //   TG_FIX (o no existe: primera instalación) vuelve a salir la bienvenida de actualización.
+  // - El TG_KERNEL de arriba YA NO decide la bienvenida: solo sirve para comprobar que el script y la app Flutter son compatibles.
+  // - Debe seguir en una sola declaración, empezando la línea con const.
+  // ============================================================================================
+
+  const TG_FIX = 1; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -24,8 +35,17 @@
   // - content.dart lee ambas variables del script descargado de GitHub (así el panel muestra la versión y las notas NUEVAS
   //   antes de instalarlas). Por eso cada una debe seguir en una sola declaración, empezando la línea con la palabra const.
   // ============================================================================================
-  const TG_VERSION = '1.0';
+  // (una sola declaración: un "const" no se puede reasignar después con +=, eso daba TypeError en cuanto TG_FIX era mayor que 0)
+  const TG_VERSION = '0.' + TG_KERNEL + (TG_FIX > 0 ? '.' + TG_FIX : '');
+
+  // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
+• Primera vez: nueva guía «Antes de comenzar...» (fondos, color de tu burbuja y rendimiento con ajuste automático según FPS y RAM), luego te pregunta si quieres pantalla de bloqueo y al final las novedades.
+• Ahora puedes poner tu propia música de bienvenida (Personalizar y Actualizaciones). «Quitar» vuelve a la canción original.
+• Las pantallas de la bienvenida funcionan como páginas: desliza hacia arriba para seguir y hacia abajo para volver.
+• La música de la bienvenida ahora también suena en la extensión de Chrome (con respaldo por Web Audio si la página bloquea el audio).
+• Fondo de pantalla por defecto adaptativo: horizontal o vertical según la pantalla. Botón "Fondo por defecto" en Personalizar.
+• La bienvenida de actualización ahora depende de TG_FIX y no del kernel.
 • Nuevo menú "Actualizaciones Gemini Vibes" en la app móvil: busca y aplica la última versión sin reiniciar la app.
 • El teclado ya no redimensiona la página: la caja de escribir sube con una transición y el teclado deja de cerrarse.
 • Nivel de rendimiento Medio: el fondo de "¿Por dónde empezamos?" conserva su desenfoque; la animación de desenfoque de la bienvenida solo corre en Alta.
@@ -594,34 +614,46 @@
   const MOSTRAR_BIENVENIDA = bienvenidaActivaGuardada() && vibesOn;
 
   // ============================================================================================
-  // KERNEL VISTO (pantalla de bienvenida tras actualizar)
-  // - "kernel visto" = el último TG_KERNEL con el que se abrió Gemini Vibes (el de ANTES de actualizar). Se guarda en localStorage y en
-  //   las preferencias (clave geminiKernelVisto; content.dart debe tenerla en clavesValidas).
-  // - Si es distinto al TG_KERNEL de este script (o no existe: primera instalación) se muestra la pantalla de bienvenida, al estilo de
+  // FIX VISTO (pantalla de bienvenida tras actualizar)
+  // - "fix visto" = el último TG_FIX con el que se abrió Gemini Vibes (el de ANTES de actualizar). Se guarda en localStorage y en
+  //   las preferencias (clave geminiFixVisto; content.dart debe tenerla en clavesValidas).
+  // - Si es distinto al TG_FIX de este script (o no existe: primera instalación) se muestra la pantalla de bienvenida, al estilo de
   //   la de bloqueo. Al deslizarla hacia arriba (o Espacio) entra Gemini con la misma transición de desbloqueo y ENTONCES se actualiza
   //   la variable. Si la cierras sin deslizar, la bienvenida vuelve a salir la próxima vez.
   // - Si la pantalla de bloqueo está activada, la bienvenida lleva al PIN como siempre (no se salta la seguridad).
   // ============================================================================================
-  const KERNEL_VISTO_LS = 'tg-kernel-visto';
-  function kernelVistoGuardado() {
+  const FIX_VISTO_LS = 'tg-fix-visto';
+  function fixVistoGuardado() {
     try {
-      const g = localStorage.getItem(KERNEL_VISTO_LS);
+      const g = localStorage.getItem(FIX_VISTO_LS);
       if (g !== null && g !== '') return Number(g);
     } catch (e) { /* sin localStorage */ }
-    const p = PREFS_INICIALES.geminiKernelVisto;
+    const p = PREFS_INICIALES.geminiFixVisto;
     return (p === undefined || p === null || p === '') ? null : Number(p);
   }
-  function guardarKernelVisto(k) {
-    try { localStorage.setItem(KERNEL_VISTO_LS, String(k)); } catch (e) { /* sin localStorage */ }
-    prefsGuardar({ geminiKernelVisto: k });
+  function guardarFixVisto(k) {
+    try { localStorage.setItem(FIX_VISTO_LS, String(k)); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiFixVisto: k });
   }
   // DOS BIENVENIDAS (la misma pantalla, distinto subtítulo y recorrido):
-  //  · ACTUALIZACIÓN (BIENVENIDA_PENDIENTE): el kernel guardado NO coincide con TG_KERNEL (o no existe: primera instalación). Sale UNA vez por cada
-  //    kernel nuevo, OBLIGATORIAMENTE (aunque la pantalla de bienvenida esté desactivada en Personalizar). Subtítulos "¡Su extensión se ha actualizado!"
-  //    ↔ "Versión X"; al deslizar: PIN (si la pantalla está activada) → novedades de la actualización → Gemini. Al entrar a Gemini se guarda el kernel visto.
+  //  · ACTUALIZACIÓN (BIENVENIDA_PENDIENTE): el fix guardado NO coincide con TG_FIX (o no existe: primera instalación). Sale UNA vez por cada
+  //    fix nuevo, OBLIGATORIAMENTE (aunque la pantalla de bienvenida esté desactivada en Personalizar). Subtítulos "¡Su extensión se ha actualizado!"
+  //    ↔ "Versión X"; al deslizar: PIN (si la pantalla está activada) → novedades de la actualización → Gemini. Al entrar a Gemini se guarda el fix visto.
   //  · INICIO (sin actualización): solo si el interruptor "Mostrar bienvenida" de Personalizar está activado (independiente del bloqueo). Subtítulos
   //    "¡Más hermoso que nunca!" ↔ "¡Bienvenido de vuelta!"; al deslizar: PIN (solo si el interruptor "Pantalla de bloqueo" está activado) → directo a Gemini, SIN novedades.
-  const BIENVENIDA_PENDIENTE = vibesOn && kernelVistoGuardado() !== TG_KERNEL;
+  const BIENVENIDA_PENDIENTE = vibesOn && fixVistoGuardado() !== TG_FIX;
+  // PRIMERA VEZ (instalación nueva): antes de las novedades salen la guía "Antes de comenzar..." y la pregunta de la pantalla de bloqueo
+  const ONBOARDING_LS = 'tg-onboarding-visto';
+  function onboardingVisto() {
+    try { if (localStorage.getItem(ONBOARDING_LS) === '1') return true; } catch (e) { /* sin localStorage */ }
+    const v = PREFS_INICIALES.geminiOnboardingVisto;
+    return v === true || v === 'true';
+  }
+  function guardarOnboardingVisto() {
+    try { localStorage.setItem(ONBOARDING_LS, '1'); } catch (e) { /* sin localStorage */ }
+    prefsGuardar({ geminiOnboardingVisto: true });
+  }
+  const PRIMERA_VEZ = BIENVENIDA_PENDIENTE && fixVistoGuardado() === null && !onboardingVisto();
   const BLOQUEO_OPACIDAD_INICIAL = 0;   // opacidad del body al empezar la transición (termina en 1)
   const BLOQUEO_ESCALA_INICIAL = 1.3;   // escala del body al empezar la transición (termina en 1)
   const BLOQUEO_DURACION_MS = 300;     // duración de la subida de la pantalla y de la entrada del body
@@ -639,6 +671,70 @@
   function urlAudioBienvenida() {
     try { if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) return chrome.runtime.getURL(encodeURI(BIENVENIDA_AUDIO_ARCHIVO)); } catch (e) { /* no es una extensión */ }
     return typeof PREFS_INICIALES.geminiAudioBienvenida === 'string' ? PREFS_INICIALES.geminiAudioBienvenida : '';
+  }
+  // ============================================================================================
+  // MÚSICA DE BIENVENIDA PERSONALIZADA (Personalizar > bienvenida, panel de Actualizaciones)
+  // - El archivo se guarda como data URL en geminiAudioBienvenida (+ el nombre en geminiAudioBienvenidaNombre).
+  // - App Flutter: Dart lo decodifica y lo reproduce (handler 'audioBienvenida', acción 'recargar' = usar la canción nueva).
+  // - Extensión: audioBienvenida() lo lee de chrome.storage. "Quitar" vuelve a la canción original.
+  // ============================================================================================
+  const MUSICA_MAX_BYTES = 12 * 1024 * 1024;
+  function recargarAudioFlutter() {
+    try {
+      const fl = window.flutter_inappwebview;
+      if (ES_APP_FLUTTER && fl && fl.callHandler) { const r = fl.callHandler('audioBienvenida', 'recargar'); if (r && r.catch) r.catch(() => {}); }
+    } catch (e) { /* sin puente */ }
+  }
+  function elegirMusicaBienvenida(alTerminar) {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'audio/*,.mp3,.m4a,.aac,.ogg,.wav,.flac'; inp.style.display = 'none';
+    document.documentElement.appendChild(inp);
+    inp.addEventListener('change', () => {
+      const f = inp.files && inp.files[0];
+      inp.remove();
+      if (!f) return;
+      if (f.size > MUSICA_MAX_BYTES) { window.alert('La canción pesa demasiado (máximo 12 MB).'); return; }
+      const r = new FileReader();
+      r.onload = () => {
+        if (typeof r.result !== 'string') return;
+        try { PREFS_INICIALES.geminiAudioBienvenidaNombre = f.name; } catch (e) { /* solo lectura */ }
+        prefsGuardar({ geminiAudioBienvenida: r.result, geminiAudioBienvenidaNombre: f.name });
+        recargarAudioFlutter();
+        if (alTerminar) alTerminar(f.name);
+      };
+      r.onerror = () => console.error('No se pudo leer la canción:', r.error);
+      r.readAsDataURL(f);
+    });
+    inp.click();
+  }
+  function quitarMusicaBienvenida() {
+    try { delete PREFS_INICIALES.geminiAudioBienvenidaNombre; } catch (e) { /* solo lectura */ }
+    prefsBorrar(['geminiAudioBienvenida', 'geminiAudioBienvenidaNombre']);
+    recargarAudioFlutter();
+  }
+  function crearFilaMusica() {
+    if (!document.getElementById('tg-mus-style')) {
+      const e = document.createElement('style'); e.id = 'tg-mus-style';
+      e.textContent = `
+        .tg-mus { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+        .tg-mus-txt { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; text-align: left; }
+        .tg-mus-tit { font-size: 14px; font-weight: 500; }
+        .tg-mus-sub { font-size: 12px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tg-mus-bt { display: flex; gap: 6px; flex: none; }
+        .tg-mus-b { font: inherit; font-size: 13px; color: inherit; background: rgba(127,127,127,0.18); border: 1px solid rgba(127,127,127,0.35); border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+        .tg-mus-b[hidden] { display: none; }`;
+      (document.head || document.documentElement).appendChild(e);
+    }
+    const sub = h('span', { class: 'tg-mus-sub' }, 'Predeterminada');
+    const bElegir = h('button', { class: 'tg-mus-b', type: 'button' }, 'Elegir');
+    const bQuitar = h('button', { class: 'tg-mus-b', type: 'button', hidden: true }, 'Quitar');
+    const pintar = (n) => { sub.textContent = n || 'Predeterminada'; bQuitar.hidden = !n; bElegir.textContent = n ? 'Cambiar' : 'Elegir'; };
+    prefsLeer(['geminiAudioBienvenidaNombre'], (r) => pintar(typeof r.geminiAudioBienvenidaNombre === 'string' ? r.geminiAudioBienvenidaNombre : ''));
+    bElegir.addEventListener('click', () => elegirMusicaBienvenida(pintar));
+    bQuitar.addEventListener('click', () => { quitarMusicaBienvenida(); pintar(''); });
+    return h('div', { class: 'tg-mus' },
+      h('span', { class: 'tg-mus-txt' }, h('span', { class: 'tg-mus-tit' }, 'Música de bienvenida'), sub),
+      h('span', { class: 'tg-mus-bt' }, bElegir, bQuitar));
   }
   let bloqueoFondoPersonalizado = '';   // imagen (data URL) o video (blob URL) del fondo del bloqueo
   let fondoBienvenidaActivo = false;   // la pantalla actual es la BIENVENIDA: su fondo es el de Gemini difuminado
@@ -918,40 +1014,40 @@
         font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase;
       }
       /* BIENVENIDA: NOVEDADES de la actualización (tarjeta blanca dentro de la propia pantalla; sube desde abajo y hay que volver a deslizar) */
-      #tg-novedades > .tg-b-nv { position: absolute; top: 0; left: 0; right: 0; bottom: calc(7vh + 56px); padding: 16px; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1; }
-      #tg-novedades .tg-b-nv-tarjeta { pointer-events: auto; width: min(420px, 100%); max-height: 100%; display: flex; flex-direction: column; background: #ffffff; color: #1f1f1f; text-align: left; cursor: grab;
+      .tg-pg > .tg-b-nv { position: absolute; top: 0; left: 0; right: 0; bottom: calc(7vh + 56px); padding: 16px; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1; }
+      .tg-pg .tg-b-nv-tarjeta { pointer-events: auto; width: min(420px, 100%); max-height: 100%; display: flex; flex-direction: column; background: #ffffff; color: #1f1f1f; text-align: left; cursor: grab;
         border-radius: 28px; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35); overflow: hidden; transform: translateY(120vh); transition: transform 520ms cubic-bezier(0.32, 0.72, 0, 1); will-change: transform; }
-      #tg-novedades .tg-b-nv.tg-nv-visible .tg-b-nv-tarjeta { transform: translateY(0); }
-      #tg-novedades .tg-b-nv-cab { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 22px 8px; text-align: center; }
-      #tg-novedades .tg-b-nv-logo { display: block; width: 44px; height: 44px; object-fit: contain; margin-bottom: 4px; }
-      #tg-novedades .tg-b-nv-titulo { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
-      #tg-novedades .tg-b-nv-version { font-size: 13px; color: #5f6368; }
-      #tg-novedades .tg-b-nv-lista { flex: 1 1 auto; min-height: 0; overflow-y: auto; touch-action: pan-y; margin: 0; padding: 10px 24px 22px; list-style: none; user-select: text; cursor: auto; }
-      #tg-novedades .tg-b-nv-lista li { position: relative; padding: 8px 0 8px 18px; font-size: 14.5px; line-height: 1.45; color: #3c4043; overflow-wrap: anywhere; }
-      #tg-novedades .tg-b-nv-lista li::before { content: ''; position: absolute; left: 0; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: var(--tg-nv-acento, #1a73e8); }
-      @media (prefers-reduced-motion: reduce) { #tg-novedades .tg-b-nv-tarjeta { transition: none; } }
+      .tg-pg .tg-b-nv.tg-nv-visible .tg-b-nv-tarjeta { transform: translateY(0); }
+      .tg-pg .tg-b-nv-cab { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 22px 8px; text-align: center; }
+      .tg-pg .tg-b-nv-logo { display: block; width: 44px; height: 44px; object-fit: contain; margin-bottom: 4px; }
+      .tg-pg .tg-b-nv-titulo { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
+      .tg-pg .tg-b-nv-version { font-size: 13px; color: #5f6368; }
+      .tg-pg .tg-b-nv-lista { flex: 1 1 auto; min-height: 0; overflow-y: auto; touch-action: pan-y; margin: 0; padding: 10px 24px 22px; list-style: none; user-select: text; cursor: auto; }
+      .tg-pg .tg-b-nv-lista li { position: relative; padding: 8px 0 8px 18px; font-size: 14.5px; line-height: 1.45; color: #3c4043; overflow-wrap: anywhere; }
+      .tg-pg .tg-b-nv-lista li::before { content: ''; position: absolute; left: 0; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: var(--tg-nv-acento, #1a73e8); }
+      @media (prefers-reduced-motion: reduce) { .tg-pg .tg-b-nv-tarjeta { transition: none; } }
       /* PANEL DE NOVEDADES: pantalla propia, deslizante, separada de la bienvenida (mismo fondo, sube desde abajo y se desliza hacia arriba para entrar) */
-      #tg-novedades {
+      .tg-pg {
         position: fixed; inset: 0; z-index: 2147483647;
         display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; overflow: hidden;
         font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
         transition: transform 800ms cubic-bezier(0.32, 0.72, 0, 1); /* frenada larga estilo iOS: entra y sale suave */
         user-select: none; cursor: grab; touch-action: none;
       }
-      #tg-novedades.tg-subiendo { transform: translateY(-100%); }
-      #tg-novedades.tg-abajo { transform: translateY(100%); }
-      #tg-novedades.tg-abajo, #tg-novedades.tg-subiendo { will-change: transform; }
-      #tg-novedades.tg-subiendo, #tg-novedades.tg-arrastrando { will-change: transform; }
-      #tg-novedades.tg-arrastrando { transition: none; cursor: grabbing; }
+      .tg-pg.tg-subiendo { transform: translateY(-100%); }
+      .tg-pg.tg-abajo { transform: translateY(100%); }
+      .tg-pg.tg-abajo, .tg-pg.tg-subiendo { will-change: transform; }
+      .tg-pg.tg-subiendo, .tg-pg.tg-arrastrando { will-change: transform; }
+      .tg-pg.tg-arrastrando { transition: none; cursor: grabbing; }
       /* la tarjeta ya no sube sola desde abajo: el que se desliza es el panel completo */
-      #tg-novedades .tg-b-nv-tarjeta { transform: none; transition: none; }
-      #tg-novedades .tg-b-pista {
+      .tg-pg .tg-b-nv-tarjeta { transform: none; transition: none; }
+      .tg-pg .tg-b-pista {
         position: absolute; bottom: 7vh; left: 50%; transform: translateX(-50%);
         display: flex; flex-direction: column; align-items: center; gap: 12px;
         font-size: 15px; opacity: 0.9; animation: tgBloqueoFlota 2.2s ease-in-out infinite;
         width: max-content; max-width: calc(100vw - 16px); white-space: nowrap;
       }
-      @media (prefers-reduced-motion: reduce) { #tg-novedades .tg-b-pista { animation: none; } }
+      @media (prefers-reduced-motion: reduce) { .tg-pg .tg-b-pista { animation: none; } }
       /* PANTALLA DE PIN (aparece debajo al deslizar la pantalla de bloqueo hacia arriba) */
       #tg-pin {
         position: fixed; inset: 0; z-index: 2147483646; overflow: hidden; color: #fff;
@@ -1028,6 +1124,39 @@
       @media (prefers-reduced-motion: reduce) { #tg-bloqueo .tg-b-pista { animation: none; } }
     `;
     (document.head || raiz).appendChild(estilo);
+    const estiloOb = document.createElement('style');
+    estiloOb.id = 'tg-onboarding-style';
+    estiloOb.textContent = `
+      .tg-pg .tg-ob-tarjeta { width: min(440px, 100%); }
+      .tg-pg .tg-ob-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 0 20px 8px; cursor: auto; text-align: left; }
+      .tg-pg .tg-ob-sec { padding: 14px 0; border-top: 1px solid rgba(0,0,0,0.08); }
+      .tg-pg .tg-ob-sec:first-child { border-top: 0; }
+      .tg-pg .tg-ob-h { margin: 0 0 3px; font-size: 15px; font-weight: 600; }
+      .tg-pg .tg-ob-p { margin: 0 0 10px; font-size: 12.5px; line-height: 1.35; color: #5f6368; }
+      .tg-pg .tg-ob-fondos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .tg-pg .tg-ob-col { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; color: #3c4043; }
+      .tg-pg .tg-ob-prev { position: relative; width: min(100%, 118px); aspect-ratio: 9 / 18; padding: 0; border: 1px solid rgba(0,0,0,0.15); border-radius: 18px; overflow: hidden; cursor: pointer;
+        background: linear-gradient(135deg, #1f2937, #0b1220) center / cover no-repeat; color: #fff; }
+      .tg-pg .tg-ob-hora { position: absolute; top: 16%; left: 0; right: 0; text-align: center; font-size: 26px; font-weight: 300; text-shadow: 0 1px 6px rgba(0,0,0,0.5); }
+      .tg-pg .tg-ob-mini-u { position: absolute; right: 8px; top: 38%; width: 52%; height: 18px; border-radius: 10px; }
+      .tg-pg .tg-ob-mini-i { position: absolute; left: 8px; top: 50%; width: 60%; height: 18px; border-radius: 10px; background: rgba(0,0,0,0.55); }
+      .tg-pg .tg-ob-cambiar { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 11px; padding: 4px 10px; border-radius: 999px; background: rgba(0,0,0,0.55); white-space: nowrap; }
+      .tg-pg .tg-ob-colores { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+      .tg-pg .tg-ob-color { width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+      .tg-pg .tg-ob-color[aria-pressed="true"] { border-color: #1f1f1f; box-shadow: inset 0 0 0 2px #fff; }
+      .tg-pg .tg-ob-burb { margin-left: auto; width: fit-content; max-width: 85%; padding: 10px 14px; border-radius: 18px 18px 4px 18px; font-size: 13.5px; }
+      .tg-pg .tg-ob-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+      .tg-pg .tg-ob-opt { padding: 9px 4px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.18); background: #f1f3f4; color: #1f1f1f; font: inherit; font-size: 13px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+      .tg-pg .tg-ob-opt small { font-size: 10.5px; opacity: 0.7; }
+      .tg-pg .tg-ob-opt[aria-pressed="true"] { background: var(--tg-nv-acento, #1a73e8); border-color: transparent; color: #fff; }
+      .tg-pg .tg-ob-nota { margin-top: 8px; font-size: 12px; color: #5f6368; }
+      .tg-pg .tg-ob-pie { flex: none; padding: 10px 20px 18px; }
+      .tg-pg .tg-ob-sig { width: 100%; padding: 12px; border: 0; border-radius: 999px; background: var(--tg-nv-acento, #1a73e8); color: #fff; font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
+      .tg-pg .tg-ob-grande { width: 100%; padding: 14px; margin-top: 10px; border-radius: 16px; border: 1px solid rgba(0,0,0,0.18); background: #f1f3f4; color: #1f1f1f; font: inherit; font-size: 15px; cursor: pointer; text-align: left; }
+      .tg-pg .tg-ob-grande[aria-pressed="true"] { background: var(--tg-nv-acento, #1a73e8); border-color: transparent; color: #fff; }
+      .tg-pg .tg-ob-grande small { display: block; margin-top: 2px; font-size: 12px; opacity: 0.8; }
+    `;
+    (document.head || raiz).appendChild(estiloOb);
 
     // ---- FONDO DETRÁS DEL BODY + el body (con TODO y su fondo) en sus propiedades iniciales mientras está bloqueado ----
     // - mientras está bloqueado, el body se queda en escala BLOQUEO_ESCALA_INICIAL y opacidad BLOQUEO_OPACIDAD_INICIAL
@@ -1317,23 +1446,109 @@
     }
     function audioBienvenida(alEmpezar) {
       if (ES_APP_FLUTTER) return audioBienvenidaFlutter(alEmpezar);
+      // EXTENSIÓN: primero se lee si hay una canción personalizada (chrome.storage); si no, la de la carpeta de la extensión
+      let interno = null, parado = false;
+      prefsLeer(['geminiAudioBienvenida'], (r) => {
+        if (parado) return;
+        const c = (typeof r.geminiAudioBienvenida === 'string' && r.geminiAudioBienvenida) ? r.geminiAudioBienvenida : '';
+        interno = audioBienvenidaExtension(c || urlAudioBienvenida(), alEmpezar);
+      });
+      return { detener() { parado = true; if (interno) interno.detener(); } };
+    }
+    function audioBienvenidaExtension(url, alEmpezar) {
+      // EXTENSIÓN DE CHROME (PC): dos motores, el segundo es respaldo del primero.
+      //  1) <audio> normal con la URL de la extensión (chrome.runtime.getURL).
+      //  2) Web Audio API (fetch + decodeAudioData): no pasa por la regla media-src de la página, así que sirve si Gemini bloquea el <audio>.
+      // Chrome bloquea el sonido hasta que el usuario toca la página: se intenta al instante y, si lo rechaza, arranca con el primer gesto.
       let avisado = false;
       const empezar = () => { if (avisado) return; avisado = true; setTimeout(alEmpezar, 0); }; // siempre asíncrono: la pantalla aún se está armando
-      const url = urlAudioBienvenida();
       let activo = true;
-      if (!url) { empezar(); return { detener() {} }; }
-      const a = new Audio(url);
+      if (!url) { console.warn('[tg] bienvenida: no hay URL de audio (¿falta el mp3 en la raíz de la extensión?)'); empezar(); return { detener() {} }; }
+      // "chrome-extension://invalid/" = la extensión se recargó/actualizó y este script quedó huérfano en la pestaña: hay que refrescar la página (F5)
+      if (/^chrome-extension:\/\/invalid\//.test(url)) { console.warn('[tg] bienvenida: la extensión se recargó; refresca la pestaña de Gemini (F5) para que vuelva a sonar.'); empezar(); return { detener() {} }; }
+
+      let motor = 'html';            // 'html' | 'webaudio'
+      let sonando = false;
+      const a = new Audio();
       a.loop = true; a.preload = 'auto'; a.volume = BIENVENIDA_AUDIO_VOLUMEN;
-      const GESTOS = ['pointerdown', 'touchstart', 'keydown'];
+      let ctx = null, ganancia = null, fuente = null, bufer = null, cargandoBufer = false, fallosCarga = 0;
+
+      const GESTOS = ['pointerdown', 'mousedown', 'pointerup', 'click', 'touchstart', 'touchend', 'keydown'];
       const quitarGestos = () => GESTOS.forEach((ev) => window.removeEventListener(ev, intentar, true));
-      function intentar() {
-        if (!activo || document.hidden || !a.paused) return;
+
+      function alSonar() { sonando = true; quitarGestos(); empezar(); }
+
+      function arrancarWebAudio() {
+        if (!activo) return;
         try {
-          const pr = a.play();
-          if (pr && pr.then) pr.then(() => { quitarGestos(); empezar(); }, () => { /* sigue esperando un gesto */ }); else { quitarGestos(); empezar(); }
-        } catch (e) { /* sin audio */ }
+          if (!ctx) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) { console.warn('[tg] bienvenida: sin Web Audio'); return; }
+            ctx = new AC();
+            ganancia = ctx.createGain();
+            ganancia.gain.value = BIENVENIDA_AUDIO_VOLUMEN;
+            ganancia.connect(ctx.destination);
+          }
+          const reproducir = () => {
+            if (!activo || !bufer || fuente) return;
+            fuente = ctx.createBufferSource();
+            fuente.buffer = bufer; fuente.loop = true;
+            fuente.connect(ganancia);
+            fuente.start(0);
+            alSonar();
+          };
+          const listo = () => {
+            if (!activo) return;
+            if (ctx.state === 'suspended') { // sin gesto aún: queda esperando uno (intentar() lo reintenta)
+              const pr = ctx.resume();
+              if (pr && pr.then) pr.then(() => { if (ctx.state === 'running') reproducir(); }, () => {});
+              return;
+            }
+            reproducir();
+          };
+          if (bufer) { listo(); return; }
+          if (cargandoBufer) return;
+          cargandoBufer = true;
+          fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+            .then((ab) => new Promise((ok, fallo) => ctx.decodeAudioData(ab, ok, fallo)))
+            .then((b) => { bufer = b; cargandoBufer = false; listo(); })
+            .catch((e) => {
+              cargandoBufer = false;
+              if (++fallosCarga >= 2) { quitarGestos(); console.warn('[tg] bienvenida: no se pudo cargar el audio; se deja de intentar:', e); } // sin esto reintentaba en cada clic
+              else console.warn('[tg] bienvenida: no se pudo cargar el audio con Web Audio:', e);
+            });
+        } catch (e) { console.warn('[tg] bienvenida: error en Web Audio:', e); }
       }
-      const alVisibilidad = () => { if (!activo) return; if (document.hidden) a.pause(); else intentar(); };
+
+      function cambiarAWebAudio() {
+        if (motor === 'webaudio') return;
+        motor = 'webaudio';
+        try { a.pause(); a.removeAttribute('src'); a.load(); } catch (e) { /* nada */ }
+        arrancarWebAudio();
+      }
+
+      function intentar() {
+        if (!activo || document.hidden || sonando) return;
+        if (motor === 'webaudio') { arrancarWebAudio(); return; }
+        try {
+          if (!a.src) a.src = url;
+          const pr = a.play();
+          if (pr && pr.then) {
+            pr.then(alSonar, (err) => {
+              // NotAllowedError = solo falta un gesto del usuario; cualquier otro error = la página bloquea/no puede leer el archivo
+              if (!err || err.name !== 'NotAllowedError') { console.warn('[tg] bienvenida: <audio> falló, se usa Web Audio:', err); cambiarAWebAudio(); }
+            });
+          } else alSonar();
+        } catch (e) { cambiarAWebAudio(); }
+      }
+      a.addEventListener('error', () => { if (activo && !sonando) { console.warn('[tg] bienvenida: el <audio> no pudo cargar (CSP o archivo faltante), se usa Web Audio'); cambiarAWebAudio(); } });
+
+      const alVisibilidad = () => {
+        if (!activo) return;
+        if (document.hidden) { if (motor === 'html') a.pause(); else if (ctx && ctx.state === 'running') ctx.suspend().catch(() => {}); }
+        else if (motor === 'html') { if (a.paused) { sonando = false; intentar(); } }
+        else if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+      };
       GESTOS.forEach((ev) => window.addEventListener(ev, intentar, true)); // se registra antes que alTeclear, así la tecla Espacio también cuenta
       document.addEventListener('visibilitychange', alVisibilidad);
       intentar();
@@ -1344,7 +1559,17 @@
           activo = false;
           quitarGestos();
           document.removeEventListener('visibilitychange', alVisibilidad);
-          const paso = 50, bajada = a.volume / Math.max(1, BIENVENIDA_AUDIO_FADE_MS / paso);
+          const paso = 50;
+          if (motor === 'webaudio' && ctx) {
+            const c = ctx, g = ganancia, f = fuente;
+            if (!g || !f) { try { c.close(); } catch (e) { /* nada */ } return; }
+            g.gain.cancelScheduledValues(c.currentTime);
+            g.gain.setValueAtTime(g.gain.value, c.currentTime);
+            g.gain.linearRampToValueAtTime(0, c.currentTime + BIENVENIDA_AUDIO_FADE_MS / 1000);
+            setTimeout(() => { try { f.stop(); } catch (e) { /* ya parado */ } try { c.close(); } catch (e) { /* nada */ } }, BIENVENIDA_AUDIO_FADE_MS + 100);
+            return;
+          }
+          const bajada = a.volume / Math.max(1, BIENVENIDA_AUDIO_FADE_MS / paso);
           const id = setInterval(() => {
             a.volume = Math.max(0, a.volume - bajada);
             if (a.volume <= 0.001) { clearInterval(id); a.pause(); a.removeAttribute('src'); try { a.load(); } catch (e) { /* nada */ } }
@@ -1371,7 +1596,7 @@
     function pausarCuerpo(v) { raiz.classList.toggle('tg-bloqueo-pausa', !!v); }
     function bloquear(animado, bienvenida) { // bienvenida: false (reloj) | 'actualizacion' | 'inicio'
       if (bloqueado) return;
-      const esActualizacion = bienvenida === 'actualizacion'; // solo esta lleva novedades y guarda el kernel visto
+      const esActualizacion = bienvenida === 'actualizacion'; // solo esta lleva novedades y guarda el fix visto
       bloqueado = true;
       fondoBienvenidaActivo = !!bienvenida; // la bienvenida usa el fondo de Gemini difuminado
       aplicarFondoBloqueo(document.getElementById('tg-bloqueo-fondo'));
@@ -1462,9 +1687,27 @@
       // 2) con el logo ya quieto, el nombre se abre desde la derecha y el grupo (siempre centrado) empuja el logo hacia la izquierda
       // 3) entran la versión y la pista de deslizar
       // Arranca cuando la canción empieza a sonar (Dart espera a que termine de cargar la app).
+      // FPS de la animación de la bienvenida (la usa la guía "Antes de comenzar..." para recomendar el nivel de blur)
+      const fpsM = { n: 0, t0: 0, fin: 0, activo: false, oculto: false };
+      function medirFpsBienvenida() {
+        if (fpsM.activo) return;
+        fpsM.activo = true; fpsM.t0 = fpsM.fin = performance.now();
+        const paso = (t) => {
+          if (document.hidden) fpsM.oculto = true;
+          fpsM.n++; fpsM.fin = t;
+          if (!desbloqueado && t - fpsM.t0 < 3500) requestAnimationFrame(paso); else fpsM.activo = false;
+        };
+        requestAnimationFrame(paso);
+      }
+      function fpsActual() {
+        const dt = fpsM.fin - fpsM.t0;
+        if (fpsM.oculto || dt < 700 || fpsM.n < 10) return null;
+        return (fpsM.n - 1) / (dt / 1000);
+      }
       function iniciarMarca() {
         if (marcaIniciada || desbloqueado || !bienvenida) return;
         marcaIniciada = true;
+        medirFpsBienvenida();
         const logo = pantalla.querySelector('.tg-b-bv-logo'), caja = pantalla.querySelector('.tg-b-bv-caja'), nombre = pantalla.querySelector('.tg-b-bv-nombre');
         const sub = pantalla.querySelector('.tg-b-bv-sub'), pista = pantalla.querySelector('.tg-b-pista');
         if (!logo || !caja || !nombre) return;
@@ -1543,114 +1786,242 @@ logo.animate([
       // 1) deslizar hacia arriba (o Espacio): la pantalla de bloqueo sube y debajo aparece la de PIN
       let enPin = false;
       let pinUI = null;
-      let novedadesAbiertas = false; // BIENVENIDA: ya se muestran las novedades; el siguiente deslizamiento entra a Gemini
-      // BIENVENIDA: las notas de versión van en su PROPIO panel deslizante (#tg-novedades), separado de la bienvenida.
-      // La bienvenida sube, el panel de novedades baja desde arriba y, al deslizarlo hacia arriba, se entra a Gemini.
-      let pantallaNv = null;
-      let arrastreNv = null;
-      function abrirNovedades() {
-        if (novedadesAbiertas || desbloqueado) return;
-        const items = String(TG_NOTAS_VERSION || '').split(/\r?\n/).map((l) => l.replace(/^\s*[•\-*]\s*/, '').trim()).filter(Boolean);
-        if (!items.length) { desbloquear(); return; } // sin notas: se entra directo
-        novedadesAbiertas = true;
-        let acento = '#1a73e8';
-        try { acento = burbujaCSS(burbuja, false); } catch (e) { /* sin burbuja: azul por defecto */ }
-        const caja = document.createElement('div');
-        caja.className = 'tg-b-nv tg-nv-visible';
-        caja.style.setProperty('--tg-nv-acento', acento);
-        const tarjeta = document.createElement('div');
-        tarjeta.className = 'tg-b-nv-tarjeta';
-        const cab = document.createElement('div'); cab.className = 'tg-b-nv-cab';
+      // ============================================================================================
+      // PÁGINAS DESPUÉS DE LA BIENVENIDA (subir = siguiente, bajar = volver; Espacio = siguiente)
+      //   PRIMERA VEZ:  bienvenida → [PIN si aplica] → "Antes de comenzar..." → pantalla de bloqueo (pregunta) → novedades → Gemini
+      //   ACTUALIZACIÓN: bienvenida → [PIN si aplica] → novedades → Gemini
+      // Las páginas se crean al visitarlas y se conservan, así al volver no se pierde lo que elegiste.
+      // ============================================================================================
+      const itemsNotas = () => String(TG_NOTAS_VERSION || '').split(/\r?\n/).map((l) => l.replace(/^\s*[•\-*]\s*/, '').trim()).filter(Boolean);
+      const paginas = [];   // fábricas: cada una devuelve el elemento de la página
+      const els = [];       // páginas ya creadas
+      let idx = -1;         // -1 = bienvenida; 0.. = página actual
+      let navegando = false;
+      let pinYaPasado = false;
+      let arrastrePg = null;
+      const hint = () => h('div', { class: 'tg-b-pista' }, h('span', null, 'Desliza hacia arriba para continuar'));
+      function acentoActual() { try { return burbujaCSS(burbuja, false); } catch (e) { return '#1a73e8'; } }
+      function cabecera(titulo, sub) {
         const urlLogo = urlLogoGemini();
-        if (urlLogo) { const lg = document.createElement('img'); lg.className = 'tg-b-nv-logo'; lg.alt = ''; lg.src = urlLogo; lg.draggable = false; cab.appendChild(lg); }
-        const tit = document.createElement('h2'); tit.className = 'tg-b-nv-titulo'; tit.textContent = 'Novedades de la actualización';
-        const ver = document.createElement('div'); ver.className = 'tg-b-nv-version'; ver.textContent = 'Versión ' + TG_VERSION;
-        cab.appendChild(tit); cab.appendChild(ver);
-        const lista = document.createElement('ul'); lista.className = 'tg-b-nv-lista';
-        items.forEach((t) => { const li = document.createElement('li'); li.textContent = t; lista.appendChild(li); });
-        tarjeta.appendChild(cab); tarjeta.appendChild(lista);
-        caja.appendChild(tarjeta);
-        pantallaNv = h('div', { id: 'tg-novedades' }, caja,
-          h('div', { class: 'tg-b-pista' }, h('span', null, 'Desliza hacia arriba para continuar')));
-        pantallaNv.classList.add('tg-abajo'); // nace debajo, fuera de la pantalla, y sube
-        raiz.appendChild(pantallaNv);
-        // la bienvenida se va hacia arriba (si aún estaba a la vista) mientras el panel de novedades sube desde abajo
-        pantalla.style.pointerEvents = 'none';
-        pantalla.classList.remove('tg-arrastrando');
-        pantalla.style.removeProperty('transform');
-        pantalla.style.transition = 'transform 800ms cubic-bezier(0.32, 0.72, 0, 1)'; // la bienvenida también se va suave
-        pantalla.classList.add('tg-subiendo');
-        void pantallaNv.offsetHeight;
-        requestAnimationFrame(() => { if (pantallaNv && !desbloqueado) pantallaNv.classList.remove('tg-abajo'); });
-        const fondoNv = document.getElementById('tg-bloqueo-fondo');
-        if (fondoNv) fondoNv.classList.add('tg-nv-atenuado');
-        activarArrastreNovedades(pantallaNv);
+        return h('div', { class: 'tg-b-nv-cab' },
+          urlLogo ? h('img', { class: 'tg-b-nv-logo', src: urlLogo, alt: '', draggable: 'false' }) : null,
+          h('h2', { class: 'tg-b-nv-titulo' }, titulo),
+          sub ? h('div', { class: 'tg-b-nv-version' }, sub) : null);
       }
-      // mismo gesto que la bienvenida: deslizar hacia arriba (o flick) para continuar
-      function activarArrastreNovedades(el) {
+      function paginaBase(tarjeta) {
+        const caja = h('div', { class: 'tg-b-nv tg-nv-visible' }, tarjeta);
+        caja.style.setProperty('--tg-nv-acento', acentoActual());
+        return h('div', { class: 'tg-pg' }, caja, hint());
+      }
+      function irA(nuevo) {
+        if (desbloqueado || navegando || nuevo === idx || nuevo < -1 || nuevo >= paginas.length) return;
+        const avanzar = nuevo > idx;
+        const actual = idx < 0 ? pantalla : els[idx];
+        let destino = nuevo < 0 ? pantalla : els[nuevo];
+        if (!destino) { // primera visita: nace debajo de la pantalla y sube
+          destino = paginas[nuevo]();
+          destino.classList.add('tg-abajo');
+          raiz.appendChild(destino);
+          els[nuevo] = destino;
+          activarArrastrePagina(destino);
+          void destino.offsetHeight;
+        }
+        navegando = true; setTimeout(() => { navegando = false; }, 450);
+        // sale la actual
+        actual.style.pointerEvents = 'none';
+        actual.classList.remove('tg-arrastrando');
+        actual.style.removeProperty('transform');
+        if (actual === pantalla) pantalla.style.transition = 'transform 800ms cubic-bezier(0.32, 0.72, 0, 1)';
+        actual.classList.add(avanzar ? 'tg-subiendo' : 'tg-abajo');
+        // entra la destino
+        destino.style.removeProperty('pointer-events');
+        requestAnimationFrame(() => { destino.classList.remove('tg-abajo'); destino.classList.remove('tg-subiendo'); });
+        idx = nuevo;
+        const f = document.getElementById('tg-bloqueo-fondo');
+        if (f) f.classList.toggle('tg-nv-atenuado', idx >= 0);
+        window.addEventListener('keydown', alTeclear, true);
+      }
+      function siguientePagina() {
+        if (desbloqueado) return;
+        if (idx + 1 >= paginas.length) { desbloquear(); return; }
+        irA(idx + 1);
+      }
+      function paginaAnterior() { if (idx >= 0) irA(idx - 1); }
+      // mismo gesto que la bienvenida: deslizar hacia arriba (o flick) = siguiente; hacia abajo = volver
+      function activarArrastrePagina(el) {
         el.addEventListener('pointerdown', (e) => {
-          if (!e.isPrimary || e.button !== 0 || desbloqueado) return;
-          const ls = e.target && e.target.closest ? e.target.closest('.tg-b-nv-lista') : null;
-          if (ls && ls.scrollHeight > ls.clientHeight + 1) return; // la lista se desplaza sola
-          arrastreNv = { pointerId: e.pointerId, inicioY: e.clientY, distancia: 0, t: performance.now(), y: e.clientY, vel: 0 };
+          if (!e.isPrimary || e.button !== 0 || desbloqueado || navegando) return;
+          const t = e.target;
+          if (t && t.closest) {
+            if (t.closest('button, input, label, a')) return; // los controles se tocan, no arrastran
+            const ls = t.closest('.tg-b-nv-lista, .tg-ob-scroll');
+            if (ls && ls.scrollHeight > ls.clientHeight + 1) return; // zonas con scroll propio
+          }
+          arrastrePg = { pointerId: e.pointerId, inicioY: e.clientY, distancia: 0, t: performance.now(), y: e.clientY, vel: 0 };
           el.classList.add('tg-arrastrando');
           el.setPointerCapture(e.pointerId);
         });
         el.addEventListener('pointermove', (e) => {
-          if (!arrastreNv || e.pointerId !== arrastreNv.pointerId) return;
-          // distancia con signo: positivo = hacia arriba (continuar), negativo = hacia abajo (volver a la bienvenida, gesto oculto)
-          arrastreNv.distancia = arrastreNv.inicioY - e.clientY;
-          const ahora = performance.now(), dt = ahora - arrastreNv.t;
-          if (dt > 0) { arrastreNv.vel = (arrastreNv.y - e.clientY) / dt; arrastreNv.t = ahora; arrastreNv.y = e.clientY; }
-          el.style.transform = 'translateY(' + (-arrastreNv.distancia) + 'px)';
+          if (!arrastrePg || e.pointerId !== arrastrePg.pointerId) return;
+          arrastrePg.distancia = arrastrePg.inicioY - e.clientY; // + = arriba (siguiente), − = abajo (volver)
+          const ahora = performance.now(), dt = ahora - arrastrePg.t;
+          if (dt > 0) { arrastrePg.vel = (arrastrePg.y - e.clientY) / dt; arrastrePg.t = ahora; arrastrePg.y = e.clientY; }
+          el.style.transform = 'translateY(' + (-arrastrePg.distancia) + 'px)';
         });
         const terminar = (e, permitir) => {
-          if (!arrastreNv || e.pointerId !== arrastreNv.pointerId) return;
-          if (permitir) arrastreNv.distancia = arrastreNv.inicioY - e.clientY;
-          const distancia = arrastreNv.distancia, vel = arrastreNv.vel;
-          arrastreNv = null;
+          if (!arrastrePg || e.pointerId !== arrastrePg.pointerId) return;
+          if (permitir) arrastrePg.distancia = arrastrePg.inicioY - e.clientY;
+          const distancia = arrastrePg.distancia, vel = arrastrePg.vel;
+          arrastrePg = null;
           if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
           el.classList.remove('tg-arrastrando');
           el.style.removeProperty('transform');
           if (!permitir) return;
-          if (distancia >= BLOQUEO_UMBRAL_PX() || (vel > BLOQUEO_FLICK_PX_MS && distancia > 30)) desbloquear();
-          else if (-distancia >= BLOQUEO_UMBRAL_PX() || (vel < -BLOQUEO_FLICK_PX_MS && -distancia > 30)) volverABienvenida();
+          if (distancia >= BLOQUEO_UMBRAL_PX() || (vel > BLOQUEO_FLICK_PX_MS && distancia > 30)) siguientePagina();
+          else if (-distancia >= BLOQUEO_UMBRAL_PX() || (vel < -BLOQUEO_FLICK_PX_MS && -distancia > 30)) paginaAnterior();
         };
         el.addEventListener('pointerup', (e) => terminar(e, true));
         el.addEventListener('pointercancel', (e) => terminar(e, false));
       }
-      // Gesto oculto: desde el panel de novedades, deslizar hacia abajo devuelve a la pantalla de bienvenida (sin ninguna pista en pantalla)
-      let pinYaPasado = false;
-      function volverABienvenida() {
-        if (!pantallaNv || desbloqueado) return;
-        const nv = pantallaNv; pantallaNv = null;
-        novedadesAbiertas = false;
-        nv.style.pointerEvents = 'none';
-        nv.classList.add('tg-abajo'); // el panel de novedades se hunde por abajo
-        setTimeout(() => nv.remove(), 900);
-        const fondoNv = document.getElementById('tg-bloqueo-fondo');
-        if (fondoNv) fondoNv.classList.remove('tg-nv-atenuado');
-        pantalla.style.removeProperty('pointer-events');
-        pantalla.classList.remove('tg-arrastrando');
-        pantalla.style.removeProperty('transform');
-        pantalla.classList.remove('tg-subiendo'); // la bienvenida baja otra vez desde arriba
-        window.addEventListener('keydown', alTeclear, true);
+
+      // ---- PÁGINA: NOVEDADES ----
+      function crearPaginaNovedades() {
+        const lista = h('ul', { class: 'tg-b-nv-lista' }, itemsNotas().map((t) => h('li', null, t)));
+        return paginaBase(h('div', { class: 'tg-b-nv-tarjeta' }, cabecera('Novedades de la actualización', 'Versión ' + TG_VERSION), lista));
       }
-      // BIENVENIDA + PIN correcto: se cierra el PIN y baja el panel de novedades (todavía falta deslizarlo para entrar)
+
+      // ---- PÁGINA: "Antes de comenzar..." (fondos, burbuja, rendimiento) ----
+      const OB_COLORES = [
+        { n: 'Azul', h: 221, s: 100 }, { n: 'Violeta', h: 265, s: 85 }, { n: 'Rosa', h: 330, s: 85 }, { n: 'Rojo', h: 3, s: 85 },
+        { n: 'Naranja', h: 24, s: 95 }, { n: 'Ámbar', h: 44, s: 95 }, { n: 'Verde', h: 145, s: 65 }, { n: 'Turquesa', h: 174, s: 80 },
+        { n: 'Cian', h: 195, s: 90 }, { n: 'Gris', h: 215, s: 0 }
+      ];
+      // nivel de blur recomendado: RAM del teléfono (navigator.deviceMemory) y FPS medidos en la animación de la bienvenida; manda el más bajo
+      function recomendarBlur() {
+        const ram = Number(navigator.deviceMemory) || 4, nuc = navigator.hardwareConcurrency || 4, fps = fpsActual();
+        let r = ram <= 2 ? 0 : (ram <= 4 && !(nuc >= 8)) ? 1 : 2;
+        if (fps !== null) r = Math.min(r, fps < 30 ? 0 : fps < 48 ? 1 : 2);
+        return { nivel: ['baja', 'media', 'alta'][r], fps: fps, ram: ram };
+      }
+      function elegirArchivoFondo(destino) {
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.accept = 'image/*,video/*,.gif'; inp.style.display = 'none';
+        raiz.appendChild(inp); // fuera del body: el body está inert mientras dura la bienvenida
+        inp.addEventListener('change', () => {
+          const f = inp.files && inp.files[0];
+          inp.remove();
+          if (!f) return;
+          try {
+            const dt = new DataTransfer(); dt.items.add(f);
+            const objetivo = destino === 'gemini' ? fileInput : bloqueoFileInput; // reutiliza los mismos manejadores del panel Personalizar
+            objetivo.files = dt.files;
+            objetivo.dispatchEvent(new Event('change'));
+          } catch (e) { console.warn('[tg] no se pudo aplicar el fondo elegido:', e); }
+        });
+        inp.click();
+      }
+      function crearPaginaOnboarding() {
+        const prevG = h('button', { class: 'tg-ob-prev', type: 'button', 'aria-label': 'Cambiar el fondo de la pantalla de Gemini' },
+          h('span', { class: 'tg-ob-mini-u' }), h('span', { class: 'tg-ob-mini-i' }), h('span', { class: 'tg-ob-cambiar' }, 'Cambiar'));
+        const prevB = h('button', { class: 'tg-ob-prev', type: 'button', 'aria-label': 'Cambiar el fondo de la pantalla de bloqueo' },
+          h('span', { class: 'tg-ob-hora' }, '9:41'), h('span', { class: 'tg-ob-cambiar' }, 'Cambiar'));
+        const miniU = prevG.querySelector('.tg-ob-mini-u');
+        const pintarFondosOb = () => {
+          if (!prevG.isConnected) return;
+          ponerMedio(prevG, fondoGeminiActual, fondoGeminiTipo);
+          ponerMedio(prevB, bloqueoFondoPersonalizado || urlFondoBloqueoDefecto(), bloqueoFondoPersonalizado ? bloqueoFondoTipo : 'imagen');
+        };
+        prevG.addEventListener('click', () => elegirArchivoFondo('gemini'));
+        prevB.addEventListener('click', () => elegirArchivoFondo('bloqueo'));
+        document.addEventListener('tg-fondos-cambiados', pintarFondosOb);
+
+        // burbuja
+        const vista = h('div', { class: 'tg-ob-burb' }, 'Así se verán tus mensajes');
+        const botonesColor = OB_COLORES.map((c) => {
+          const b = h('button', { class: 'tg-ob-color', type: 'button', 'aria-label': c.n, 'aria-pressed': 'false' });
+          b.style.background = 'hsl(' + c.h + ', ' + c.s + '%, 50%)';
+          b.addEventListener('click', () => { burbuja.h = c.h; burbuja.s = c.s; burbuja.tono = 50; aplicarBurbuja(true); pintarBurbujaOb(); });
+          b._c = c; return b;
+        });
+        function pintarBurbujaOb() {
+          vista.style.background = burbujaCSS(burbuja, true);
+          vista.style.color = burbujaTexto(burbuja);
+          if (miniU) miniU.style.background = burbujaCSS(burbuja, true);
+          botonesColor.forEach((b) => b.setAttribute('aria-pressed', (burbujaPers && b._c.h === burbuja.h && b._c.s === burbuja.s) || (!burbujaPers && b._c.h === BURBUJA_BASE.h) ? 'true' : 'false'));
+          const pg = vista.closest('.tg-pg'); if (pg) pg.querySelector('.tg-b-nv').style.setProperty('--tg-nv-acento', acentoActual());
+        }
+
+        // rendimiento (blur)
+        const rec = recomendarBlur();
+        const NOMBRES = { baja: ['Bajo', 'Sin blur'], media: ['Medio', 'Blur ligero'], alta: ['Alto', 'Blur completo'] };
+        const botonesNivel = ['baja', 'media', 'alta'].map((n) => {
+          const b = h('button', { class: 'tg-ob-opt', type: 'button', 'aria-pressed': 'false' }, NOMBRES[n][0], h('small', null, NOMBRES[n][1] + (n === rec.nivel ? ' · auto' : '')));
+          b.addEventListener('click', () => { cambiarNivelBlur(n); pintarNivel(); });
+          b._n = n; return b;
+        });
+        const pintarNivel = () => botonesNivel.forEach((b) => b.setAttribute('aria-pressed', b._n === nivelBlur ? 'true' : 'false'));
+        if (!nivelBlurExplicito) cambiarNivelBlur(rec.nivel); // primera vez: se ajusta solo según el teléfono
+        const nota = 'Recomendado para tu teléfono: ' + NOMBRES[rec.nivel][0] + ' · ' + (rec.fps !== null ? Math.round(rec.fps) + ' FPS en la animación' : 'FPS sin medir') + ' · ' + (navigator.deviceMemory ? '~' + navigator.deviceMemory + ' GB de RAM' : 'RAM desconocida');
+
+        const scroll = h('div', { class: 'tg-ob-scroll' },
+          h('div', { class: 'tg-ob-sec' },
+            h('h3', { class: 'tg-ob-h' }, 'Fondo de pantalla'),
+            h('p', { class: 'tg-ob-p' }, 'Toca una vista previa para elegir una imagen, GIF o video.'),
+            h('div', { class: 'tg-ob-fondos' },
+              h('div', { class: 'tg-ob-col' }, prevG, h('span', null, 'Pantalla de Gemini')),
+              h('div', { class: 'tg-ob-col' }, prevB, h('span', null, 'Pantalla de bloqueo')))),
+          h('div', { class: 'tg-ob-sec' },
+            h('h3', { class: 'tg-ob-h' }, 'Color de tu burbuja'),
+            h('p', { class: 'tg-ob-p' }, 'Así se verán tus mensajes en el chat.'),
+            h('div', { class: 'tg-ob-colores' }, botonesColor), vista),
+          h('div', { class: 'tg-ob-sec' },
+            h('h3', { class: 'tg-ob-h' }, 'Rendimiento (blur)'),
+            h('p', { class: 'tg-ob-p' }, 'Si tu teléfono va justo, un nivel más bajo se siente más fluido.'),
+            h('div', { class: 'tg-ob-seg' }, botonesNivel),
+            h('div', { class: 'tg-ob-nota' }, nota)));
+        const sig = h('button', { class: 'tg-ob-sig', type: 'button' }, 'Continuar');
+        sig.addEventListener('click', siguientePagina);
+        const pagina = paginaBase(h('div', { class: 'tg-b-nv-tarjeta tg-ob-tarjeta' },
+          cabecera('Antes de comenzar...', 'Personaliza tu experiencia para tener una buena primera impresión.'),
+          scroll, h('div', { class: 'tg-ob-pie' }, sig)));
+        // al estar ya dentro del DOM de la página, se pinta todo
+        Promise.resolve().then(() => { pintarFondosOb(); pintarBurbujaOb(); pintarNivel(); });
+        return pagina;
+      }
+
+      // ---- PÁGINA: ¿pantalla de bloqueo? ----
+      function crearPaginaBloqueoPregunta() {
+        const si = h('button', { class: 'tg-ob-grande', type: 'button', 'aria-pressed': 'false' }, 'Sí, activarla', h('small', null, 'Pide un PIN de 4 dígitos al abrir Gemini.'));
+        const no = h('button', { class: 'tg-ob-grande', type: 'button', 'aria-pressed': 'false' }, 'Ahora no', h('small', null, 'Entras directo, sin PIN.'));
+        const pintar = () => { const a = bloqueoActivoGuardado(); si.setAttribute('aria-pressed', a ? 'true' : 'false'); no.setAttribute('aria-pressed', a ? 'false' : 'true'); };
+        si.addEventListener('click', () => { guardarBloqueoActivo(true); pintar(); });
+        no.addEventListener('click', () => { guardarBloqueoActivo(false); pintar(); });
+        pintar();
+        const sig = h('button', { class: 'tg-ob-sig', type: 'button' }, 'Continuar');
+        sig.addEventListener('click', siguientePagina);
+        return paginaBase(h('div', { class: 'tg-b-nv-tarjeta tg-ob-tarjeta' },
+          cabecera('¿Quieres pantalla de bloqueo?', 'Protege tu chat con un PIN. Tu PIN se crea la próxima vez que se bloquee. Puedes cambiarlo cuando quieras en Personalizar.'),
+          h('div', { class: 'tg-ob-scroll' }, si, no), h('div', { class: 'tg-ob-pie' }, sig)));
+      }
+
+      if (PRIMERA_VEZ) { paginas.push(crearPaginaOnboarding, crearPaginaBloqueoPregunta); }
+      if (esActualizacion && itemsNotas().length) paginas.push(crearPaginaNovedades);
+
+      // BIENVENIDA + PIN correcto: se cierra el PIN y sube la primera página (todavía falta deslizar para entrar)
       function pinCorrectoBienvenida() {
         if (!enPin || desbloqueado) return;
         enPin = false;
         if (pinUI) { pinUI.cerrar(true); pinUI = null; }
         window.addEventListener('keydown', alTeclear, true);
         pinYaPasado = true;
-        abrirNovedades();
+        siguientePagina();
       }
       function mostrarPin() {
         if (enPin || desbloqueado) return;
-        if (novedadesAbiertas) { desbloquear(); return; } // 2.º deslizamiento (ya pasó el PIN): se entra a Gemini
+        if (idx >= 0) { siguientePagina(); return; } // ya en las páginas (Espacio): siguiente
         if (bienvenida === 'inicio' && !MOSTRAR_PANTALLA_BLOQUEO) { desbloquear(); return; } // bienvenida de inicio sin bloqueo activado: sin PIN, entra a Gemini
         // bienvenida SIN pantalla de bloqueo activada: sin PIN, directo a las novedades
-        if (esActualizacion && (!MOSTRAR_PANTALLA_BLOQUEO || pinYaPasado)) { abrirNovedades(); return; } // (si ya pasó el PIN y volvió a la bienvenida, no se pide otra vez)
+        if (esActualizacion && (!MOSTRAR_PANTALLA_BLOQUEO || pinYaPasado)) { siguientePagina(); return; } // (si ya pasó el PIN y volvió a la bienvenida, no se pide otra vez)
         enPin = true;
         pantalla.classList.remove('tg-arrastrando');
         pantalla.style.removeProperty('transform');
@@ -1673,7 +2044,8 @@ logo.animate([
         if (desbloqueado) return;
         desbloqueado = true;
         if (audio) audio.detener();
-        if (esActualizacion) guardarKernelVisto(TG_KERNEL); // ya la viste: se actualiza el kernel visto (la bienvenida no vuelve a salir)
+        if (PRIMERA_VEZ) guardarOnboardingVisto();
+        if (esActualizacion) guardarFixVisto(TG_FIX); // ya la viste: se actualiza el fix visto (la bienvenida no vuelve a salir)
         pausarCuerpo(false);           // el body vuelve a pintarse para la animación de entrada
         fijarPantallaBloqueada(false);  // y todo lo demás se reanuda
         pantalla.classList.remove('tg-arrastrando');
@@ -1688,14 +2060,14 @@ logo.animate([
         animarBody(BLOQUEO_ESCALA_INICIAL, 1, BLOQUEO_OPACIDAD_INICIAL, 1, quitarBodyInicial);
         // (el estilo inicial sigue puesto hasta que termina la animación; la animación lo tapa sin saltos)
         pantalla.classList.add('tg-subiendo');
-        if (pantallaNv) {
-          const nv = pantallaNv; pantallaNv = null;
+        els.forEach((nv, i) => {
+          if (!nv) return;
           nv.classList.remove('tg-arrastrando');
           nv.style.removeProperty('transform');
           nv.classList.remove('tg-abajo');
           nv.classList.add('tg-subiendo');
           setTimeout(() => nv.remove(), 900);
-        }
+        });
         setTimeout(() => {
           pantalla.remove();
           raiz.classList.remove('tg-bloqueado');
@@ -1813,6 +2185,11 @@ logo.animate([
   let burbuja = Object.assign({}, BURBUJA_BASE);
   let fondoGeminiActual = '';
   let fondoGeminiTipo = 'imagen';   // 'imagen' | 'video' (en video, fondoGeminiActual es una blob URL)
+  // FONDO POR DEFECTO (adaptativo): mientras el usuario no haya puesto uno propio se usa Gemini-wallpaper-default.png (horizontal)
+  // o Gemini-wallpaper-default-mobil.png (vertical), y cambia solo al girar la pantalla. No se guarda en las preferencias.
+  let fondoPorDefecto = false;      // true = el fondo actual es el de por defecto
+  let fondoDefectoUrl = '';         // URL pedida del fondo por defecto (para no re-aplicar lo mismo)
+  let fondoDefectoVertical = false; // orientación con la que se aplicó
   function avisarCambioFondos() { document.dispatchEvent(new Event('tg-fondos-cambiados')); }
   // tono: 0 = oscuro, 50 = color puro, 100 = blanco
   function burbujaL(b) { return b.tono <= 50 ? 12 + (b.tono / 50) * 38 : 50 + ((b.tono - 50) / 50) * 46; }
@@ -1890,15 +2267,16 @@ logo.animate([
   }
 
   // Función para aplicar el fondo y ordenar los mensajes
-  function aplicarFondo(base64Data, tipo, sinBlob) {
+  function aplicarFondo(base64Data, tipo, sinBlob, esDefecto) {
     tipo = tipo === 'video' ? 'video' : 'imagen';
     let urlImg = base64Data;
     if (tipo === 'imagen' && !sinBlob && typeof base64Data === 'string' && base64Data.indexOf('data:') === 0) {
       const b = dataUrlABlobUrl(base64Data);
-      if (b) { urlImg = b; const sonda = new Image(); sonda.onerror = () => aplicarFondo(base64Data, 'imagen', true); sonda.src = b; } // si la página bloquea blob:, vuelve al data URL
+      if (b) { urlImg = b; const sonda = new Image(); sonda.onerror = () => aplicarFondo(base64Data, 'imagen', true, esDefecto); sonda.src = b; } // si la página bloquea blob:, vuelve al data URL
     }
     fondoGeminiActual = urlImg;
     fondoGeminiTipo = tipo;
+    fondoPorDefecto = !!esDefecto; // cualquier fondo elegido por el usuario (imagen o video) deja de ser el de por defecto
     bvFondoGemini = { url: urlImg, tipo: tipo };
     aplicarFondoBloqueo(document.getElementById('tg-bloqueo-fondo')); // si la bienvenida está en pantalla, toma el fondo nuevo
     gestionarVideoGemini(base64Data, tipo);
@@ -3089,7 +3467,8 @@ p.gds-body-s.ng-star-inserted {
     if (result.geminiFondoTipo === 'video') {
       bdLeer('gemini').then((blob) => {
         if (blob) aplicarFondo(nuevaUrlVideo('gemini', blob), 'video');
-      }).catch((err) => console.error('No se pudo leer el video de fondo de Gemini:', err));
+        else asegurarFondoPorDefecto(); // el video ya no está en IndexedDB: vuelve el fondo por defecto
+      }).catch((err) => { console.error('No se pudo leer el video de fondo de Gemini:', err); asegurarFondoPorDefecto(); });
     } else if (result.geminiFondo) {
       aplicarFondo(result.geminiFondo);
     }
@@ -3113,8 +3492,71 @@ p.gds-body-s.ng-star-inserted {
     try { aplicarPreferencias(typeof obj === 'string' ? JSON.parse(obj) : obj); } catch (e) { console.warn('[tg] tgAplicarPreferencias:', e); }
   };
 
+  // ---- FONDO POR DEFECTO ADAPTATIVO ----
+  //  - extensión de Chrome: Gemini-wallpaper-default.png y Gemini-wallpaper-default-mobil.png en la RAÍZ de la extensión (como Gemini.png;
+  //    cubiertos por "*.png" en web_accessible_resources)
+  //  - app Flutter: Dart los inyecta (data URL o URL) en window.TG_FONDO_DEFECTO (horizontal) y window.TG_FONDO_DEFECTO_MOVIL (vertical),
+  //    igual que TG_LOGO_GEMINI. Si Dart no los manda, simplemente no hay fondo por defecto (todo sigue como antes).
+  const FONDO_DEFECTO_H = 'Gemini-wallpaper-default.png';
+  const FONDO_DEFECTO_V = 'Gemini-wallpaper-default-mobil.png';
+  function esPantallaVertical() {
+    try { return window.matchMedia ? window.matchMedia('(orientation: portrait)').matches : window.innerHeight > window.innerWidth; } catch (e) { return false; }
+  }
+  function urlFondoDefecto(vertical) {
+    try {
+      const v = vertical ? window.TG_FONDO_DEFECTO_MOVIL : window.TG_FONDO_DEFECTO;
+      if (typeof v === 'string' && v) return v;
+      const p = vertical ? PREFS_INICIALES.geminiFondoDefectoMovil : PREFS_INICIALES.geminiFondoDefecto;
+      if (typeof p === 'string' && p) return p;
+    } catch (e) { /* sin window */ }
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+        const u = chrome.runtime.getURL(vertical ? FONDO_DEFECTO_V : FONDO_DEFECTO_H);
+        return /^chrome-extension:\/\/invalid\//.test(u) ? '' : u; // extensión recargada: hay que refrescar la pestaña
+      }
+    } catch (e) { /* no es una extensión */ }
+    return '';
+  }
+  function hayFondoDefecto() { return !!(urlFondoDefecto(false) || urlFondoDefecto(true)); }
+  // forzar = true: aplica aunque ya hubiera un fondo (botón "Fondo por defecto"). Sin forzar solo actúa si no hay ningún fondo del usuario.
+  function aplicarFondoPorDefecto(forzar) {
+    if (!forzar && fondoGeminiActual && !fondoPorDefecto) return; // hay un fondo del usuario: no se toca
+    const vertical = esPantallaVertical();
+    const url = urlFondoDefecto(vertical) || urlFondoDefecto(!vertical); // si falta la de esta orientación, se usa la otra
+    if (!url) return;
+    if (fondoPorDefecto && fondoDefectoUrl === url) return;           // ya está puesto
+    fondoDefectoUrl = url; fondoDefectoVertical = vertical;
+    aplicarFondo(url, 'imagen', false, true);
+    if (url.indexOf('data:') !== 0) { // si la página no deja cargar la URL de la extensión como fondo, se intenta por fetch -> blob
+      const sonda = new Image();
+      sonda.onerror = () => {
+        fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+          .then((b) => { if (fondoPorDefecto && fondoDefectoUrl === url) aplicarFondo(URL.createObjectURL(b), 'imagen', true, true); })
+          .catch((e) => console.warn('[tg] no se pudo cargar el fondo por defecto:', e));
+      };
+      sonda.src = url;
+    }
+  }
+  function restablecerFondoGemini() { // botón "Fondo por defecto": borra el fondo propio (imagen o video) y vuelve al adaptativo
+    bdBorrar('gemini').catch(() => {});
+    liberarUrlVideo('gemini');
+    const alm = almacenLocal();
+    if (alm) alm.remove(['geminiFondo', 'geminiFondoTipo']);
+    aplicarFondoPorDefecto(true);
+  }
+  // al girar la pantalla, el fondo por defecto cambia a la otra versión
+  window.addEventListener('resize', () => {
+    if (fondoPorDefecto && esPantallaVertical() !== fondoDefectoVertical) aplicarFondoPorDefecto(true);
+  }, { passive: true });
+  // tras leer las preferencias: si el usuario no tiene fondo propio, entra el de por defecto (el video llega asíncrono: ahí se decide después)
+  function asegurarFondoPorDefecto(r) {
+    if (fondoGeminiActual) return;
+    if (r && (r.geminiFondo || r.geminiFondoTipo === 'video')) return;
+    aplicarFondoPorDefecto(false);
+  }
+
   // Cargar preferencias guardadas / inyectadas
-  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiBienvenidaActiva', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiBlurNivel', 'geminiPerfil', 'geminiSinBlur', 'geminiSinFade', 'geminiLenis', 'geminiVibesActivo'], aplicarPreferencias);
+  prefsLeer(['geminiFondo', 'geminiFondoBloqueo', 'geminiTema', 'geminiPinBloqueo', 'geminiBurbuja', 'geminiBloqueoActivo', 'geminiBienvenidaActiva', 'geminiFondoTipo', 'geminiFondoBloqueoTipo', 'geminiBlurNivel', 'geminiPerfil', 'geminiSinBlur', 'geminiSinFade', 'geminiLenis', 'geminiVibesActivo'], function (r) { aplicarPreferencias(r); asegurarFondoPorDefecto(r); });
 
   // Evento al seleccionar imagen o video
   const esVideoArchivo = (f) => !!f && (/^video\//i.test(f.type) || /\.(mp4|webm|mov|m4v|ogv)$/i.test(f.name || ''));
@@ -4453,7 +4895,8 @@ p.gds-body-s.ng-star-inserted {
                   hs('path', { d: 'M19.69 5.23 8.96 15.96l-4.23-4.23L2.96 13.5l6 6L21.46 7z' }))
               )
             )
-          )
+          ),
+          crearFilaMusica()
         ),
         h('section', { class: 'tg-p-seccion' },
           h('h3', { class: 'tg-p-titulo' }, 'Burbuja de tus mensajes'),
@@ -4511,7 +4954,8 @@ p.gds-body-s.ng-star-inserted {
                 ),
                 h('span', { class: 'tg-p-cambiar' }, SVG_IMAGEN(), 'Cambiar fondo')
               ),
-              h('span', { class: 'tg-p-fondo-nombre' }, 'Pantalla de Gemini')
+              h('span', { class: 'tg-p-fondo-nombre' }, 'Pantalla de Gemini'),
+              h('button', { class: 'tg-p-btn', type: 'button', 'data-r': 'reset-gemini', hidden: true }, SVG_RESET(), 'Fondo por defecto')
             ),
             h('div', { class: 'tg-p-fondo-col' },
               h('div', { class: 'tg-p-toggle' },
@@ -4687,6 +5131,7 @@ p.gds-body-s.ng-star-inserted {
       if (bloqueoFondoPersonalizado) ponerMedio(q('fondo-bloqueo'), bloqueoFondoPersonalizado, bloqueoFondoTipo);
       else ponerMedio(q('fondo-bloqueo'), urlBloqueoPorDefecto(), 'imagen');
       q('reset-bloqueo').hidden = !bloqueoFondoPersonalizado;
+      q('reset-gemini').hidden = fondoPorDefecto || !hayFondoDefecto(); // solo se ofrece si el fondo actual es uno propio
     }
     function pintarReloj() {
       const ahora = new Date();
@@ -4695,6 +5140,7 @@ p.gds-body-s.ng-star-inserted {
     }
     q('fondo-gemini').addEventListener('click', () => fileInput.click());
     q('fondo-bloqueo').addEventListener('click', () => bloqueoFileInput.click());
+    q('reset-gemini').addEventListener('click', () => { restablecerFondoGemini(); pintarFondos(); });
     const sw = q('sw-bloqueo');
     const pintarSwitch = () => sw.setAttribute('aria-checked', bloqueoActivoGuardado() ? 'true' : 'false');
     sw.addEventListener('click', () => { guardarBloqueoActivo(!bloqueoActivoGuardado()); pintarSwitch(); });
@@ -4864,6 +5310,7 @@ p.gds-body-s.ng-star-inserted {
           h('div', { class: 'tg-u-eti' }, 'Notas de versión:'),
           h('div', { class: 'tg-u-notas', 'data-r': 'notas', 'data-lenis-prevent': '', tabindex: 0 }),
           h('div', { class: 'tg-u-ok', 'data-r': 'ok', hidden: true }, SVG_OK(), h('span', null, 'La extensión está actualizada')),
+          crearFilaMusica(),
           h('button', { class: 'tg-u-btn', type: 'button', 'data-r': 'btn' }, h('span', { class: 'tg-u-spin', 'aria-hidden': 'true' }), h('span', { 'data-r': 'btn-txt' }, 'Buscar actualizaciones')),
           h('div', { class: 'tg-u-err', 'data-r': 'err', role: 'status', hidden: true }),
           h('div', { class: 'tg-u-pie', 'data-r': 'pie' })
