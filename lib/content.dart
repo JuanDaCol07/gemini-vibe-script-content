@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show FrameTiming;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:http/http.dart' as http;
@@ -281,6 +283,49 @@ class _ContentScreenState extends State<ContentScreen>
   bool _splashQuitado = false; // cuando termina el fade se saca del árbol
   Timer? _splashSeguro;
 
+  // ---- BIENVENIDA FLUIDA (solo móvil) ----
+  // La cinemática + música solo arrancan si: 1) la página llegó al 100 %, 2) la música cargó bien, 3) hay >= 20 FPS
+  // (se miden cada 2 s). Si no se cumple en _esperaMaxBienvenidaMs, el handler 'audioBienvenida'/'play' devuelve false
+  // y content.js se salta la cinemática (va directo al PIN / novedades / Gemini). En PC (extensión) nada de esto aplica.
+  static const double _fpsMinimo = 20;
+  static const int _esperaMaxBienvenidaMs = 8000;
+  int _fotogramas = 0;
+  double _fps = 0; // 0 = aún sin medir
+  Timer? _fpsTimer;
+  bool? _audioOk; // null = cargando | true = cargó bien | false = falló
+  int _progresoPagina = 0;
+
+  void _contarFotogramas(List<FrameTiming> t) => _fotogramas += t.length;
+
+  void _iniciarMonitorFps() {
+    SchedulerBinding.instance.addTimingsCallback(_contarFotogramas);
+    _fpsTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      // sin fotogramas (pantalla quieta) no se actualiza: se conserva la última medida válida
+      if (_fotogramas > 0) _fps = _fotogramas / 2.0;
+      _fotogramas = 0;
+    });
+  }
+
+  Future<bool> _bienvenidaFluida() async {
+    final limite = DateTime.now().add(
+      const Duration(milliseconds: _esperaMaxBienvenidaMs),
+    );
+    while (mounted && DateTime.now().isBefore(limite)) {
+      if (_audioOk == false) break;
+      if (_progresoPagina >= 100 &&
+          _splashListo.isCompleted &&
+          _audioOk == true &&
+          _fps >= _fpsMinimo) {
+        return true;
+      }
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    debugPrint(
+      '[tg] bienvenida omitida: página=$_progresoPagina% audio=$_audioOk fps=${_fps.toStringAsFixed(0)}',
+    );
+    return false;
+  }
+
   // La página terminó de cargar (onLoadStop): desde este instante la música de la bienvenida puede sonar.
   // Ya NO se espera al fade del splash (que llega ~850 ms después). Es idempotente.
   void _marcarPaginaCargada() {
@@ -326,7 +371,7 @@ class _ContentScreenState extends State<ContentScreen>
   // KERNEL de la app: súbelo (1, 2, 3...) cuando cambies este Dart o agregues algo que el script necesite.
   // Debe coincidir con TG_KERNEL de content.js; si no coinciden, content.js no activa nada y pide instalar la app nueva.
   static const int _kernel =
-      4; // OJO: si cambias esto, también cambia TG_KERNEL en content.js
+      5; // OJO: si cambias esto, también cambia TG_KERNEL en content.js
 
   // Lee TG_KERNEL del texto de un script (null si no existe)
   static int? _kernelDeScript(String? script) {
@@ -370,6 +415,7 @@ class _ContentScreenState extends State<ContentScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _iniciarMonitorFps();
     _precargarAudioBienvenida(); // la canción se carga mientras la app arranca
     // una sola vez (antes se llamaba en cada build)
     SystemChrome.setSystemUIOverlayStyle(
@@ -415,7 +461,7 @@ class _ContentScreenState extends State<ContentScreen>
     _splashSeguro = Timer(const Duration(seconds: 15), _ocultarSplash);
   }
 
-  Future<void> _audioBienvenidaAccion(String accion) async {
+  Future<bool> _audioBienvenidaAccion(String accion) async {
     try {
       switch (accion) {
         case 'play':
@@ -427,10 +473,12 @@ class _ContentScreenState extends State<ContentScreen>
           await _audioPreparado; // normalmente ya está listo desde que abrió la app
           // La canción arranca en cuanto la página terminó de cargar (onLoadStop), sin esperar al fade del splash.
           // Si la página ya cargó, _splashListo ya está completo y esto no espera nada.
-          await _splashListo.future.timeout(
-            const Duration(seconds: 20),
-            onTimeout: () {},
-          );
+          // Bienvenida fluida: página al 100 % + música cargada + >= 20 FPS. Si no, se omite (content.js recibe false).
+          if (!await _bienvenidaFluida()) {
+            _audioSolicitado = false;
+            if (identical(_audioBienvenida, p)) await _liberarAudioBienvenida();
+            return false;
+          }
           if (!identical(_audioBienvenida, p))
             break; // mientras esperaba llegó un stop (o otro play)
           if (p.state == PlayerState.playing)
@@ -467,6 +515,7 @@ class _ContentScreenState extends State<ContentScreen>
     } catch (e) {
       debugPrint('[tg] audioBienvenida("$accion") falló: $e');
     }
+    return true;
   }
 
   // Crea el reproductor y carga el mp3 YA (al abrir la app), para que cuando empiece el fade del splash solo falte darle play.
@@ -477,6 +526,7 @@ class _ContentScreenState extends State<ContentScreen>
     ); // los assets de esta app están en Gemini/..., sin el prefijo "assets/"
     final p = AudioPlayer();
     _audioBienvenida = p;
+    _audioOk = null;
     _audioPreparado =
         () async {
           await p.setReleaseMode(ReleaseMode.loop);
@@ -507,10 +557,12 @@ class _ContentScreenState extends State<ContentScreen>
             );
             await p.setSource(AssetSource(_audioBienvenidaAsset));
           }
+          _audioOk = true;
         }().catchError((Object e) {
           debugPrint(
             '[tg] no se pudo precargar la música de la bienvenida: $e',
           );
+          _audioOk = false;
         });
   }
 
@@ -520,6 +572,7 @@ class _ContentScreenState extends State<ContentScreen>
     final p = _audioBienvenida;
     _audioBienvenida = null;
     _audioPreparado = null;
+    _audioOk = null;
     _audioIniciado = false;
     if (p == null) return;
     try {
@@ -578,6 +631,8 @@ class _ContentScreenState extends State<ContentScreen>
     _audioBienvenida?.dispose();
     _tecladoTimer?.cancel();
     _splashSeguro?.cancel();
+    _fpsTimer?.cancel();
+    SchedulerBinding.instance.removeTimingsCallback(_contarFotogramas);
     super.dispose();
   }
 
@@ -1071,8 +1126,7 @@ class _ContentScreenState extends State<ContentScreen>
           handlerName: 'audioBienvenida',
           callback: (args) async {
             if (args.isEmpty) return false;
-            await _audioBienvenidaAccion('${args[0]}');
-            return true;
+            return await _audioBienvenidaAccion('${args[0]}');
           },
         );
 
@@ -1127,7 +1181,9 @@ class _ContentScreenState extends State<ContentScreen>
           debugPrint('[web:${msg.messageLevel}] $t');
         }
       },
+      onProgressChanged: (controller, progreso) => _progresoPagina = progreso,
       onLoadStop: (controller, url) async {
+        _progresoPagina = 100;
         _marcarPaginaCargada(); // <- la música de bienvenida puede arrancar YA (sin esperar al fade)
         _mostrarAvisoOta();
         await _verificarInyeccion(controller, url);

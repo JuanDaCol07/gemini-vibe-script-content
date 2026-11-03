@@ -12,7 +12,7 @@
 
 
 
-  const TG_KERNEL = 4; // No cambies esto, YO lo cambiare si es nesesario.
+  const TG_KERNEL = 5; // No cambies esto, YO lo cambiare si es nesesario.
 
   // ============================================================================================
   // TG_FIX (versión de arreglos: decide cuándo sale la bienvenida de ACTUALIZACIÓN con las novedades)
@@ -23,7 +23,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 1; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 0; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -2051,7 +2051,11 @@
         f.style.removeProperty('filter');          // quita el 28px inicial puesto en línea; la animación parte de él
         f.classList.add('tg-bv-enfocar');          // → en Alta: animation tgBvDesenfoque (56→5px); en Media/Baja ya estaba en 5px
       }
-      const audio = bienvenida ? audioBienvenidaAlCargar(() => { enfocarFondoBv(); setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS); }) : null; // música de fondo solo en la bienvenida
+      const audio = bienvenida ? audioBienvenidaAlCargar((ok) => {
+        // app móvil: Dart devuelve false si el teléfono no cumple (página 100 % + música cargada + >= 20 FPS): sin cinemática ni música
+        if (ok === false && ES_APP_FLUTTER) { mostrarPin(); return; } // mostrarPin respeta PIN / novedades / entrada directa
+        enfocarFondoBv(); setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS);
+      }) : null; // música de fondo solo en la bienvenida
       fijarPantallaBloqueada(true); // desde ya, nada más de la extensión trabaja
       let desbloqueado = false;
       let marcaIniciada = false;
@@ -2657,7 +2661,26 @@ logo.animate([
   function alfaBurbuja(b) { return nivelBlur === 'baja' ? ALFA_BAJA : b.alfa; }
   function burbujaCSS(b, conAlfa) { return 'hsla(' + b.h + ', ' + b.s + '%, ' + burbujaL(b).toFixed(1) + '%, ' + 'calc(' + (conAlfa === false ? 1 : b.alfa / 100) + (nivelBlur === 'baja' ? '' : ' + var(--tg-sb-extra, 0)') + '))'; }
   function burbujaTexto(b) { return burbujaL(b) > 68 ? '#1f1f1f' : '#ffffff'; }
-  (function () {
+  // CARGA DIFERIDA (solo app móvil y solo si sale la bienvenida): al abrir solo se dibuja la bienvenida. Las hojas de estilo del resto
+  // se aplican cuando empiezas a deslizar (una por fotograma, para no trabar el gesto) y, como tope, al desbloquear.
+  // En PC (extensión de Chrome) o sin bienvenida corre todo al instante, igual que antes.
+  const colaDiferida = [];
+  let colaPlanificada = false;
+  function vaciarColaDiferida(toda) {
+    colaPlanificada = false;
+    while (colaDiferida.length) {
+      const fn = colaDiferida.shift();
+      try { fn(); } catch (e) { console.warn('[tg] carga diferida:', e); }
+      if (!toda) { if (colaDiferida.length) { colaPlanificada = true; requestAnimationFrame(() => vaciarColaDiferida(false)); } return; }
+    }
+  }
+  function despuesDeBienvenida(fn) {
+    if (!(ES_APP_FLUTTER && pantallaBloqueada && (BIENVENIDA_PENDIENTE || MOSTRAR_BIENVENIDA))) { fn(); return; }
+    colaDiferida.push(fn);
+  }
+  document.addEventListener('touchstart', () => { if (colaDiferida.length && !colaPlanificada) { colaPlanificada = true; requestAnimationFrame(() => vaciarColaDiferida(false)); } }, { once: true, capture: true, passive: true });
+  document.addEventListener('tg-bloqueo-cambio', (e) => { if (e.detail && e.detail.bloqueado === false) vaciarColaDiferida(true); });
+  despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-burbuja-style';
     est.textContent = `
@@ -2670,7 +2693,7 @@ logo.animate([
       }
     `;
     document.head.appendChild(est);
-  })();
+  });
   let burbujaPers = false; // true si el usuario personalizó la burbuja
   // pinta las variables de la burbuja: personalizada → con su color; sin personalizar pero en "baja" → azul original con 10 % de transparencia
   function pintarVarsBurbuja() {
@@ -5665,7 +5688,7 @@ p.gds-body-s.ng-star-inserted {
   //   ALTA  → cabecera con fondo de pantalla desenfocado en dos capas (blur progresivo: más fuerte hacia abajo) + degradé hacia el panel.
   //   MEDIA y BAJA → fade LITE: el fondo SIN desenfoque, solo oscurecido y con el mismo degradé (sin filter ni backdrop-filter).
   //   BAJA además deja el panel con fondo opaco (lo hace la hoja tg-blur).
-  (function () {
+  despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-actualizaciones-style';
     est.textContent = `
@@ -5738,7 +5761,7 @@ p.gds-body-s.ng-star-inserted {
       @media (prefers-reduced-motion: reduce) { .tg-u-spin { animation: none; } .tg-u-btn, .tg-u-x { transition: none; } }
     `;
     (document.head || document.documentElement).appendChild(est);
-  })();
+  });
 
   function abrirPanelActualizaciones() {
     if (!esAppMovil()) return;
@@ -6041,7 +6064,7 @@ p.gds-body-s.ng-star-inserted {
   const ID_ITEM_PERSONALIZAR_MOVIL = 'tg-item-personalizar-movil';
   const ID_ITEM_ACTUALIZAR_MOVIL = 'tg-item-actualizar-movil'; // solo en la app móvil (ver esAppMovil)
   const ETIQUETA_ACTUALIZAR = 'Actualizaciones Gemini Vibes';
-  (function () {
+  despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-personalizar-movil-style';
     est.textContent = ['#' + ID_ITEM_PERSONALIZAR_MOVIL, '#' + ID_ITEM_ACTUALIZAR_MOVIL].map((s) => `
@@ -6050,7 +6073,7 @@ p.gds-body-s.ng-star-inserted {
       ${s} mat-icon { display: none !important; }
     `).join('');
     (document.head || document.documentElement).appendChild(est);
-  })();
+  });
 
   // ¿estamos dentro de la app móvil (WebView de Flutter)? Dart pone window.TG_ES_MOVIL = true y registra el handler 'tgActualizaciones'.
   // En la extensión de Chrome (escritorio) esto es false y el menú de actualizaciones NO existe.
@@ -6220,7 +6243,7 @@ p.gds-body-s.ng-star-inserted {
   const COLAPSO_ALTO_PX = 250;     // alto de la respuesta contraída
   const COLAPSO_UMBRAL_PX = 420;   // desde este alto (contenido completo) se considera "larguísima"
   const COLAPSO_MS = 380;
-  (function () {
+  despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-colapso-style';
     est.textContent = `
@@ -6253,7 +6276,7 @@ p.gds-body-s.ng-star-inserted {
       @media (prefers-reduced-motion: reduce) { .tg-colapso-btn, .tg-colapso-btn svg, .tg-colapso-toggle { transition: none; } }
     `;
     (document.head || document.documentElement).appendChild(est);
-  })();
+  });
 
   function quitarColapso(r, cont) {
     if (r.hasAttribute('data-tg-colapso')) r.removeAttribute('data-tg-colapso');
@@ -6505,7 +6528,7 @@ p.gds-body-s.ng-star-inserted {
   // Se oculta con opacidad (sigue ocupando su lugar, así el scroll y el layout no cambian) y se muestra con una transición.
   const PUNTOS_RETRASO_MS = 1700;
   const puntosRetrasados = new Set();
-  (function () {
+  despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-puntos-retraso-style';
     est.textContent = `
@@ -6526,7 +6549,7 @@ p.gds-body-s.ng-star-inserted {
       }
     `;
     (document.head || document.documentElement).appendChild(est);
-  })();
+  });
   // La espera es UNA sola por cada "thinking" (desde que aparece hasta que llega la respuesta), no una por elemento:
   // si mientras piensa Gemini cambia el mensaje ("Pensando…" -> "Creando tu imagen…") y crea otro elemento, ese NO vuelve a esperar:
   // si todavía falta tiempo se oculta hasta la MISMA hora que el primero, y si ya pasó aparece de inmediato.
@@ -7285,7 +7308,7 @@ p.gds-body-s.ng-star-inserted {
   // los blur de sus hijos (burbujas, caja de escribir) ya no vean la imagen de fondo.
   const CERO_BLUR_PX = 5;     // desenfoque del fondo
   const CERO_BRILLO = 1;       // 1 = sin oscurecer; menor = más oscuro (mejora la lectura del texto)
-  (function () {
+  despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-fondo-cero-style';
     est.textContent = `
@@ -7308,7 +7331,7 @@ p.gds-body-s.ng-star-inserted {
       @media (prefers-reduced-motion: reduce) { chat-window { transition: none !important; } }
     `;
     (document.head || document.documentElement).appendChild(est);
-  })();
+  });
   function enEstadoCero() {
     return !!document.querySelector('.zero-state-container') && !document.querySelector('#chat-history user-query, #chat-history model-response');
   }
@@ -7379,7 +7402,7 @@ p.gds-body-s.ng-star-inserted {
   let lenisRaf = null;
   let lenisAlto = 0;
   let lenisAvisado = false;
-  (function () {
+  despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-lenis-style';
     est.textContent = `
@@ -7390,7 +7413,7 @@ p.gds-body-s.ng-star-inserted {
       .lenis.lenis-scrolling iframe { pointer-events: none; }
     `;
     (document.head || document.documentElement).appendChild(est);
-  })();
+  });
   // el bucle rAF de Lenis solo corre mientras hay actividad (rueda/touch/scroll/teclado) y 1.5 s después; en reposo duerme
   let lenisUltimaAct = 0;
   function bucleLenis(tiempo) {
