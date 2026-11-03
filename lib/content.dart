@@ -254,9 +254,9 @@ class _ContentScreenState extends State<ContentScreen>
   bool _audioSolicitado =
       false; // content.js ya pidió la música de la bienvenida
   bool _audioIniciado =
-      false; // la canción ya arrancó (con el fade del splash): antes de eso NINGÚN resume puede hacerla sonar
+      false; // la canción ya arrancó (al cargar la página): antes de eso NINGÚN resume puede hacerla sonar
   DateTime?
-  _splashFadeInicio; // instante en que empezó el fade del splash (solo para el log)
+  _paginaCargadaEn; // instante en que la página terminó de cargar (solo para el log)
   Timer? _audioFade;
   bool _audioPausadoPorApp = false;
 
@@ -274,22 +274,29 @@ class _ContentScreenState extends State<ContentScreen>
   Timer? _tecladoTimer;
 
   // ---- SPLASH (capa negra + logo por encima del WebView) ----
-  // se completa en el instante en que EMPIEZA el fade del splash (la app ya cargó y se empieza a ver); la canción arranca con él
+  // se completa cuando la página termina de cargar (onLoadStop); la canción arranca con él, antes del fade del splash
   final Completer<void> _splashListo = Completer<void>();
   bool _splashVisible =
       true; // objetivo del fade (true = opaco, false = se desvanece)
   bool _splashQuitado = false; // cuando termina el fade se saca del árbol
   Timer? _splashSeguro;
 
+  // La página terminó de cargar (onLoadStop): desde este instante la música de la bienvenida puede sonar.
+  // Ya NO se espera al fade del splash (que llega ~850 ms después). Es idempotente.
+  void _marcarPaginaCargada() {
+    _paginaCargadaEn ??= DateTime.now();
+    if (!_splashListo.isCompleted)
+      _splashListo
+          .complete(); // <- aquí arranca la música (si la bienvenida la pidió)
+  }
+
   // Desvanece el splash (1 s). Es idempotente.
   void _ocultarSplash() {
     if (!mounted || !_splashVisible) return;
     _splashSeguro?.cancel();
     setState(() => _splashVisible = false);
-    _splashFadeInicio = DateTime.now();
-    if (!_splashListo.isCompleted)
-      _splashListo
-          .complete(); // <- aquí arranca la música (si la bienvenida la pidió)
+    // respaldo: si por alguna razón onLoadStop nunca llegó, el fade también libera la música
+    _marcarPaginaCargada();
     // la precarga del mp3 se hace en TODOS los arranques; si la bienvenida no la pidió (no hay bienvenida), se libera
     Timer(const Duration(seconds: 5), () {
       if (!_audioSolicitado) _liberarAudioBienvenida();
@@ -418,8 +425,8 @@ class _ContentScreenState extends State<ContentScreen>
           if (_audioBienvenida == null) _precargarAudioBienvenida();
           final p = _audioBienvenida!;
           await _audioPreparado; // normalmente ya está listo desde que abrió la app
-          // OBLIGATORIO: la canción NO suena antes ni después del fade del splash; arranca en el instante en que el fade empieza
-          // (y content.js empieza la animación del logo 1 s después)
+          // La canción arranca en cuanto la página terminó de cargar (onLoadStop), sin esperar al fade del splash.
+          // Si la página ya cargó, _splashListo ya está completo y esto no espera nada.
           await _splashListo.future.timeout(
             const Duration(seconds: 20),
             onTimeout: () {},
@@ -432,10 +439,10 @@ class _ContentScreenState extends State<ContentScreen>
             ); // recarga de la página: vuelve a empezar
           _audioIniciado = true;
           await p.resume();
-          final desde = _splashFadeInicio;
+          final desde = _paginaCargadaEn;
           if (desde != null) {
             debugPrint(
-              '[tg] audioBienvenida: la canción suena ${DateTime.now().difference(desde).inMilliseconds} ms después de empezar el fade del splash',
+              '[tg] audioBienvenida: la canción suena ${DateTime.now().difference(desde).inMilliseconds} ms después de cargar la página',
             );
           }
           break;
@@ -1121,6 +1128,7 @@ class _ContentScreenState extends State<ContentScreen>
         }
       },
       onLoadStop: (controller, url) async {
+        _marcarPaginaCargada(); // <- la música de bienvenida puede arrancar YA (sin esperar al fade)
         _mostrarAvisoOta();
         await _verificarInyeccion(controller, url);
       },
