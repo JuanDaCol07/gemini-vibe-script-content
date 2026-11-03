@@ -678,7 +678,6 @@
   // - App Flutter: Dart lo decodifica y lo reproduce (handler 'audioBienvenida', acción 'recargar' = usar la canción nueva).
   // - Extensión: audioBienvenida() lo lee de chrome.storage. "Quitar" vuelve a la canción original.
   // ============================================================================================
-  const MUSICA_MAX_BYTES = 12 * 1024 * 1024;
   function recargarAudioFlutter() {
     try {
       const fl = window.flutter_inappwebview;
@@ -693,11 +692,11 @@
       const f = inp.files && inp.files[0];
       inp.remove();
       if (!f) return;
-      if (f.size > MUSICA_MAX_BYTES) { window.alert('La canción pesa demasiado (máximo 12 MB).'); return; }
       const r = new FileReader();
       r.onload = () => {
         if (typeof r.result !== 'string') return;
         musicaCache = r.result;
+        borrarOriginalMusica();   // canción nueva = original nuevo (se guarda aparte al editarla)
         try { PREFS_INICIALES.geminiAudioBienvenidaNombre = f.name; } catch (e) { /* solo lectura */ }
         prefsGuardar({ geminiAudioBienvenida: r.result, geminiAudioBienvenidaNombre: f.name });
         recargarAudioFlutter();
@@ -710,6 +709,7 @@
   }
   function quitarMusicaBienvenida() {
     musicaCache = null;
+    borrarOriginalMusica();
     try { delete PREFS_INICIALES.geminiAudioBienvenidaNombre; } catch (e) { /* solo lectura */ }
     prefsBorrar(['geminiAudioBienvenida', 'geminiAudioBienvenidaNombre']);
     recargarAudioFlutter();
@@ -727,7 +727,6 @@
   const EDM_BAR = 4, EDM_STEP = 8;          // ancho de la barrita y separación entre centros (px)
   const EDM_N = 64;                         // barritas reutilizadas (cubren hasta ~512 px)
   const EDM_ALTO = 64;                      // alto máximo de una barrita (px)
-  const EDM_MAX_WAV = 12 * 1024 * 1024;     // tope del archivo guardado (calidad original, sin bajar Hz ni canales)
   let musicaCache = null;                   // data URL de la canción recién elegida/guardada (evita leer storage antes de que termine de escribir)
   function fmtTiempo(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
   function dataUrlABuffer(u) {
@@ -749,7 +748,6 @@
   // devuelve una Promise<ArrayBuffer WAV> con la copia recortada (desde ini, dur segundos) y con el fade aplicado
   function renderizarRecorte(buf, ini, dur, fade) {
     const ch = Math.min(2, buf.numberOfChannels), rate = buf.sampleRate;
-    if (dur * rate * ch * 2 > EDM_MAX_WAV) return Promise.reject(new Error('demasiado larga'));
     const oc = new OfflineAudioContext(ch, Math.max(1, Math.ceil(dur * rate)), rate);
     const s = oc.createBufferSource(), g = oc.createGain();
     s.buffer = buf; s.connect(g); g.connect(oc.destination);
@@ -784,20 +782,33 @@
     const o = new Uint8Array(tot); let q = 0; trozos.forEach((x) => { o.set(x, q); q += x.length; });
     return o.buffer;
   }
-  function obtenerAudioActual(cb) {
-    const deUrl = (u, nombre) => {
-      fetch(u).then((x) => x.arrayBuffer()).then((ab) => cb(ab, nombre)).catch(() => cb(null));
+  let musicaOrig;                           // undefined = leer de las preferencias; objeto {url, nombre, edicion} = valor vigente (url '' = no hay original guardado aparte)
+  function leerEdicion(s) { try { const o = JSON.parse(s); return (o && typeof o === 'object') ? o : null; } catch (e) { return null; } }
+  function borrarOriginalMusica() {
+    musicaOrig = { url: '', nombre: '', edicion: null };
+    prefsBorrar(['geminiAudioBienvenidaOriginal', 'geminiAudioBienvenidaOriginalNombre', 'geminiAudioBienvenidaEdicion']);
+  }
+  // Devuelve SIEMPRE la canción ORIGINAL (sin recortar) + los ajustes de la última edición, para poder recortar también lo que ya se cortó.
+  //  - Si ya hay original guardado aparte: ese.
+  //  - Si la canción por defecto fue editada (edicion.orig === 'defecto'): se vuelve a leer la de la extensión.
+  //  - Si la canción es propia y aún no se había editado: la propia es el original (se guardará aparte en la primera edición).
+  function obtenerAudioParaEditar(cb) {
+    const deUrl = (u, nombre, ed, info) => { fetch(u).then((x) => x.arrayBuffer()).then((ab) => cb(ab, nombre, ed, info)).catch(() => cb(null)); };
+    const deDatos = (c, nombre, ed, info) => {
+      if (/^data:/.test(c)) { try { cb(dataUrlABuffer(c), nombre, ed, info); } catch (e) { cb(null); } } else deUrl(c, nombre, ed, info);
     };
-    const decidir = (c, nombre) => {
-      if (c && /^data:/.test(c)) { try { cb(dataUrlABuffer(c), nombre); } catch (e) { cb(null); } return; }
-      if (c) { deUrl(c, nombre); return; }
-      if (ES_APP_FLUTTER) { cb(null); return; }
-      const u = urlAudioBienvenida();
-      if (u) deUrl(u, BIENVENIDA_AUDIO_ARCHIVO); else cb(null);
-    };
-    prefsLeer(['geminiAudioBienvenida', 'geminiAudioBienvenidaNombre'], (r) => {
-      const nombre = typeof r.geminiAudioBienvenidaNombre === 'string' ? r.geminiAudioBienvenidaNombre : 'Canción';
-      decidir(musicaCache || (typeof r.geminiAudioBienvenida === 'string' ? r.geminiAudioBienvenida : ''), nombre);
+    prefsLeer(['geminiAudioBienvenida', 'geminiAudioBienvenidaNombre', 'geminiAudioBienvenidaOriginal', 'geminiAudioBienvenidaOriginalNombre', 'geminiAudioBienvenidaEdicion'], (r) => {
+      const s = (k) => (typeof r[k] === 'string' ? r[k] : '');
+      const actual = musicaCache || s('geminiAudioBienvenida');
+      const nombreActual = s('geminiAudioBienvenidaNombre') || 'Canción';
+      const o = musicaOrig !== undefined ? musicaOrig : { url: s('geminiAudioBienvenidaOriginal'), nombre: s('geminiAudioBienvenidaOriginalNombre'), edicion: leerEdicion(s('geminiAudioBienvenidaEdicion')) };
+      const urlDef = ES_APP_FLUTTER ? '' : urlAudioBienvenida();
+      if (o.url) { deDatos(o.url, o.nombre || nombreActual, o.edicion, { orig: 'propia', origUrl: o.url, guardado: true }); return; }
+      if (!actual || (o.edicion && o.edicion.orig === 'defecto' && urlDef)) {
+        if (urlDef) deUrl(urlDef, BIENVENIDA_AUDIO_ARCHIVO, actual ? o.edicion : null, { orig: 'defecto' }); else cb(null);
+        return;
+      }
+      deDatos(actual, nombreActual, null, { orig: 'propia', origUrl: actual, guardado: false });
     });
   }
   function abrirEditorMusica(alGuardar) {
@@ -805,10 +816,10 @@
     if (!document.getElementById('tg-edm-style')) {
       const st = document.createElement('style'); st.id = 'tg-edm-style';
       st.textContent = `
-        #tg-edm { --edm-ac: #1a73e8; --edm-tx: #fff; position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; padding: 14px; box-sizing: border-box;
+        #tg-edm { --edm-ac: #1a73e8; --edm-tx: #fff; --edm-inv: #f0b429; --edm-card: #0f0805; position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; padding: 14px; box-sizing: border-box;
           background: rgba(0,0,0,0.55); font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif; color: #fff; }
         #tg-edm * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        .tg-edm-card { width: 100%; max-width: 460px; background: #0f0805; border-radius: 28px; padding: 18px 18px 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
+        .tg-edm-card { width: 100%; max-width: 460px; background: var(--edm-card); border-radius: 28px; padding: 18px 18px 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
         .tg-edm-top { display: flex; align-items: center; gap: 10px; }
         .tg-edm-tit { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
         .tg-edm-tit b { font-size: 18px; font-weight: 600; }
@@ -827,11 +838,19 @@
         .tg-edm-hora { position: absolute; top: 0; transform: translateX(-50%); font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.14); white-space: nowrap; }
         .tg-edm-onda { position: relative; height: ${EDM_ALTO + 46}px; margin-top: 14px; overflow: hidden; touch-action: none; cursor: grab; }
         .tg-edm-onda:active { cursor: grabbing; }
-        .tg-edm-b { position: absolute; left: 0; top: calc(50% + 8px); width: ${EDM_BAR}px; height: 10px; border-radius: 2px; background: #fff; opacity: 0;
+        /* la barrita se rellena de izquierda a derecha con --f (0 a 100 %): el color de relleno es el complementario del énfasis (--edm-inv) */
+        .tg-edm-b { position: absolute; left: 0; top: calc(50% + 8px); width: ${EDM_BAR}px; height: 10px; border-radius: 2px; opacity: 0;
+          background: linear-gradient(90deg, var(--edm-inv) calc(var(--f, 0) * 1%), #fff calc(var(--f, 0) * 1%));
           transform-origin: 50% 50%; will-change: translate, scale, opacity;
           transition: scale 0.55s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.45s ease; }
-        .tg-edm-linea { position: absolute; left: 50%; top: 16px; bottom: 0; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--edm-ac); pointer-events: none; }
-        .tg-edm-linea::before { content: ''; position: absolute; left: 50%; top: -12px; margin-left: -7px; border: 7px solid transparent; border-top: 11px solid var(--edm-ac); border-bottom: 0; }
+        /* marcas de corte: solo se mueven si el usuario las agarra (zona táctil de 44 px) */
+        .tg-edm-linea { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; margin-left: -22px; z-index: 2; cursor: ew-resize; touch-action: none; will-change: translate; }
+        .tg-edm-linea::after { content: ''; position: absolute; left: 50%; top: 16px; bottom: 0; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--edm-ac); }
+        .tg-edm-linea::before { content: ''; position: absolute; left: 50%; top: 4px; margin-left: -7px; border: 7px solid transparent; border-top: 11px solid var(--edm-ac); border-bottom: 0; }
+        .tg-edm-lfin { z-index: 1; }
+        .tg-edm-lfin::after { background: rgba(255,255,255,0.85); }
+        .tg-edm-lfin::before { border-top-color: rgba(255,255,255,0.85); }
+        .tg-edm-onda:not(.tg-edm-lista) .tg-edm-linea { visibility: hidden; }
         .tg-edm-aj { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
         .tg-edm-aj label { display: grid; grid-template-columns: 74px 1fr 82px; align-items: center; gap: 10px; font-size: 14px; }
         .tg-edm-aj label em { font-style: normal; font-size: 13px; opacity: 0.75; text-align: right; }
@@ -842,14 +861,18 @@
     }
     // ---------- estado ----------
     let buf = null, total = 0, picos = null, nB = 0;
-    let ini = 0;              // punto de inicio elegido (s)
-    let vista = 0;            // posición que se ve (igual a ini, salvo mientras suena la vista previa)
+    let ini = 0;              // punto de inicio elegido (s), sobre la canción ORIGINAL completa
+    let centro = 0;           // tiempo (s) que se ve en el centro de las ondas: solo es la vista, NO mueve el corte
     let durFija = null;       // null = hasta el final de la canción
     let fade = 2;             // s (entrada y salida)
     let nombre = 'Canción';
+    let infoOrig = { orig: 'propia' };   // de dónde sale el original (ver obtenerAudioParaEditar)
+    let reproPos = null;      // segundos reproducidos desde el inicio del corte (null = nada que mostrar). Se queda al pausar como referencia.
+    let o0 = 0, t0r = 0, seguir = true;
     let ctx = null, fuente = null, gan = null, raf = 0, sonando = false, guardando = false, cw = 0, crudo = null;
     const durEf = () => durFija == null ? Math.max(1, total - ini) : Math.max(1, Math.min(durFija, total - ini));
     const fadeEf = () => Math.min(fade, durEf() / 2);
+    const vistaPos = () => reproPos == null ? ini : Math.min(total, ini + reproPos);
 
     // ---------- DOM ----------
     const svg = (d, extra) => hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', Object.assign({ d }, extra || {})));
@@ -862,14 +885,17 @@
     const fin = h('span', { class: 'tg-edm-fin' });
     const tramo = h('span', { class: 'tg-edm-tramo' });
     const pista = h('div', { class: 'tg-edm-pista' }, tramo, fin, punto, hora);
-    const onda = h('div', { class: 'tg-edm-onda' }, h('span', { class: 'tg-edm-linea' }));
+    const linea = h('span', { class: 'tg-edm-linea', 'aria-label': 'Inicio del corte' });
+    const lineaFin = h('span', { class: 'tg-edm-linea tg-edm-lfin', 'aria-label': 'Final del corte' });
+    const onda = h('div', { class: 'tg-edm-onda' });
     const rFade = h('input', { type: 'range', min: '0', max: '8', step: '0.5', value: String(fade) });
     const rDur = h('input', { type: 'range', min: '1', max: '60', step: '1', value: '60' });
     const vFade = h('em', null, '');
     const vDur = h('em', null, '');
     const msg = h('div', { class: 'tg-edm-msg' }, '');
     const pool = [];
-    for (let k = 0; k < EDM_N; k++) { const b = h('span', { class: 'tg-edm-b' }); b._j = null; pool.push(b); onda.appendChild(b); }
+    for (let k = 0; k < EDM_N; k++) { const b = h('span', { class: 'tg-edm-b' }); b._j = null; b._f = -1; pool.push(b); onda.appendChild(b); }
+    onda.appendChild(lineaFin); onda.appendChild(linea);
     const velo = h('div', { id: 'tg-edm' },
       h('div', { class: 'tg-edm-card', role: 'dialog', 'aria-label': 'Editar música de bienvenida' },
         h('div', { class: 'tg-edm-top' }, h('div', { class: 'tg-edm-tit' }, h('b', null, 'Editar música'), tSub), bX, bOk),
@@ -879,7 +905,14 @@
           h('label', null, 'Fade', rFade, vFade),
           h('label', null, 'Duración', rDur, vDur)),
         msg));
-    try { velo.style.setProperty('--edm-ac', burbujaCSS(burbuja, false)); velo.style.setProperty('--edm-tx', burbujaTexto(burbuja)); } catch (e) { /* queda el azul por defecto */ }
+    // paleta de la burbuja: énfasis, texto, fondo de la tarjeta (mismo tono, muy oscuro) y color de relleno (complementario del énfasis)
+    try {
+      const b = burbuja;
+      velo.style.setProperty('--edm-ac', burbujaCSS(b, false));
+      velo.style.setProperty('--edm-tx', burbujaTexto(b));
+      velo.style.setProperty('--edm-card', 'hsl(' + b.h + ', ' + Math.min(40, b.s * 0.45).toFixed(0) + '%, 8%)');
+      velo.style.setProperty('--edm-inv', 'hsl(' + ((b.h + 180) % 360) + ', ' + Math.max(55, Math.min(100, b.s)) + '%, 62%)');
+    } catch (e) { /* quedan los colores por defecto */ }
     document.documentElement.appendChild(velo);
 
     const iconoPlay = () => { bPlay.textContent = ''; bPlay.appendChild(svg(sonando ? 'M6 5h4v14H6zM14 5h4v14h-4z' : 'M8 5v14l11-7z')); };
@@ -888,24 +921,33 @@
     // ---------- dibujo ----------
     function pintarOnda() {
       if (!picos) return;
-      const pi = vista / EDM_SEG, base = Math.floor(pi) - (EDM_N >> 1), cx = cw / 2;
+      const pi = centro / EDM_SEG, base = Math.floor(pi) - (EDM_N >> 1), cx = cw / 2;
+      const piIni = ini / EDM_SEG, piFin = (ini + durEf()) / EDM_SEG;
+      const xPlay = reproPos == null ? null : cx + ((ini + reproPos) / EDM_SEG - pi) * EDM_STEP;
       for (let j = base; j < base + EDM_N; j++) {
         const el = pool[((j % EDM_N) + EDM_N) % EDM_N];
-        const dist = pi - (j + 0.5);                       // > 0: la barrita está a la izquierda de la rayita (se salta)
         const fuera = j < 0 || j >= nB;
-        let esc = 1, op = 1;
-        if (dist > 0) { esc = Math.max(0.2, 1 - dist * 0.05); op = Math.max(0.12, 1 - dist * 0.055); }
+        const cortada = j < piIni - 0.5 || j > piFin - 0.5;      // lo que se corta (antes del inicio o después del final): más pequeño y transparente
+        const esc = cortada ? 0.45 : 1;
+        let op = cortada ? 0.3 : 1;
         if (fuera) op = 0;
+        const x = cx + (j - pi) * EDM_STEP - EDM_BAR / 2;
         if (el._j !== j) { el._j = j; el.style.height = (8 + (EDM_ALTO - 8) * (fuera ? 0 : picos[j])) + 'px'; }
-        el.style.translate = (cx + (j - pi) * EDM_STEP - EDM_BAR / 2) + 'px -50%';
+        el.style.translate = x + 'px -50%';
         el.style.scale = '1 ' + esc;
         el.style.opacity = String(op);
+        // relleno suave: la barrita se va llenando de izquierda a derecha según por dónde va la reproducción
+        let fr = 0;
+        if (xPlay !== null && !fuera && !cortada) fr = Math.round(Math.max(0, Math.min(1, (xPlay - x) / EDM_BAR)) * 100);
+        if (el._f !== fr) { el._f = fr; el.style.setProperty('--f', String(fr)); }
       }
+      linea.style.translate = (cx + (piIni - pi) * EDM_STEP) + 'px 0';
+      lineaFin.style.translate = (cx + (piFin - pi) * EDM_STEP) + 'px 0';
     }
     function pintarPista() {
-      const f = total ? Math.min(1, vista / total) : 0, fe = total ? Math.min(1, (ini + durEf()) / total) : 1;
+      const vp = vistaPos(), f = total ? Math.min(1, vp / total) : 0, fe = total ? Math.min(1, (ini + durEf()) / total) : 1;
       punto.style.left = (f * 100) + '%'; hora.style.left = Math.max(7, Math.min(93, f * 100)) + '%';
-      hora.textContent = fmtTiempo(vista);
+      hora.textContent = fmtTiempo(vp);
       tramo.style.left = ((total ? ini / total : 0) * 100) + '%'; tramo.style.width = (Math.max(0, fe - (total ? ini / total : 0)) * 100) + '%';
       fin.style.left = (fe * 100) + '%';
     }
@@ -915,37 +957,57 @@
       rDur.value = String(durFija == null ? maxD : Math.min(durFija, maxD));
       vDur.textContent = (durFija == null || durFija >= maxD) ? 'Hasta el final' : fmtTiempo(durFija);
       rFade.max = String(Math.max(0, Math.min(8, Math.floor(durEf() / 2 * 2) / 2)));
+      rFade.value = String(Math.min(fade, parseFloat(rFade.max)));
       vFade.textContent = fade > 0 ? fade.toFixed(1).replace('.0', '') + ' s' : 'Sin fade';
     }
     function pintarTodo() { pintarAjustes(); pintarPista(); pintarOnda(); }
 
     // ---------- vista previa ----------
-    function detener() {
+    // parar(true): se detiene y se borra el relleno. parar(false): se detiene pero el relleno queda como referencia de por dónde iba.
+    function parar(borrar) {
       if (raf) cancelAnimationFrame(raf); raf = 0;
       if (fuente) { try { fuente.onended = null; fuente.stop(); } catch (e) { /* ya parado */ } fuente = null; }
       if (gan) { try { gan.disconnect(); } catch (e) { /* nada */ } gan = null; }
-      sonando = false; iconoPlay(); vista = ini; pintarPista(); pintarOnda();
+      sonando = false;
+      if (borrar) reproPos = null;
+      iconoPlay(); pintarPista(); pintarOnda();
+    }
+    function pausar() {
+      if (sonando && ctx) reproPos = Math.max(0, Math.min(durEf(), o0 + ctx.currentTime - t0r));
+      parar(false);
     }
     function reproducir() {
       if (!buf) return;
-      detener();
+      parar(false);
       try {
         if (!ctx) { const AC = window.AudioContext || window.webkitAudioContext; ctx = new AC(); }
         if (ctx.state === 'suspended') ctx.resume();
-        const dur = durEf(), f = fadeEf(), t0 = ctx.currentTime + 0.05, p0 = ini;
+        const dur = durEf(), f = fadeEf();
+        const o = (reproPos == null || reproPos >= dur - 0.05) ? 0 : reproPos;   // reanuda donde se pausó; si ya terminó, desde el inicio
+        const t0 = ctx.currentTime + 0.05;
+        o0 = o; t0r = t0; reproPos = o; seguir = true;
+        if (cw && (cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP < 8 || cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP > cw * 0.6)) centro = ini + o;
         gan = ctx.createGain(); fuente = ctx.createBufferSource(); fuente.buffer = buf;
         fuente.connect(gan); gan.connect(ctx.destination);
+        const g = gan.gain, env = (x) => f > 0 ? Math.max(0, Math.min(1, x / f, (dur - x) / f)) : 1;
+        g.setValueAtTime(env(o), t0);
         if (f > 0) {
-          gan.gain.setValueAtTime(0, t0); gan.gain.linearRampToValueAtTime(1, t0 + f);
-          gan.gain.setValueAtTime(1, t0 + Math.max(f, dur - f)); gan.gain.linearRampToValueAtTime(0, t0 + dur);
+          if (o < f) g.linearRampToValueAtTime(1, t0 + (f - o));
+          if (o < dur - f) g.setValueAtTime(1, t0 + (dur - f - o));
+          g.linearRampToValueAtTime(0, t0 + (dur - o));
         }
         const mia = fuente;
-        mia.onended = () => { if (fuente === mia) detener(); };
-        mia.start(t0, p0, dur);
+        mia.onended = () => { if (fuente === mia) { reproPos = dur; parar(false); } };   // al terminar queda todo relleno
+        mia.start(t0, ini + o, dur - o);
         sonando = true; iconoPlay();
         const paso = () => {
           if (!sonando) return;
-          vista = Math.min(total, p0 + Math.max(0, ctx.currentTime - t0));
+          reproPos = Math.min(dur, Math.max(0, o + ctx.currentTime - t0));
+          // la vista solo se desplaza cuando la reproducción llega al 70 % del ancho (así se ve cómo se va rellenando)
+          if (seguir && cw) {
+            const xp = cw / 2 + ((ini + reproPos) / EDM_SEG - centro / EDM_SEG) * EDM_STEP, lim = cw * 0.7;
+            if (xp > lim) centro = Math.min(total, centro + ((xp - lim) / EDM_STEP) * EDM_SEG);
+          }
           pintarPista(); pintarOnda(); raf = requestAnimationFrame(paso);
         };
         raf = requestAnimationFrame(paso);
@@ -953,35 +1015,54 @@
     }
 
     // ---------- gestos ----------
-    function moverInicio(s) { ini = Math.max(0, Math.min(Math.max(0, total - 1), s)); vista = ini; pintarTodo(); }
+    const acotar = (v, a, b) => Math.max(a, Math.min(b, v));
+    function moverInicio(s) { ini = acotar(s, 0, Math.max(0, total - 1)); parar(true); pintarTodo(); }
+    function moverFin(t) {
+      const maxD = Math.max(1, total - ini), minD = Math.min(3, maxD), d = acotar(t - ini, minD, maxD);
+      durFija = d >= maxD - 0.05 ? null : d; parar(true); pintarTodo();
+    }
+    // las ondas SOLO desplazan la vista (no tocan el punto de corte)
     onda.addEventListener('pointerdown', (ev) => {
-      if (!buf) return;
-      if (sonando) detener();
-      const x0 = ev.clientX, p0 = ini;
+      if (!buf || (ev.target.closest && ev.target.closest('.tg-edm-linea'))) return;
+      seguir = false;
+      const x0 = ev.clientX, c0 = centro;
       try { onda.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
-      const mover = (e) => moverInicio(p0 - ((e.clientX - x0) / EDM_STEP) * EDM_SEG);
+      const mover = (e) => { centro = acotar(c0 - ((e.clientX - x0) / EDM_STEP) * EDM_SEG, 0, total); pintarOnda(); };
       const soltar = () => { onda.removeEventListener('pointermove', mover); onda.removeEventListener('pointerup', soltar); onda.removeEventListener('pointercancel', soltar); };
       onda.addEventListener('pointermove', mover); onda.addEventListener('pointerup', soltar); onda.addEventListener('pointercancel', soltar);
     });
+    // las marcas (inicio de color, final blanca) solo se mueven si las agarras
+    function engarzarMarca(el, leer, poner) {
+      el.addEventListener('pointerdown', (ev) => {
+        if (!buf) return;
+        ev.preventDefault(); ev.stopPropagation();
+        const x0 = ev.clientX, t0 = leer();
+        try { el.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
+        const mover = (e) => poner(t0 + ((e.clientX - x0) / EDM_STEP) * EDM_SEG);
+        const soltar = () => { el.removeEventListener('pointermove', mover); el.removeEventListener('pointerup', soltar); el.removeEventListener('pointercancel', soltar); };
+        el.addEventListener('pointermove', mover); el.addEventListener('pointerup', soltar); el.addEventListener('pointercancel', soltar);
+      });
+    }
+    engarzarMarca(linea, () => ini, moverInicio);
+    engarzarMarca(lineaFin, () => ini + durEf(), moverFin);
     pista.addEventListener('pointerdown', (ev) => {
       if (!buf) return;
-      if (sonando) detener();
       try { pista.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
-      const poner = (e) => { const r = pista.getBoundingClientRect(); moverInicio(((e.clientX - r.left) / r.width) * total); };
+      const poner = (e) => { const r = pista.getBoundingClientRect(); moverInicio(((e.clientX - r.left) / r.width) * total); centro = ini; seguir = false; pintarOnda(); };
       poner(ev);
       const soltar = () => { pista.removeEventListener('pointermove', poner); pista.removeEventListener('pointerup', soltar); pista.removeEventListener('pointercancel', soltar); };
       pista.addEventListener('pointermove', poner); pista.addEventListener('pointerup', soltar); pista.addEventListener('pointercancel', soltar);
     });
-    rFade.addEventListener('input', () => { fade = parseFloat(rFade.value) || 0; if (sonando) detener(); pintarAjustes(); });
+    rFade.addEventListener('input', () => { fade = parseFloat(rFade.value) || 0; parar(true); pintarAjustes(); });
     rDur.addEventListener('input', () => {
       const v = parseInt(rDur.value, 10), maxD = parseInt(rDur.max, 10);
-      durFija = v >= maxD ? null : v; if (sonando) detener(); pintarAjustes(); pintarPista();
+      durFija = v >= maxD ? null : v; parar(true); pintarAjustes(); pintarPista(); pintarOnda();
     });
-    bPlay.addEventListener('click', () => { if (sonando) detener(); else reproducir(); });
+    bPlay.addEventListener('click', () => { if (sonando) pausar(); else reproducir(); });
 
     // ---------- cerrar / guardar ----------
     function cerrar() {
-      detener(); document.removeEventListener('keydown', alTeclear, true);
+      parar(true); document.removeEventListener('keydown', alTeclear, true);
       try { if (ctx) ctx.close(); } catch (e) { /* nada */ }
       velo.remove();
     }
@@ -991,8 +1072,8 @@
     velo.addEventListener('pointerdown', (e) => { if (e.target === velo) cerrar(); });
     bOk.addEventListener('click', () => {
       if (!buf || guardando) return;
-      guardando = true; detener(); bOk.disabled = true; bPlay.disabled = true; msg.textContent = 'Guardando tu copia editada…';
-      // sin fade y con MP3 de origen: se corta el MP3 tal cual (calidad idéntica). Con fade hay que procesar el audio: se guarda WAV a calidad original.
+      guardando = true; parar(true); bOk.disabled = true; bPlay.disabled = true; msg.textContent = 'Guardando tu copia editada…';
+      // el corte SIEMPRE sale del original completo. Sin fade y con MP3 de origen: se corta el MP3 tal cual (calidad idéntica). Con fade: WAV a calidad original.
       let mp3 = null; try { if (fadeEf() === 0 && crudo) mp3 = cortarMp3(crudo, ini, durEf()); } catch (e) { mp3 = null; }
       (mp3 ? Promise.resolve({ ab: mp3, ext: 'mp3', tipo: 'audio/mpeg' }) : renderizarRecorte(buf, ini, durEf(), fadeEf()).then((ab) => ({ ab, ext: 'wav', tipo: 'audio/wav' })))
       .then((res) => new Promise((ok, fallo) => {
@@ -1003,24 +1084,29 @@
         const url = res.url;
         const base = nombre.replace(/\.[^.]+$/, '').replace(/ \(editada\)$/, '');
         const nuevo = base + ' (editada).' + res.ext;
+        const ed = { ini, dur: durFija, fade, orig: infoOrig.orig };
+        const datos = { geminiAudioBienvenida: url, geminiAudioBienvenidaNombre: nuevo, geminiAudioBienvenidaEdicion: JSON.stringify(ed) };
+        // la canción propia original se guarda aparte la primera vez que se edita; la de la extensión se vuelve a leer del archivo
+        if (infoOrig.orig === 'propia' && infoOrig.origUrl && !infoOrig.guardado) { datos.geminiAudioBienvenidaOriginal = infoOrig.origUrl; datos.geminiAudioBienvenidaOriginalNombre = nombre; }
         musicaCache = url;
+        musicaOrig = { url: infoOrig.orig === 'propia' ? (infoOrig.origUrl || '') : '', nombre, edicion: ed };
         try { PREFS_INICIALES.geminiAudioBienvenidaNombre = nuevo; } catch (e) { /* solo lectura */ }
-        prefsGuardar({ geminiAudioBienvenida: url, geminiAudioBienvenidaNombre: nuevo });
+        prefsGuardar(datos);
         recargarAudioFlutter();
         if (alGuardar) alGuardar(nuevo);
         cerrar();
       }).catch((e) => {
         console.warn('[tg] no se pudo guardar la música editada:', e);
         guardando = false; bOk.disabled = false; bPlay.disabled = false;
-        msg.textContent = 'Pesa demasiado sin comprimir. Acorta la duración (o pon el fade en 0 si tu canción es MP3).';
+        msg.textContent = 'No se pudo guardar la canción editada (puede que el dispositivo se quede sin espacio).';
       });
     });
 
-    // ---------- carga ----------
-    obtenerAudioActual((ab, nom) => {
+    // ---------- carga (siempre el ORIGINAL completo) ----------
+    obtenerAudioParaEditar((ab, nom, edi, info) => {
       if (!document.getElementById('tg-edm')) return;
       if (!ab) { tSub.textContent = 'Sin canción'; msg.textContent = 'Primero elige una canción con «Elegir» para poder editarla.'; return; }
-      nombre = nom || nombre; crudo = ab.slice(0); // copia: decodeAudioData consume el original
+      nombre = nom || nombre; infoOrig = info || infoOrig; crudo = ab.slice(0); // copia: decodeAudioData consume el original
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!ctx) ctx = new AC();
       const alDecodificar = (b) => {
@@ -1034,8 +1120,16 @@
           picos[i] = m; if (m > mx) mx = m;
         }
         for (let i = 0; i < nB; i++) picos[i] = Math.sqrt(picos[i] / mx);
+        // se restauran los ajustes de la última edición (sobre la canción completa)
+        if (edi) {
+          if (typeof edi.ini === 'number' && isFinite(edi.ini)) ini = acotar(edi.ini, 0, Math.max(0, total - 1));
+          durFija = (typeof edi.dur === 'number' && edi.dur > 0) ? edi.dur : null;
+          if (typeof edi.fade === 'number' && edi.fade >= 0) fade = edi.fade;
+        }
+        centro = ini;
         tSub.textContent = nombre; cw = onda.clientWidth || 380;
-        bOk.disabled = false; bPlay.disabled = false; msg.textContent = 'Arrastra las ondas para elegir dónde empieza.';
+        onda.classList.add('tg-edm-lista');
+        bOk.disabled = false; bPlay.disabled = false; msg.textContent = 'Arrastra la rayita de color (inicio) y la blanca (final). Las ondas solo mueven la vista.';
         pintarTodo();
       };
       const fallo = () => { tSub.textContent = 'No se pudo leer'; msg.textContent = 'No se pudo decodificar esta canción.'; };
