@@ -1141,6 +1141,8 @@
       .tg-pg .tg-ob-mini-u { position: absolute; right: 8px; top: 38%; width: 52%; height: 18px; border-radius: 10px; }
       .tg-pg .tg-ob-mini-i { position: absolute; left: 8px; top: 50%; width: 60%; height: 18px; border-radius: 10px; background: rgba(0,0,0,0.55); }
       .tg-pg .tg-ob-cambiar { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 11px; padding: 4px 10px; border-radius: 999px; background: rgba(0,0,0,0.55); white-space: nowrap; }
+      .tg-pg .tg-ob-reset { font: inherit; font-size: 11.5px; padding: 5px 10px; border-radius: 999px; border: 1px solid rgba(0,0,0,0.18); background: #f1f3f4; color: #1f1f1f; cursor: pointer; }
+      .tg-pg .tg-ob-reset[hidden] { display: none; }
       .tg-pg .tg-ob-colores { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
       .tg-pg .tg-ob-color { width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
       .tg-pg .tg-ob-color[aria-pressed="true"] { border-color: #1f1f1f; box-shadow: inset 0 0 0 2px #fff; }
@@ -1925,14 +1927,28 @@ logo.animate([
           h('span', { class: 'tg-ob-mini-u' }), h('span', { class: 'tg-ob-mini-i' }), h('span', { class: 'tg-ob-cambiar' }, 'Cambiar'));
         const prevB = h('button', { class: 'tg-ob-prev', type: 'button', 'aria-label': 'Cambiar el fondo de la pantalla de bloqueo' },
           h('span', { class: 'tg-ob-hora' }, '9:41'), h('span', { class: 'tg-ob-cambiar' }, 'Cambiar'));
+        const resetG = h('button', { class: 'tg-ob-reset', type: 'button', hidden: true }, 'Fondo por defecto');
+        const resetB = h('button', { class: 'tg-ob-reset', type: 'button', hidden: true }, 'Fondo por defecto');
         const miniU = prevG.querySelector('.tg-ob-mini-u');
         const pintarFondosOb = () => {
           if (!prevG.isConnected) return;
-          // sin cambios del usuario: SIEMPRE los fondos por defecto (Gemini: el vertical, porque la vista previa es vertical)
-          if (fondoGeminiActual && !fondoPorDefecto) ponerMedio(prevG, fondoGeminiActual, fondoGeminiTipo);
-          else ponerMedio(prevG, urlFondoDefecto(true) || urlFondoDefecto(false) || fondoGeminiActual, 'imagen');
+          // Gemini: lo que hay puesto de verdad (si el usuario no cambió nada, es el fondo por defecto ADAPTATIVO: horizontal/vertical según la pantalla)
+          if (!fondoGeminiActual && hayFondoDefecto()) aplicarFondoPorDefecto(false); // por si aún no había entrado
+          if (fondoGeminiActual) ponerMedio(prevG, fondoGeminiActual, fondoGeminiTipo);
+          else ponerMedio(prevG, urlFondoDefecto(true) || urlFondoDefecto(false), 'imagen');
           ponerMedio(prevB, bloqueoFondoPersonalizado || urlFondoBloqueoDefecto(), bloqueoFondoPersonalizado ? bloqueoFondoTipo : 'imagen');
+          resetG.hidden = fondoPorDefecto || !hayFondoDefecto(); // solo se ofrece si el fondo actual es uno propio
+          resetB.hidden = !bloqueoFondoPersonalizado;
         };
+        resetG.addEventListener('click', () => { restablecerFondoGemini(); pintarFondosOb(); });
+        resetB.addEventListener('click', () => {
+          bloqueoFondoPersonalizado = ''; bloqueoFondoTipo = 'imagen';
+          aplicarFondoBloqueo(document.getElementById('tg-bloqueo-fondo'));
+          bdBorrar('bloqueo').catch(() => {}); liberarUrlVideo('bloqueo');
+          const alm = almacenLocal();
+          if (alm) alm.remove(['geminiFondoBloqueo', 'geminiFondoBloqueoTipo']);
+          pintarFondosOb();
+        });
         prevG.addEventListener('click', () => elegirArchivoFondo('gemini'));
         prevB.addEventListener('click', () => elegirArchivoFondo('bloqueo'));
         document.addEventListener('tg-fondos-cambiados', pintarFondosOb);
@@ -1970,8 +1986,8 @@ logo.animate([
             h('h3', { class: 'tg-ob-h' }, 'Fondo de pantalla'),
             h('p', { class: 'tg-ob-p' }, 'Toca una vista previa para elegir una imagen, GIF o video.'),
             h('div', { class: 'tg-ob-fondos' },
-              h('div', { class: 'tg-ob-col' }, prevG, h('span', null, 'Pantalla de Gemini')),
-              h('div', { class: 'tg-ob-col' }, prevB, h('span', null, 'Pantalla de bloqueo')))),
+              h('div', { class: 'tg-ob-col' }, prevG, h('span', null, 'Pantalla de Gemini'), resetG),
+              h('div', { class: 'tg-ob-col' }, prevB, h('span', null, 'Pantalla de bloqueo'), resetB))),
           h('div', { class: 'tg-ob-sec' },
             h('h3', { class: 'tg-ob-h' }, 'Color de tu burbuja'),
             h('p', { class: 'tg-ob-p' }, 'Así se verán tus mensajes en el chat.'),
