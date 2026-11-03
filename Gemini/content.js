@@ -714,313 +714,338 @@
     prefsBorrar(['geminiAudioBienvenida', 'geminiAudioBienvenidaNombre']);
     recargarAudioFlutter();
   }
-  // ============================================================================================
-  // EDITOR DE MÚSICA DE BIENVENIDA (Personalizar > Música de bienvenida > Editar)
-  // - Ondas con una rayita fija en el centro (triángulo hacia abajo): ahí EMPIEZA a sonar la canción. Arrastra las ondas para moverla.
-  //   Las ondas de la izquierda (lo que se salta) se hacen más pequeñas y transparentes cuanto más lejos, con transición de rebote suave.
-  // - Línea de arriba: punto = posición actual, con el minuto encima (m:ss). También se puede arrastrar.
-  // - Fade (entrada y salida) y Duración (desde el punto de inicio; al máximo = hasta que termine la canción).
-  // - Guardar = se renderiza una COPIA recortada (WAV con el fade aplicado) y reemplaza la música guardada. Así funciona igual en la
-  //   extensión y en la app Flutter (Dart reproduce el archivo ya recortado, no hace falta tocar Dart).
-  // ============================================================================================
-  const EDM_SEG = 0.25;                     // segundos que representa cada barrita
-  const EDM_BAR = 4, EDM_STEP = 8;          // ancho de la barrita y separación entre centros (px)
-  const EDM_N = 64;                         // barritas reutilizadas (cubren hasta ~512 px)
-  const EDM_ALTO = 64;                      // alto máximo de una barrita (px)
-  const EDM_MAX_WAV = 8 * 1024 * 1024;      // tope del WAV guardado (si se pasa, baja a mono y luego a menos Hz)
-  let musicaCache = null;                   // data URL de la canción recién elegida/guardada (evita leer storage antes de que termine de escribir)
-  function fmtTiempo(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
-  function dataUrlABuffer(u) {
-    const b = atob(u.slice(u.indexOf(',') + 1)), x = new Uint8Array(b.length);
-    for (let i = 0; i < b.length; i++) x[i] = b.charCodeAt(i);
-    return x.buffer;
-  }
-  function bufferAWav(b) {
-    const ch = b.numberOfChannels, n = b.length, sr = b.sampleRate, ab = new ArrayBuffer(44 + n * ch * 2), v = new DataView(ab);
-    const e = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-    e(0, 'RIFF'); v.setUint32(4, 36 + n * ch * 2, true); e(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
-    v.setUint16(22, ch, true); v.setUint32(24, sr, true); v.setUint32(28, sr * ch * 2, true); v.setUint16(32, ch * 2, true);
-    v.setUint16(34, 16, true); e(36, 'data'); v.setUint32(40, n * ch * 2, true);
-    const d = []; for (let c = 0; c < ch; c++) d.push(b.getChannelData(c));
-    let o = 44;
-    for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) { const x = Math.max(-1, Math.min(1, d[c][i])); v.setInt16(o, x < 0 ? x * 0x8000 : x * 0x7fff, true); o += 2; }
-    return ab;
-  }
-  // devuelve una Promise<ArrayBuffer WAV> con la copia recortada (desde ini, dur segundos) y con el fade aplicado
-  function renderizarRecorte(buf, ini, dur, fade) {
-    let ch = Math.min(2, buf.numberOfChannels), rate = buf.sampleRate;
-    const peso = () => dur * rate * ch * 2;
-    if (peso() > EDM_MAX_WAV && ch > 1) ch = 1;
-    if (peso() > EDM_MAX_WAV) rate = 22050;
-    if (peso() > EDM_MAX_WAV) rate = 16000;
-    if (peso() > EDM_MAX_WAV) return Promise.reject(new Error('demasiado larga'));
-    const oc = new OfflineAudioContext(ch, Math.max(1, Math.ceil(dur * rate)), rate);
-    const s = oc.createBufferSource(), g = oc.createGain();
-    s.buffer = buf; s.connect(g); g.connect(oc.destination);
-    if (fade > 0) {
-      g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(1, fade);
-      g.gain.setValueAtTime(1, Math.max(fade, dur - fade)); g.gain.linearRampToValueAtTime(0, dur);
-    }
-    s.start(0, ini, dur);
-    return oc.startRendering().then(bufferAWav);
-  }
-  function obtenerAudioActual(cb) {
-    const deUrl = (u, nombre) => {
-      fetch(u).then((x) => x.arrayBuffer()).then((ab) => cb(ab, nombre)).catch(() => cb(null));
-    };
-    const decidir = (c, nombre) => {
-      if (c && /^data:/.test(c)) { try { cb(dataUrlABuffer(c), nombre); } catch (e) { cb(null); } return; }
-      if (c) { deUrl(c, nombre); return; }
-      if (ES_APP_FLUTTER) { cb(null); return; }
-      const u = urlAudioBienvenida();
-      if (u) deUrl(u, BIENVENIDA_AUDIO_ARCHIVO); else cb(null);
-    };
-    prefsLeer(['geminiAudioBienvenida', 'geminiAudioBienvenidaNombre'], (r) => {
-      const nombre = typeof r.geminiAudioBienvenidaNombre === 'string' ? r.geminiAudioBienvenidaNombre : 'Canción';
-      decidir(musicaCache || (typeof r.geminiAudioBienvenida === 'string' ? r.geminiAudioBienvenida : ''), nombre);
-    });
-  }
-  function abrirEditorMusica(alGuardar) {
-    if (document.getElementById('tg-edm')) return;
-    if (!document.getElementById('tg-edm-style')) {
-      const st = document.createElement('style'); st.id = 'tg-edm-style';
-      st.textContent = `
-        #tg-edm { position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; padding: 14px; box-sizing: border-box;
-          background: rgba(0,0,0,0.55); font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif; color: #fff; }
-        #tg-edm * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        .tg-edm-card { width: 100%; max-width: 460px; background: #0f0805; border-radius: 28px; padding: 18px 18px 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
-        .tg-edm-top { display: flex; align-items: center; gap: 10px; }
-        .tg-edm-tit { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
-        .tg-edm-tit b { font-size: 18px; font-weight: 600; }
-        .tg-edm-tit span { font-size: 13px; opacity: 0.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .tg-edm-ic { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 0; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
-        .tg-edm-ic svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-        .tg-edm-ic.tg-edm-play { width: 44px; height: 44px; background: #fff; color: #0f0805; }
-        .tg-edm-ic.tg-edm-play svg { fill: currentColor; stroke: none; width: 22px; height: 22px; }
-        .tg-edm-ic[disabled] { opacity: 0.4; pointer-events: none; }
-        .tg-edm-fila { display: flex; align-items: flex-end; gap: 14px; margin-top: 10px; }
-        .tg-edm-pista { position: relative; flex: 1 1 auto; height: 44px; touch-action: none; cursor: pointer; margin-right: 6px; }
-        .tg-edm-pista::before { content: ''; position: absolute; left: 0; right: 0; top: 30px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.22); }
-        .tg-edm-tramo { position: absolute; top: 30px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.75); }
-        .tg-edm-punto { position: absolute; top: 32px; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #ff2d6f; box-shadow: 0 0 0 3px rgba(255,45,111,0.25); }
-        .tg-edm-fin { position: absolute; top: 32px; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: rgba(255,255,255,0.8); }
-        .tg-edm-hora { position: absolute; top: 0; transform: translateX(-50%); font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.14); white-space: nowrap; }
-        .tg-edm-onda { position: relative; height: ${EDM_ALTO + 32}px; margin-top: 14px; overflow: hidden; touch-action: none; cursor: grab; }
-        .tg-edm-onda:active { cursor: grabbing; }
-        .tg-edm-b { position: absolute; left: 0; top: 50%; margin-top: ${(EDM_ALTO / -2) + 6}px; width: ${EDM_BAR}px; height: 10px; border-radius: 2px; background: #fff; opacity: 0;
-          transform-origin: 50% 50%; will-change: translate, scale, opacity;
-          transition: scale 0.55s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.45s ease; }
-        .tg-edm-linea { position: absolute; left: 50%; top: 14px; bottom: 0; width: 3px; margin-left: -1.5px; border-radius: 2px; background: #ff2d6f; pointer-events: none; }
-        .tg-edm-linea::before { content: ''; position: absolute; left: 50%; top: -12px; margin-left: -7px; border: 7px solid transparent; border-top: 11px solid #ff2d6f; border-bottom: 0; }
-        .tg-edm-aj { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
-        .tg-edm-aj label { display: grid; grid-template-columns: 74px 1fr 82px; align-items: center; gap: 10px; font-size: 14px; }
-        .tg-edm-aj label em { font-style: normal; font-size: 13px; opacity: 0.75; text-align: right; }
-        .tg-edm-aj input[type=range] { width: 100%; accent-color: #ff2d6f; margin: 0; }
-        .tg-edm-msg { min-height: 18px; margin-top: 10px; font-size: 12.5px; opacity: 0.7; text-align: center; }
-        @media (prefers-reduced-motion: reduce) { .tg-edm-b { transition: none; } }`;
-      (document.head || document.documentElement).appendChild(st);
-    }
-    // ---------- estado ----------
-    let buf = null, total = 0, picos = null, nB = 0;
-    let ini = 0;              // punto de inicio elegido (s)
-    let vista = 0;            // posición que se ve (igual a ini, salvo mientras suena la vista previa)
-    let durFija = null;       // null = hasta el final de la canción
-    let fade = 2;             // s (entrada y salida)
-    let nombre = 'Canción';
-    let ctx = null, fuente = null, gan = null, raf = 0, sonando = false, guardando = false, cw = 0;
-    const durEf = () => durFija == null ? Math.max(1, total - ini) : Math.max(1, Math.min(durFija, total - ini));
-    const fadeEf = () => Math.min(fade, durEf() / 2);
-
-    // ---------- DOM ----------
-    const svg = (d, extra) => hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', Object.assign({ d }, extra || {})));
-    const bX = h('button', { class: 'tg-edm-ic', type: 'button', 'aria-label': 'Cerrar' }, svg('M6 6l12 12M18 6L6 18'));
-    const bOk = h('button', { class: 'tg-edm-ic', type: 'button', 'aria-label': 'Guardar', disabled: true }, svg('M5 12.5l4.5 4.5L19 7.5'));
-    const bPlay = h('button', { class: 'tg-edm-ic tg-edm-play', type: 'button', 'aria-label': 'Escuchar', disabled: true });
-    const tSub = h('span', null, 'Cargando…');
-    const hora = h('span', { class: 'tg-edm-hora' }, '0:00');
-    const punto = h('span', { class: 'tg-edm-punto' });
-    const fin = h('span', { class: 'tg-edm-fin' });
-    const tramo = h('span', { class: 'tg-edm-tramo' });
-    const pista = h('div', { class: 'tg-edm-pista' }, tramo, fin, punto, hora);
-    const onda = h('div', { class: 'tg-edm-onda' }, h('span', { class: 'tg-edm-linea' }));
-    const rFade = h('input', { type: 'range', min: '0', max: '8', step: '0.5', value: String(fade) });
-    const rDur = h('input', { type: 'range', min: '1', max: '60', step: '1', value: '60' });
-    const vFade = h('em', null, '');
-    const vDur = h('em', null, '');
-    const msg = h('div', { class: 'tg-edm-msg' }, '');
-    const pool = [];
-    for (let k = 0; k < EDM_N; k++) { const b = h('span', { class: 'tg-edm-b' }); b._j = null; pool.push(b); onda.appendChild(b); }
-    const velo = h('div', { id: 'tg-edm' },
-      h('div', { class: 'tg-edm-card', role: 'dialog', 'aria-label': 'Editar música de bienvenida' },
-        h('div', { class: 'tg-edm-top' }, h('div', { class: 'tg-edm-tit' }, h('b', null, 'Editar música'), tSub), bX, bOk),
-        h('div', { class: 'tg-edm-fila' }, bPlay, pista),
-        onda,
-        h('div', { class: 'tg-edm-aj' },
-          h('label', null, 'Fade', rFade, vFade),
-          h('label', null, 'Duración', rDur, vDur)),
-        msg));
-    document.documentElement.appendChild(velo);
-
-    const iconoPlay = () => { bPlay.textContent = ''; bPlay.appendChild(svg(sonando ? 'M6 5h4v14H6zM14 5h4v14h-4z' : 'M8 5v14l11-7z')); };
-    iconoPlay();
-
-    // ---------- dibujo ----------
-    function pintarOnda() {
-      if (!picos) return;
-      const pi = vista / EDM_SEG, base = Math.floor(pi) - (EDM_N >> 1), cx = cw / 2;
-      for (let j = base; j < base + EDM_N; j++) {
-        const el = pool[((j % EDM_N) + EDM_N) % EDM_N];
-        const dist = pi - (j + 0.5);                       // > 0: la barrita está a la izquierda de la rayita (se salta)
-        const fuera = j < 0 || j >= nB;
-        let esc = 1, op = 1;
-        if (dist > 0) { esc = Math.max(0.2, 1 - dist * 0.05); op = Math.max(0.12, 1 - dist * 0.055); }
-        if (fuera) op = 0;
-        if (el._j !== j) { el._j = j; el.style.height = (8 + (EDM_ALTO - 8) * (fuera ? 0 : picos[j])) + 'px'; }
-        el.style.translate = (cx + (j - pi) * EDM_STEP - EDM_BAR / 2) + 'px 0';
-        el.style.scale = '1 ' + esc;
-        el.style.opacity = String(op);
-      }
-    }
-    function pintarPista() {
-      const f = total ? Math.min(1, vista / total) : 0, fe = total ? Math.min(1, (ini + durEf()) / total) : 1;
-      punto.style.left = (f * 100) + '%'; hora.style.left = Math.max(7, Math.min(93, f * 100)) + '%';
-      hora.textContent = fmtTiempo(vista);
-      tramo.style.left = ((total ? ini / total : 0) * 100) + '%'; tramo.style.width = (Math.max(0, fe - (total ? ini / total : 0)) * 100) + '%';
-      fin.style.left = (fe * 100) + '%';
-    }
-    function pintarAjustes() {
-      const maxD = Math.max(1, Math.floor(total - ini)), minD = Math.min(3, maxD);
-      rDur.min = String(minD); rDur.max = String(maxD);
-      rDur.value = String(durFija == null ? maxD : Math.min(durFija, maxD));
-      vDur.textContent = (durFija == null || durFija >= maxD) ? 'Hasta el final' : fmtTiempo(durFija);
-      rFade.max = String(Math.max(0, Math.min(8, Math.floor(durEf() / 2 * 2) / 2)));
-      vFade.textContent = fade > 0 ? fade.toFixed(1).replace('.0', '') + ' s' : 'Sin fade';
-    }
-    function pintarTodo() { pintarAjustes(); pintarPista(); pintarOnda(); }
-
-    // ---------- vista previa ----------
-    function detener() {
-      if (raf) cancelAnimationFrame(raf); raf = 0;
-      if (fuente) { try { fuente.onended = null; fuente.stop(); } catch (e) { /* ya parado */ } fuente = null; }
-      if (gan) { try { gan.disconnect(); } catch (e) { /* nada */ } gan = null; }
-      sonando = false; iconoPlay(); vista = ini; pintarPista(); pintarOnda();
-    }
-    function reproducir() {
-      if (!buf) return;
-      detener();
-      try {
-        if (!ctx) { const AC = window.AudioContext || window.webkitAudioContext; ctx = new AC(); }
-        if (ctx.state === 'suspended') ctx.resume();
-        const dur = durEf(), f = fadeEf(), t0 = ctx.currentTime + 0.05, p0 = ini;
-        gan = ctx.createGain(); fuente = ctx.createBufferSource(); fuente.buffer = buf;
-        fuente.connect(gan); gan.connect(ctx.destination);
-        if (f > 0) {
-          gan.gain.setValueAtTime(0, t0); gan.gain.linearRampToValueAtTime(1, t0 + f);
-          gan.gain.setValueAtTime(1, t0 + Math.max(f, dur - f)); gan.gain.linearRampToValueAtTime(0, t0 + dur);
-        }
-        const mia = fuente;
-        mia.onended = () => { if (fuente === mia) detener(); };
-        mia.start(t0, p0, dur);
-        sonando = true; iconoPlay();
-        const paso = () => {
-          if (!sonando) return;
-          vista = Math.min(total, p0 + Math.max(0, ctx.currentTime - t0));
-          pintarPista(); pintarOnda(); raf = requestAnimationFrame(paso);
-        };
-        raf = requestAnimationFrame(paso);
-      } catch (e) { sonando = false; iconoPlay(); msg.textContent = 'No se pudo reproducir la vista previa.'; }
-    }
-
-    // ---------- gestos ----------
-    function moverInicio(s) { ini = Math.max(0, Math.min(Math.max(0, total - 1), s)); vista = ini; pintarTodo(); }
-    onda.addEventListener('pointerdown', (ev) => {
-      if (!buf) return;
-      if (sonando) detener();
-      const x0 = ev.clientX, p0 = ini;
-      try { onda.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
-      const mover = (e) => moverInicio(p0 - ((e.clientX - x0) / EDM_STEP) * EDM_SEG);
-      const soltar = () => { onda.removeEventListener('pointermove', mover); onda.removeEventListener('pointerup', soltar); onda.removeEventListener('pointercancel', soltar); };
-      onda.addEventListener('pointermove', mover); onda.addEventListener('pointerup', soltar); onda.addEventListener('pointercancel', soltar);
-    });
-    pista.addEventListener('pointerdown', (ev) => {
-      if (!buf) return;
-      if (sonando) detener();
-      try { pista.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
-      const poner = (e) => { const r = pista.getBoundingClientRect(); moverInicio(((e.clientX - r.left) / r.width) * total); };
-      poner(ev);
-      const soltar = () => { pista.removeEventListener('pointermove', poner); pista.removeEventListener('pointerup', soltar); pista.removeEventListener('pointercancel', soltar); };
-      pista.addEventListener('pointermove', poner); pista.addEventListener('pointerup', soltar); pista.addEventListener('pointercancel', soltar);
-    });
-    rFade.addEventListener('input', () => { fade = parseFloat(rFade.value) || 0; if (sonando) detener(); pintarAjustes(); });
-    rDur.addEventListener('input', () => {
-      const v = parseInt(rDur.value, 10), maxD = parseInt(rDur.max, 10);
-      durFija = v >= maxD ? null : v; if (sonando) detener(); pintarAjustes(); pintarPista();
-    });
-    bPlay.addEventListener('click', () => { if (sonando) detener(); else reproducir(); });
-
-    // ---------- cerrar / guardar ----------
-    function cerrar() {
-      detener(); document.removeEventListener('keydown', alTeclear, true);
-      try { if (ctx) ctx.close(); } catch (e) { /* nada */ }
-      velo.remove();
-    }
-    function alTeclear(e) { if (e.key === 'Escape') { e.stopPropagation(); cerrar(); } }
-    document.addEventListener('keydown', alTeclear, true);
-    bX.addEventListener('click', cerrar);
-    velo.addEventListener('pointerdown', (e) => { if (e.target === velo) cerrar(); });
-    bOk.addEventListener('click', () => {
-      if (!buf || guardando) return;
-      guardando = true; detener(); bOk.disabled = true; bPlay.disabled = true; msg.textContent = 'Guardando tu copia editada…';
-      renderizarRecorte(buf, ini, durEf(), fadeEf()).then((ab) => new Promise((ok, fallo) => {
-        const r = new FileReader();
-        r.onload = () => ok(r.result); r.onerror = () => fallo(r.error);
-        r.readAsDataURL(new Blob([ab], { type: 'audio/wav' }));
-      })).then((url) => {
-        const base = nombre.replace(/\.[^.]+$/, '').replace(/ \(editada\)$/, '');
-        const nuevo = base + ' (editada).wav';
-        musicaCache = url;
-        try { PREFS_INICIALES.geminiAudioBienvenidaNombre = nuevo; } catch (e) { /* solo lectura */ }
-        prefsGuardar({ geminiAudioBienvenida: url, geminiAudioBienvenidaNombre: nuevo });
-        recargarAudioFlutter();
-        if (alGuardar) alGuardar(nuevo);
-        cerrar();
-      }).catch((e) => {
-        console.warn('[tg] no se pudo guardar la música editada:', e);
-        guardando = false; bOk.disabled = false; bPlay.disabled = false;
-        msg.textContent = 'No se pudo guardar. Prueba con una duración más corta.';
-      });
-    });
-
-    // ---------- carga ----------
-    obtenerAudioActual((ab, nom) => {
-      if (!document.getElementById('tg-edm')) return;
-      if (!ab) { tSub.textContent = 'Sin canción'; msg.textContent = 'Primero elige una canción con «Elegir» para poder editarla.'; return; }
-      nombre = nom || nombre;
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!ctx) ctx = new AC();
-      const alDecodificar = (b) => {
-        if (!document.getElementById('tg-edm')) return;
-        buf = b; total = b.duration; nB = Math.ceil(total / EDM_SEG); picos = new Float32Array(nB);
-        const d = b.getChannelData(0), sr = b.sampleRate, por = Math.max(1, Math.floor(sr * EDM_SEG));
-        let mx = 0.0001;
-        for (let i = 0; i < nB; i++) {
-          let m = 0; const a = i * por, z = Math.min(d.length, a + por), salto = Math.max(1, Math.floor(por / 200));
-          for (let s = a; s < z; s += salto) { const v = Math.abs(d[s]); if (v > m) m = v; }
-          picos[i] = m; if (m > mx) mx = m;
-        }
-        for (let i = 0; i < nB; i++) picos[i] = Math.sqrt(picos[i] / mx);
-        tSub.textContent = nombre; cw = onda.clientWidth || 380;
-        bOk.disabled = false; bPlay.disabled = false; msg.textContent = 'Arrastra las ondas para elegir dónde empieza.';
-        pintarTodo();
-      };
-      const fallo = () => { tSub.textContent = 'No se pudo leer'; msg.textContent = 'No se pudo decodificar esta canción.'; };
-      try { const p = ctx.decodeAudioData(ab, alDecodificar, fallo); if (p && p.catch) p.catch(() => {}); } catch (e) { fallo(); }
-    });
-    window.addEventListener('resize', function alCambiar() {
-      if (!document.getElementById('tg-edm')) { window.removeEventListener('resize', alCambiar); return; }
-      cw = onda.clientWidth || cw; pintarOnda();
-    });
-  }
+  // ============================================================================================
+  // EDITOR DE MÚSICA DE BIENVENIDA (Personalizar > Música de bienvenida > Editar)
+  // - Ondas con una rayita fija en el centro (triángulo hacia abajo): ahí EMPIEZA a sonar la canción. Arrastra las ondas para moverla.
+  //   Las ondas de la izquierda (lo que se salta) se hacen más pequeñas y transparentes cuanto más lejos, con transición de rebote suave.
+  // - Línea de arriba: punto = posición actual, con el minuto encima (m:ss). También se puede arrastrar.
+  // - Fade (entrada y salida) y Duración (desde el punto de inicio; al máximo = hasta que termine la canción).
+  // - Guardar = se renderiza una COPIA recortada (WAV con el fade aplicado) y reemplaza la música guardada. Así funciona igual en la
+  //   extensión y en la app Flutter (Dart reproduce el archivo ya recortado, no hace falta tocar Dart).
+  // ============================================================================================
+  const EDM_SEG = 0.25;                     // segundos que representa cada barrita
+  const EDM_BAR = 4, EDM_STEP = 8;          // ancho de la barrita y separación entre centros (px)
+  const EDM_N = 64;                         // barritas reutilizadas (cubren hasta ~512 px)
+  const EDM_ALTO = 64;                      // alto máximo de una barrita (px)
+  const EDM_MAX_WAV = 12 * 1024 * 1024;     // tope del archivo guardado (calidad original, sin bajar Hz ni canales)
+  let musicaCache = null;                   // data URL de la canción recién elegida/guardada (evita leer storage antes de que termine de escribir)
+  function fmtTiempo(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+  function dataUrlABuffer(u) {
+    const b = atob(u.slice(u.indexOf(',') + 1)), x = new Uint8Array(b.length);
+    for (let i = 0; i < b.length; i++) x[i] = b.charCodeAt(i);
+    return x.buffer;
+  }
+  function bufferAWav(b) {
+    const ch = b.numberOfChannels, n = b.length, sr = b.sampleRate, ab = new ArrayBuffer(44 + n * ch * 2), v = new DataView(ab);
+    const e = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    e(0, 'RIFF'); v.setUint32(4, 36 + n * ch * 2, true); e(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+    v.setUint16(22, ch, true); v.setUint32(24, sr, true); v.setUint32(28, sr * ch * 2, true); v.setUint16(32, ch * 2, true);
+    v.setUint16(34, 16, true); e(36, 'data'); v.setUint32(40, n * ch * 2, true);
+    const d = []; for (let c = 0; c < ch; c++) d.push(b.getChannelData(c));
+    let o = 44;
+    for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) { const x = Math.max(-1, Math.min(1, d[c][i])); v.setInt16(o, x < 0 ? x * 0x8000 : x * 0x7fff, true); o += 2; }
+    return ab;
+  }
+  // devuelve una Promise<ArrayBuffer WAV> con la copia recortada (desde ini, dur segundos) y con el fade aplicado
+  function renderizarRecorte(buf, ini, dur, fade) {
+    const ch = Math.min(2, buf.numberOfChannels), rate = buf.sampleRate;
+    if (dur * rate * ch * 2 > EDM_MAX_WAV) return Promise.reject(new Error('demasiado larga'));
+    const oc = new OfflineAudioContext(ch, Math.max(1, Math.ceil(dur * rate)), rate);
+    const s = oc.createBufferSource(), g = oc.createGain();
+    s.buffer = buf; s.connect(g); g.connect(oc.destination);
+    if (fade > 0) {
+      g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(1, fade);
+      g.gain.setValueAtTime(1, Math.max(fade, dur - fade)); g.gain.linearRampToValueAtTime(0, dur);
+    }
+    s.start(0, ini, dur);
+    return oc.startRendering().then(bufferAWav);
+  }
+  // MP3 SIN RECOMPRIMIR: copia solo los frames del tramo elegido (mismo bitrate y calidad que el original). Devuelve ArrayBuffer o null si no es un MP3 válido.
+  function cortarMp3(ab, ini, dur) {
+    const u = new Uint8Array(ab), n = u.length;
+    const BR1 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320], BR2 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
+    const SR = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+    let p = 0;
+    if (n > 10 && u[0] === 0x49 && u[1] === 0x44 && u[2] === 0x33) p = 10 + ((u[6] & 127) << 21 | (u[7] & 127) << 14 | (u[8] & 127) << 7 | (u[9] & 127));
+    const trozos = []; let t = 0, frames = 0;
+    while (p + 4 <= n) {
+      if (u[p] !== 0xff || (u[p + 1] & 0xe0) !== 0xe0) { p++; continue; }
+      const ver = (u[p + 1] >> 3) & 3, capa = (u[p + 1] >> 1) & 3, bi = u[p + 2] >> 4, si = (u[p + 2] >> 2) & 3, pad = (u[p + 2] >> 1) & 1;
+      if (ver === 1 || capa !== 1 || bi === 0 || bi === 15 || si === 3) { p++; continue; }
+      const br = (ver === 3 ? BR1 : BR2)[bi] * 1000, sr = SR[ver][si];
+      const len = ver === 3 ? Math.floor(144 * br / sr) + pad : Math.floor(72 * br / sr) + pad, dt = (ver === 3 ? 1152 : 576) / sr;
+      if (len < 24 || p + len > n) break;
+      if (t + dt > ini && t < ini + dur) trozos.push(u.subarray(p, p + len));
+      t += dt; frames++; p += len;
+      if (t >= ini + dur) break;
+    }
+    if (frames < 10 || !trozos.length) return null;
+    let tot = 0; trozos.forEach((x) => { tot += x.length; });
+    const o = new Uint8Array(tot); let q = 0; trozos.forEach((x) => { o.set(x, q); q += x.length; });
+    return o.buffer;
+  }
+  function obtenerAudioActual(cb) {
+    const deUrl = (u, nombre) => {
+      fetch(u).then((x) => x.arrayBuffer()).then((ab) => cb(ab, nombre)).catch(() => cb(null));
+    };
+    const decidir = (c, nombre) => {
+      if (c && /^data:/.test(c)) { try { cb(dataUrlABuffer(c), nombre); } catch (e) { cb(null); } return; }
+      if (c) { deUrl(c, nombre); return; }
+      if (ES_APP_FLUTTER) { cb(null); return; }
+      const u = urlAudioBienvenida();
+      if (u) deUrl(u, BIENVENIDA_AUDIO_ARCHIVO); else cb(null);
+    };
+    prefsLeer(['geminiAudioBienvenida', 'geminiAudioBienvenidaNombre'], (r) => {
+      const nombre = typeof r.geminiAudioBienvenidaNombre === 'string' ? r.geminiAudioBienvenidaNombre : 'Canción';
+      decidir(musicaCache || (typeof r.geminiAudioBienvenida === 'string' ? r.geminiAudioBienvenida : ''), nombre);
+    });
+  }
+  function abrirEditorMusica(alGuardar) {
+    if (document.getElementById('tg-edm')) return;
+    if (!document.getElementById('tg-edm-style')) {
+      const st = document.createElement('style'); st.id = 'tg-edm-style';
+      st.textContent = `
+        #tg-edm { --edm-ac: #1a73e8; --edm-tx: #fff; position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; padding: 14px; box-sizing: border-box;
+          background: rgba(0,0,0,0.55); font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif; color: #fff; }
+        #tg-edm * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        .tg-edm-card { width: 100%; max-width: 460px; background: #0f0805; border-radius: 28px; padding: 18px 18px 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
+        .tg-edm-top { display: flex; align-items: center; gap: 10px; }
+        .tg-edm-tit { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+        .tg-edm-tit b { font-size: 18px; font-weight: 600; }
+        .tg-edm-tit span { font-size: 13px; opacity: 0.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tg-edm-ic { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 0; background: transparent; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+        .tg-edm-ic svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .tg-edm-ic.tg-edm-play { width: 44px; height: 44px; background: var(--edm-ac); color: var(--edm-tx); }
+        .tg-edm-ic.tg-edm-play svg { fill: currentColor; stroke: none; width: 22px; height: 22px; }
+        .tg-edm-ic[disabled] { opacity: 0.4; pointer-events: none; }
+        .tg-edm-fila { display: flex; align-items: flex-end; gap: 14px; margin-top: 10px; }
+        .tg-edm-pista { position: relative; flex: 1 1 auto; height: 44px; touch-action: none; cursor: pointer; margin-right: 6px; }
+        .tg-edm-pista::before { content: ''; position: absolute; left: 0; right: 0; top: 30px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.22); }
+        .tg-edm-tramo { position: absolute; top: 30px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.75); }
+        .tg-edm-punto { position: absolute; top: 32px; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: var(--edm-ac); box-shadow: 0 0 0 3px color-mix(in srgb, var(--edm-ac) 30%, transparent); }
+        .tg-edm-fin { position: absolute; top: 32px; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: rgba(255,255,255,0.8); }
+        .tg-edm-hora { position: absolute; top: 0; transform: translateX(-50%); font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.14); white-space: nowrap; }
+        .tg-edm-onda { position: relative; height: ${EDM_ALTO + 46}px; margin-top: 14px; overflow: hidden; touch-action: none; cursor: grab; }
+        .tg-edm-onda:active { cursor: grabbing; }
+        .tg-edm-b { position: absolute; left: 0; top: calc(50% + 8px); width: ${EDM_BAR}px; height: 10px; border-radius: 2px; background: #fff; opacity: 0;
+          transform-origin: 50% 50%; will-change: translate, scale, opacity;
+          transition: scale 0.55s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.45s ease; }
+        .tg-edm-linea { position: absolute; left: 50%; top: 16px; bottom: 0; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--edm-ac); pointer-events: none; }
+        .tg-edm-linea::before { content: ''; position: absolute; left: 50%; top: -12px; margin-left: -7px; border: 7px solid transparent; border-top: 11px solid var(--edm-ac); border-bottom: 0; }
+        .tg-edm-aj { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+        .tg-edm-aj label { display: grid; grid-template-columns: 74px 1fr 82px; align-items: center; gap: 10px; font-size: 14px; }
+        .tg-edm-aj label em { font-style: normal; font-size: 13px; opacity: 0.75; text-align: right; }
+        .tg-edm-aj input[type=range] { width: 100%; accent-color: var(--edm-ac); margin: 0; }
+        .tg-edm-msg { min-height: 18px; margin-top: 10px; font-size: 12.5px; opacity: 0.7; text-align: center; }
+        @media (prefers-reduced-motion: reduce) { .tg-edm-b { transition: none; } }`;
+      (document.head || document.documentElement).appendChild(st);
+    }
+    // ---------- estado ----------
+    let buf = null, total = 0, picos = null, nB = 0;
+    let ini = 0;              // punto de inicio elegido (s)
+    let vista = 0;            // posición que se ve (igual a ini, salvo mientras suena la vista previa)
+    let durFija = null;       // null = hasta el final de la canción
+    let fade = 2;             // s (entrada y salida)
+    let nombre = 'Canción';
+    let ctx = null, fuente = null, gan = null, raf = 0, sonando = false, guardando = false, cw = 0, crudo = null;
+    const durEf = () => durFija == null ? Math.max(1, total - ini) : Math.max(1, Math.min(durFija, total - ini));
+    const fadeEf = () => Math.min(fade, durEf() / 2);
+
+    // ---------- DOM ----------
+    const svg = (d, extra) => hs('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }, hs('path', Object.assign({ d }, extra || {})));
+    const bX = h('button', { class: 'tg-edm-ic', type: 'button', 'aria-label': 'Cerrar' }, svg('M6 6l12 12M18 6L6 18'));
+    const bOk = h('button', { class: 'tg-edm-ic', type: 'button', 'aria-label': 'Guardar', disabled: true }, svg('M5 12.5l4.5 4.5L19 7.5'));
+    const bPlay = h('button', { class: 'tg-edm-ic tg-edm-play', type: 'button', 'aria-label': 'Escuchar', disabled: true });
+    const tSub = h('span', null, 'Cargando…');
+    const hora = h('span', { class: 'tg-edm-hora' }, '0:00');
+    const punto = h('span', { class: 'tg-edm-punto' });
+    const fin = h('span', { class: 'tg-edm-fin' });
+    const tramo = h('span', { class: 'tg-edm-tramo' });
+    const pista = h('div', { class: 'tg-edm-pista' }, tramo, fin, punto, hora);
+    const onda = h('div', { class: 'tg-edm-onda' }, h('span', { class: 'tg-edm-linea' }));
+    const rFade = h('input', { type: 'range', min: '0', max: '8', step: '0.5', value: String(fade) });
+    const rDur = h('input', { type: 'range', min: '1', max: '60', step: '1', value: '60' });
+    const vFade = h('em', null, '');
+    const vDur = h('em', null, '');
+    const msg = h('div', { class: 'tg-edm-msg' }, '');
+    const pool = [];
+    for (let k = 0; k < EDM_N; k++) { const b = h('span', { class: 'tg-edm-b' }); b._j = null; pool.push(b); onda.appendChild(b); }
+    const velo = h('div', { id: 'tg-edm' },
+      h('div', { class: 'tg-edm-card', role: 'dialog', 'aria-label': 'Editar música de bienvenida' },
+        h('div', { class: 'tg-edm-top' }, h('div', { class: 'tg-edm-tit' }, h('b', null, 'Editar música'), tSub), bX, bOk),
+        h('div', { class: 'tg-edm-fila' }, bPlay, pista),
+        onda,
+        h('div', { class: 'tg-edm-aj' },
+          h('label', null, 'Fade', rFade, vFade),
+          h('label', null, 'Duración', rDur, vDur)),
+        msg));
+    try { velo.style.setProperty('--edm-ac', burbujaCSS(burbuja, false)); velo.style.setProperty('--edm-tx', burbujaTexto(burbuja)); } catch (e) { /* queda el azul por defecto */ }
+    document.documentElement.appendChild(velo);
+
+    const iconoPlay = () => { bPlay.textContent = ''; bPlay.appendChild(svg(sonando ? 'M6 5h4v14H6zM14 5h4v14h-4z' : 'M8 5v14l11-7z')); };
+    iconoPlay();
+
+    // ---------- dibujo ----------
+    function pintarOnda() {
+      if (!picos) return;
+      const pi = vista / EDM_SEG, base = Math.floor(pi) - (EDM_N >> 1), cx = cw / 2;
+      for (let j = base; j < base + EDM_N; j++) {
+        const el = pool[((j % EDM_N) + EDM_N) % EDM_N];
+        const dist = pi - (j + 0.5);                       // > 0: la barrita está a la izquierda de la rayita (se salta)
+        const fuera = j < 0 || j >= nB;
+        let esc = 1, op = 1;
+        if (dist > 0) { esc = Math.max(0.2, 1 - dist * 0.05); op = Math.max(0.12, 1 - dist * 0.055); }
+        if (fuera) op = 0;
+        if (el._j !== j) { el._j = j; el.style.height = (8 + (EDM_ALTO - 8) * (fuera ? 0 : picos[j])) + 'px'; }
+        el.style.translate = (cx + (j - pi) * EDM_STEP - EDM_BAR / 2) + 'px -50%';
+        el.style.scale = '1 ' + esc;
+        el.style.opacity = String(op);
+      }
+    }
+    function pintarPista() {
+      const f = total ? Math.min(1, vista / total) : 0, fe = total ? Math.min(1, (ini + durEf()) / total) : 1;
+      punto.style.left = (f * 100) + '%'; hora.style.left = Math.max(7, Math.min(93, f * 100)) + '%';
+      hora.textContent = fmtTiempo(vista);
+      tramo.style.left = ((total ? ini / total : 0) * 100) + '%'; tramo.style.width = (Math.max(0, fe - (total ? ini / total : 0)) * 100) + '%';
+      fin.style.left = (fe * 100) + '%';
+    }
+    function pintarAjustes() {
+      const maxD = Math.max(1, Math.floor(total - ini)), minD = Math.min(3, maxD);
+      rDur.min = String(minD); rDur.max = String(maxD);
+      rDur.value = String(durFija == null ? maxD : Math.min(durFija, maxD));
+      vDur.textContent = (durFija == null || durFija >= maxD) ? 'Hasta el final' : fmtTiempo(durFija);
+      rFade.max = String(Math.max(0, Math.min(8, Math.floor(durEf() / 2 * 2) / 2)));
+      vFade.textContent = fade > 0 ? fade.toFixed(1).replace('.0', '') + ' s' : 'Sin fade';
+    }
+    function pintarTodo() { pintarAjustes(); pintarPista(); pintarOnda(); }
+
+    // ---------- vista previa ----------
+    function detener() {
+      if (raf) cancelAnimationFrame(raf); raf = 0;
+      if (fuente) { try { fuente.onended = null; fuente.stop(); } catch (e) { /* ya parado */ } fuente = null; }
+      if (gan) { try { gan.disconnect(); } catch (e) { /* nada */ } gan = null; }
+      sonando = false; iconoPlay(); vista = ini; pintarPista(); pintarOnda();
+    }
+    function reproducir() {
+      if (!buf) return;
+      detener();
+      try {
+        if (!ctx) { const AC = window.AudioContext || window.webkitAudioContext; ctx = new AC(); }
+        if (ctx.state === 'suspended') ctx.resume();
+        const dur = durEf(), f = fadeEf(), t0 = ctx.currentTime + 0.05, p0 = ini;
+        gan = ctx.createGain(); fuente = ctx.createBufferSource(); fuente.buffer = buf;
+        fuente.connect(gan); gan.connect(ctx.destination);
+        if (f > 0) {
+          gan.gain.setValueAtTime(0, t0); gan.gain.linearRampToValueAtTime(1, t0 + f);
+          gan.gain.setValueAtTime(1, t0 + Math.max(f, dur - f)); gan.gain.linearRampToValueAtTime(0, t0 + dur);
+        }
+        const mia = fuente;
+        mia.onended = () => { if (fuente === mia) detener(); };
+        mia.start(t0, p0, dur);
+        sonando = true; iconoPlay();
+        const paso = () => {
+          if (!sonando) return;
+          vista = Math.min(total, p0 + Math.max(0, ctx.currentTime - t0));
+          pintarPista(); pintarOnda(); raf = requestAnimationFrame(paso);
+        };
+        raf = requestAnimationFrame(paso);
+      } catch (e) { sonando = false; iconoPlay(); msg.textContent = 'No se pudo reproducir la vista previa.'; }
+    }
+
+    // ---------- gestos ----------
+    function moverInicio(s) { ini = Math.max(0, Math.min(Math.max(0, total - 1), s)); vista = ini; pintarTodo(); }
+    onda.addEventListener('pointerdown', (ev) => {
+      if (!buf) return;
+      if (sonando) detener();
+      const x0 = ev.clientX, p0 = ini;
+      try { onda.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
+      const mover = (e) => moverInicio(p0 - ((e.clientX - x0) / EDM_STEP) * EDM_SEG);
+      const soltar = () => { onda.removeEventListener('pointermove', mover); onda.removeEventListener('pointerup', soltar); onda.removeEventListener('pointercancel', soltar); };
+      onda.addEventListener('pointermove', mover); onda.addEventListener('pointerup', soltar); onda.addEventListener('pointercancel', soltar);
+    });
+    pista.addEventListener('pointerdown', (ev) => {
+      if (!buf) return;
+      if (sonando) detener();
+      try { pista.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
+      const poner = (e) => { const r = pista.getBoundingClientRect(); moverInicio(((e.clientX - r.left) / r.width) * total); };
+      poner(ev);
+      const soltar = () => { pista.removeEventListener('pointermove', poner); pista.removeEventListener('pointerup', soltar); pista.removeEventListener('pointercancel', soltar); };
+      pista.addEventListener('pointermove', poner); pista.addEventListener('pointerup', soltar); pista.addEventListener('pointercancel', soltar);
+    });
+    rFade.addEventListener('input', () => { fade = parseFloat(rFade.value) || 0; if (sonando) detener(); pintarAjustes(); });
+    rDur.addEventListener('input', () => {
+      const v = parseInt(rDur.value, 10), maxD = parseInt(rDur.max, 10);
+      durFija = v >= maxD ? null : v; if (sonando) detener(); pintarAjustes(); pintarPista();
+    });
+    bPlay.addEventListener('click', () => { if (sonando) detener(); else reproducir(); });
+
+    // ---------- cerrar / guardar ----------
+    function cerrar() {
+      detener(); document.removeEventListener('keydown', alTeclear, true);
+      try { if (ctx) ctx.close(); } catch (e) { /* nada */ }
+      velo.remove();
+    }
+    function alTeclear(e) { if (e.key === 'Escape') { e.stopPropagation(); cerrar(); } }
+    document.addEventListener('keydown', alTeclear, true);
+    bX.addEventListener('click', cerrar);
+    velo.addEventListener('pointerdown', (e) => { if (e.target === velo) cerrar(); });
+    bOk.addEventListener('click', () => {
+      if (!buf || guardando) return;
+      guardando = true; detener(); bOk.disabled = true; bPlay.disabled = true; msg.textContent = 'Guardando tu copia editada…';
+      // sin fade y con MP3 de origen: se corta el MP3 tal cual (calidad idéntica). Con fade hay que procesar el audio: se guarda WAV a calidad original.
+      let mp3 = null; try { if (fadeEf() === 0 && crudo) mp3 = cortarMp3(crudo, ini, durEf()); } catch (e) { mp3 = null; }
+      (mp3 ? Promise.resolve({ ab: mp3, ext: 'mp3', tipo: 'audio/mpeg' }) : renderizarRecorte(buf, ini, durEf(), fadeEf()).then((ab) => ({ ab, ext: 'wav', tipo: 'audio/wav' })))
+      .then((res) => new Promise((ok, fallo) => {
+        const r = new FileReader();
+        r.onload = () => ok({ url: r.result, ext: res.ext }); r.onerror = () => fallo(r.error);
+        r.readAsDataURL(new Blob([res.ab], { type: res.tipo }));
+      })).then((res) => {
+        const url = res.url;
+        const base = nombre.replace(/\.[^.]+$/, '').replace(/ \(editada\)$/, '');
+        const nuevo = base + ' (editada).' + res.ext;
+        musicaCache = url;
+        try { PREFS_INICIALES.geminiAudioBienvenidaNombre = nuevo; } catch (e) { /* solo lectura */ }
+        prefsGuardar({ geminiAudioBienvenida: url, geminiAudioBienvenidaNombre: nuevo });
+        recargarAudioFlutter();
+        if (alGuardar) alGuardar(nuevo);
+        cerrar();
+      }).catch((e) => {
+        console.warn('[tg] no se pudo guardar la música editada:', e);
+        guardando = false; bOk.disabled = false; bPlay.disabled = false;
+        msg.textContent = 'Pesa demasiado sin comprimir. Acorta la duración (o pon el fade en 0 si tu canción es MP3).';
+      });
+    });
+
+    // ---------- carga ----------
+    obtenerAudioActual((ab, nom) => {
+      if (!document.getElementById('tg-edm')) return;
+      if (!ab) { tSub.textContent = 'Sin canción'; msg.textContent = 'Primero elige una canción con «Elegir» para poder editarla.'; return; }
+      nombre = nom || nombre; crudo = ab.slice(0); // copia: decodeAudioData consume el original
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!ctx) ctx = new AC();
+      const alDecodificar = (b) => {
+        if (!document.getElementById('tg-edm')) return;
+        buf = b; total = b.duration; nB = Math.ceil(total / EDM_SEG); picos = new Float32Array(nB);
+        const d = b.getChannelData(0), sr = b.sampleRate, por = Math.max(1, Math.floor(sr * EDM_SEG));
+        let mx = 0.0001;
+        for (let i = 0; i < nB; i++) {
+          let m = 0; const a = i * por, z = Math.min(d.length, a + por), salto = Math.max(1, Math.floor(por / 200));
+          for (let s = a; s < z; s += salto) { const v = Math.abs(d[s]); if (v > m) m = v; }
+          picos[i] = m; if (m > mx) mx = m;
+        }
+        for (let i = 0; i < nB; i++) picos[i] = Math.sqrt(picos[i] / mx);
+        tSub.textContent = nombre; cw = onda.clientWidth || 380;
+        bOk.disabled = false; bPlay.disabled = false; msg.textContent = 'Arrastra las ondas para elegir dónde empieza.';
+        pintarTodo();
+      };
+      const fallo = () => { tSub.textContent = 'No se pudo leer'; msg.textContent = 'No se pudo decodificar esta canción.'; };
+      try { const p = ctx.decodeAudioData(ab, alDecodificar, fallo); if (p && p.catch) p.catch(() => {}); } catch (e) { fallo(); }
+    });
+    window.addEventListener('resize', function alCambiar() {
+      if (!document.getElementById('tg-edm')) { window.removeEventListener('resize', alCambiar); return; }
+      cw = onda.clientWidth || cw; pintarOnda();
+    });
+  }
   function crearFilaMusica() {
     if (!document.getElementById('tg-mus-style')) {
       const e = document.createElement('style'); e.id = 'tg-mus-style';
