@@ -1580,6 +1580,16 @@
       };
     }
 
+    // La música NO empieza hasta que la página termina de cargar por completo (evento load). Como la animación del logo arranca cuando
+    // suena la canción, la bienvenida también espera ese momento. Si se desliza antes de que cargue, simplemente no llega a sonar.
+    function audioBienvenidaAlCargar(alEmpezar) {
+      let interno = null, parado = false;
+      const arrancar = () => { if (!parado && !interno) interno = audioBienvenida(alEmpezar); };
+      if (document.readyState === 'complete') arrancar();
+      else window.addEventListener('load', arrancar, { once: true });
+      return { detener() { parado = true; window.removeEventListener('load', arrancar); if (interno) interno.detener(); } };
+    }
+
     // logo de la bienvenida: SIEMPRE Gemini.png (la estrella dibujada solo sale si el archivo no llegó)
     function crearLogoBienvenida() {
       const url = urlLogoGemini();
@@ -1611,7 +1621,7 @@
         f.style.removeProperty('filter');          // quita el 28px inicial puesto en línea; la animación parte de él
         f.classList.add('tg-bv-enfocar');          // → en Alta: animation tgBvDesenfoque (56→5px); en Media/Baja ya estaba en 5px
       }
-      const audio = bienvenida ? audioBienvenida(() => { enfocarFondoBv(); setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS); }) : null; // música de fondo solo en la bienvenida
+      const audio = bienvenida ? audioBienvenidaAlCargar(() => { enfocarFondoBv(); setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS); }) : null; // música de fondo solo en la bienvenida
       fijarPantallaBloqueada(true); // desde ya, nada más de la extensión trabaja
       let desbloqueado = false;
       let marcaIniciada = false;
