@@ -299,6 +299,14 @@ class _ContentScreenState extends State<ContentScreen>
   DateTime _tecladoUltimoEnvio = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _tecladoTimer;
 
+  // ---- LOGIN DE GOOGLE ----
+  // Al volver de accounts.google.com a Gemini se vuelve a mostrar la pantalla de carga hasta que content.js avise ('tgLoginListo').
+  // La música NO se corta ni reinicia (_retornoLogin evita el seek(0) del 'play').
+  bool _enLogin = false;
+  bool _esperandoLogin = false;
+  bool _retornoLogin = false;
+  bool _mantenerAudio = false;
+
   // ---- SPLASH (capa negra + logo por encima del WebView) ----
   // se completa cuando la página termina de cargar (onLoadStop); la canción arranca con él, antes del fade del splash
   final Completer<void> _splashListo = Completer<void>();
@@ -377,7 +385,7 @@ class _ContentScreenState extends State<ContentScreen>
   //         Úsalo mientras pruebas cambios locales: si no, el script de GitHub (y su caché) GANA sobre tu archivo local.
   // false = flujo normal: GitHub -> caché -> assets.
   static const bool _soloAssetLocal =
-      true; // true SOLO mientras pruebas un content.js local (ignora GitHub y el caché)
+      false; // true SOLO mientras pruebas un content.js local (ignora GitHub y el caché)
 
   String _origenScript = 'ninguno'; // 'github' | 'cache' | 'asset' | 'ninguno'
 
@@ -395,7 +403,7 @@ class _ContentScreenState extends State<ContentScreen>
   // KERNEL de la app: súbelo (1, 2, 3...) cuando cambies este Dart o agregues algo que el script necesite.
   // Debe coincidir con TG_KERNEL de content.js; si no coinciden, content.js no activa nada y pide instalar la app nueva.
   static const int _kernel =
-      5; // OJO: si cambias esto, también cambia TG_KERNEL en content.js
+      6; // OJO: si cambias esto, también cambia TG_KERNEL en content.js
 
   // Lee TG_KERNEL del texto de un script (null si no existe)
   static int? _kernelDeScript(String? script) {
@@ -505,11 +513,12 @@ class _ContentScreenState extends State<ContentScreen>
           }
           if (!identical(_audioBienvenida, p))
             break; // mientras esperaba llegó un stop (o otro play)
-          if (p.state == PlayerState.playing)
+          if (p.state == PlayerState.playing && !_retornoLogin)
             await p.seek(
               Duration.zero,
             ); // recarga de la página: vuelve a empezar
           _audioIniciado = true;
+          _retornoLogin = false;
           await p.resume();
           final desde = _paginaCargadaEn;
           if (desde != null) {
@@ -518,7 +527,12 @@ class _ContentScreenState extends State<ContentScreen>
             );
           }
           break;
+        case 'mantener':
+          _mantenerAudio =
+              true; // se va a Google: el pause por visibilitychange de la página se ignora
+          break;
         case 'pause':
+          if (_mantenerAudio) break;
           await _audioBienvenida?.pause();
           break;
         case 'resume':
@@ -533,6 +547,7 @@ class _ContentScreenState extends State<ContentScreen>
         case 'stop':
           _audioSolicitado = false;
           _audioIniciado = false;
+          _mantenerAudio = false;
           _desvanecerAudioBienvenida();
           break;
       }
@@ -947,18 +962,27 @@ class _ContentScreenState extends State<ContentScreen>
       source: _prefsInicialesJs,
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
       forMainFrameOnly: true,
+      allowedOriginRules: {
+        'https://gemini.google.com',
+      }, // solo en Gemini (no en accounts.google.com)
     ),
     if (_lenis.isNotEmpty)
       UserScript(
         source: _lenis,
         injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
         forMainFrameOnly: true,
+        allowedOriginRules: {
+          'https://gemini.google.com',
+        }, // solo en Gemini (no en accounts.google.com)
       ),
     if (_contentJs.isNotEmpty)
       UserScript(
         source: _contentJs,
         injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
         forMainFrameOnly: true,
+        allowedOriginRules: {
+          'https://gemini.google.com',
+        }, // solo en Gemini (no en accounts.google.com)
       ),
   ];
 
@@ -1010,7 +1034,9 @@ class _ContentScreenState extends State<ContentScreen>
   ) async {
     try {
       // da un momento a que los UserScripts AT_DOCUMENT_END terminen
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(
+        Duration(milliseconds: _esperandoLogin ? 1200 : 600),
+      );
       final host = url?.host ?? '';
       if (!host.contains('gemini.google.com')) {
         // p. ej. pantalla de login de Google: no hay content.js que esperar, se muestra la página
@@ -1049,6 +1075,8 @@ class _ContentScreenState extends State<ContentScreen>
     // página cargada y content.js corrido (o intento de respaldo hecho): se quita el splash
     // pequeña pausa para que content.js pinte tema/fondo/bloqueo antes de revelar
     await Future.delayed(const Duration(milliseconds: 250));
+    if (_esperandoLogin)
+      return; // regreso del login: el splash lo quita 'tgLoginListo' (content.js ya está inyectado)
     _ocultarSplash();
   }
 
@@ -1150,6 +1178,11 @@ class _ContentScreenState extends State<ContentScreen>
         preferredContentMode: UserPreferredContentMode.MOBILE,
         hardwareAcceleration: true,
         supportZoom: false,
+        // Login de Google: rechaza WebViews ("disallowed_useragent"), así que se identifica como Chrome móvil (sin "wv")
+        userAgent:
+            'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+        thirdPartyCookiesEnabled: true,
+        domStorageEnabled: true,
       ),
 
       onWebViewCreated: (controller) {
@@ -1174,6 +1207,17 @@ class _ContentScreenState extends State<ContentScreen>
           callback: (args) async {
             if (args.isEmpty) return false;
             return await _audioBienvenidaAccion('${args[0]}');
+          },
+        );
+
+        // content.js -> Flutter: tras volver del login de Google, la tarjeta ya mostró la cuenta: se quita la pantalla de carga
+        controller.addJavaScriptHandler(
+          handlerName: 'tgLoginListo',
+          callback: (args) {
+            _esperandoLogin = false;
+            _mantenerAudio = false;
+            _ocultarSplash();
+            return true;
           },
         );
 
@@ -1234,6 +1278,28 @@ class _ContentScreenState extends State<ContentScreen>
         if (t.contains('[tg]') ||
             msg.messageLevel == ConsoleMessageLevel.ERROR) {
           debugPrint('[web:${msg.messageLevel}] $t');
+        }
+      },
+      onLoadStart: (controller, url) {
+        final host = url?.host ?? '';
+        if (host.contains('accounts.google.com')) {
+          _enLogin = true;
+          if (_audioIniciado && !_audioPausadoPorApp)
+            _audioBienvenida?.resume(); // por si el pause llegó antes
+        } else if (_enLogin && host.contains('gemini.google.com') && mounted) {
+          _enLogin = false;
+          _esperandoLogin = true;
+          _retornoLogin = true;
+          _splashSeguro?.cancel();
+          _splashSeguro = Timer(const Duration(seconds: 15), () {
+            _esperandoLogin = false;
+            _mantenerAudio = false;
+            _ocultarSplash();
+          });
+          setState(() {
+            _splashVisible = true;
+            _splashQuitado = false;
+          });
         }
       },
       onProgressChanged: (controller, progreso) => _progresoPagina = progreso,

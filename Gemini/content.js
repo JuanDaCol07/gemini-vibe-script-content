@@ -1,4 +1,5 @@
 (function () {
+  if (location.hostname !== 'gemini.google.com') return; // igual que el manifest (matches): la extensión solo corre en Gemini, nunca en accounts.google.com
 
   // ============================================================================================
   // KERNEL (compatibilidad entre este script y la app Flutter)
@@ -12,7 +13,7 @@
 
 
 
-  const TG_KERNEL = 5; // No cambies esto, YO lo cambiare si es nesesario.
+  const TG_KERNEL = 6; // No cambies esto, YO lo cambiare si es nesesario.
 
   // ============================================================================================
   // TG_FIX (versión de arreglos: decide cuándo sale la bienvenida de ACTUALIZACIÓN con las novedades)
@@ -23,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 2; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 0; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -40,6 +41,8 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
+• La bienvenida de primera vez ahora dice «¡Hola!» y alterna con «¡Gemini de toda la vida ha recibido un glow up!».
+• En la tarjeta de la pantalla de bloqueo, cuando ya hay un PIN aparece el botón «Cambiar PIN» (sin pedir el actual) y avisos sobre qué pasa si lo olvidas y cómo se guarda.
 • Primera vez: nueva guía «Antes de comenzar...» (fondos, color de tu burbuja y rendimiento con ajuste automático según FPS y RAM), luego te pregunta si quieres pantalla de bloqueo y al final las novedades.
 • Ahora puedes poner tu propia música de bienvenida (Personalizar y Actualizaciones). «Quitar» vuelve a la canción original.
 • Las pantallas de la bienvenida funcionan como páginas: desliza hacia arriba para seguir y hacia abajo para volver.
@@ -1552,6 +1555,8 @@
       #tg-pin .tg-pin-accion:active { transform: scale(0.95); }
       #tg-pin .tg-pin-accion:focus-visible { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5); }
       #tg-pin .tg-pin-olvido { font-size: 14px; opacity: 0.9; }
+      #tg-pin .tg-pin-notas { width: calc(var(--tg-k) * 3 + var(--tg-kgap) * 2); max-width: calc(100vw - 40px); margin-top: 14px; display: flex; flex-direction: column; gap: 6px; text-align: center; font-size: 12px; line-height: 1.35; opacity: 0.8; }
+      #tg-pin .tg-pin-notas[hidden] { display: none; }
       @keyframes tgPinSacudir { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-12px); } 40% { transform: translateX(10px); } 60% { transform: translateX(-8px); } 80% { transform: translateX(5px); } }
       @media (prefers-reduced-motion: reduce) { #tg-pin, #tg-pin .tg-pin-contenido, #tg-pin .tg-pin-tecla, #tg-pin .tg-pin-punto { transition: none; } #tg-pin .tg-pin-puntos.tg-error { animation: none; } }
       @keyframes tgBloqueoFlota { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -8px); } }
@@ -1696,6 +1701,8 @@
       } catch (e) { /* queda solo en memoria */ }
     }
 
+    const NOTA_PIN_1 = 'Si se te olvida el PIN, tendrás que usar tu contraseña de Google.';
+    const NOTA_PIN_2 = '(Gemini Vibes no comparte información personal a terceros, todo se guarda encriptadamente en el dispositivo con fines de validación de autenticación)';
     const PIN_TECLAS = [
       { n: '1', l: '' }, { n: '2', l: 'ABC' }, { n: '3', l: 'DEF' }, { n: '4', l: 'GHI' }, { n: '5', l: 'JKL' },
       { n: '6', l: 'MNO' }, { n: '7', l: 'PQRS' }, { n: '8', l: 'TUV' }, { n: '9', l: 'WXYZ' }, { n: '0', l: '' }
@@ -1714,7 +1721,8 @@
               h('span', { class: 'tg-pin-tecla-letras' }, t.l)))),
           h('div', { class: 'tg-pin-pie' },
             h('button', { type: 'button', class: 'tg-pin-accion tg-pin-olvido' }, '¿Olvidaste el PIN?'),
-            h('button', { type: 'button', class: 'tg-pin-accion tg-pin-borrar' }, 'Cancelar'))
+            h('button', { type: 'button', class: 'tg-pin-accion tg-pin-borrar' }, 'Cancelar')),
+          h('div', { class: 'tg-pin-notas', hidden: true }, h('span', null, NOTA_PIN_1), h('span', null, NOTA_PIN_2))
         )
       );
       // mismo fondo que el bloqueo (queda difuminado por CSS)
@@ -1741,8 +1749,9 @@
       const elMsg = pin.querySelector('.tg-pin-msg');
       const elOlvido = pin.querySelector('.tg-pin-olvido');
       const elBorrar = pin.querySelector('.tg-pin-borrar');
+      const elNotas = pin.querySelector('.tg-pin-notas');
 
-      let modo = bloqueoPinHash ? 'ingresar' : 'crear1';
+      let modo = (bloqueoPinHash && !opc.forzarCrear) ? 'ingresar' : 'crear1'; // forzarCrear: cambiar PIN sin pedir el actual
       let primero = '';
       let digitos = '';
       let ocupado = false;
@@ -1753,6 +1762,7 @@
         else if (modo === 'crear1') { elTitulo.textContent = 'Crea tu código PIN'; elSub.textContent = 'Elige ' + BLOQUEO_PIN_LARGO + ' dígitos'; }
         else { elTitulo.textContent = 'Confirma tu código PIN'; elSub.textContent = 'Un último paso'; }
         elOlvido.style.visibility = modo === 'ingresar' ? '' : 'hidden';
+        elNotas.hidden = modo === 'ingresar'; // los avisos salen mientras se crea el PIN (nuevo o al cambiarlo)
         elBorrar.textContent = digitos.length ? 'Borrar' : 'Cancelar'; // como en el iPhone: Cancelar vuelve, Borrar quita el último dígito
         cajas.forEach((c, i) => {
           c.classList.toggle('tg-llena', i < digitos.length);
@@ -2046,6 +2056,7 @@
     }
 
     // ---- bloquear ----
+    const RETORNO_LOGIN = (() => { try { const v = localStorage.getItem('tg-login-retorno') === '1'; localStorage.removeItem('tg-login-retorno'); return v; } catch (e) { return false; } })();
     function pausarCuerpo(v) { raiz.classList.toggle('tg-bloqueo-pausa', !!v); }
     function bloquear(animado, bienvenida) { // bienvenida: false (reloj) | 'actualizacion' | 'inicio'
       if (bloqueado) return;
@@ -2064,6 +2075,7 @@
       }
       const audio = bienvenida ? audioBienvenidaAlCargar((ok) => {
         // app móvil: Dart devuelve false si el teléfono no cumple (página 100 % + música cargada + >= 20 FPS): sin cinemática ni música
+        if (RETORNO_LOGIN && bienvenida === 'actualizacion') { saltarALogin(); return; } // vuelve de iniciar sesión: sin cinemática, directo a la tarjeta (la música sigue)
         if (ok === false && ES_APP_FLUTTER) { mostrarPin(); return; } // mostrarPin respeta PIN / novedades / entrada directa
         enfocarFondoBv(); setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS);
       }) : null; // música de fondo solo en la bienvenida
@@ -2079,8 +2091,8 @@
                    // cada letra va en su propio span para animarla por separado (nacen invisibles; las anima iniciarMarca)
                    Array.from('Gemini Vibes').map((c) => h('span', { class: 'tg-b-bv-letra', 'aria-hidden': 'true', style: 'display:inline-block;opacity:0;will-change:transform,opacity;' }, c === ' ' ? ' ' : c))))),
              h('div', { class: 'tg-b-bv-sub' },
-               h('span', { class: 'tg-b-bv-sub-a' }, esActualizacion ? '¡Su extensión se ha actualizado!' : '¡Más hermoso que nunca!'),
-               h('span', { class: 'tg-b-bv-sub-b tg-off' }, esActualizacion ? 'Versión ' + TG_VERSION : '¡Bienvenido de vuelta!'))]
+               h('span', { class: 'tg-b-bv-sub-a' }, (esActualizacion && PRIMERA_VEZ) ? '¡Hola!' : esActualizacion ? '¡Su extensión se ha actualizado!' : '¡Más hermoso que nunca!'),
+               h('span', { class: 'tg-b-bv-sub-b tg-off' }, (esActualizacion && PRIMERA_VEZ) ? '¡Gemini de toda la vida ha recibido un glow up!' : esActualizacion ? 'Versión ' + TG_VERSION : '¡Bienvenido de vuelta!'))]
           : [h('div', { class: 'tg-b-hora' }), h('div', { class: 'tg-b-fecha' })],
         h('div', { class: 'tg-b-pista' },
           bienvenida
@@ -2240,6 +2252,11 @@ logo.animate([
         }, 1000);
       }
 
+      function saltarALogin() {
+        if (!paginas.length) { mostrarPin(); return; }
+        pinYaPasado = true;
+        irA(0);
+      }
       // 1) deslizar hacia arriba (o Espacio): la pantalla de bloqueo sube y debajo aparece la de PIN
       let enPin = false;
       let pinUI = null;
@@ -2254,6 +2271,8 @@ logo.animate([
       const els = [];       // páginas ya creadas
       let idx = -1;         // -1 = bienvenida; 0.. = página actual
       let navegando = false;
+      let loginOk = false;  // hay sesión de Google activa (lo actualiza la página de login)
+      const loginBloquea = () => idx >= 0 && !!els[idx] && els[idx]._tgLogin === true && !loginOk;
       let pinYaPasado = false;
       let arrastrePg = null;
       const hint = () => h('div', { class: 'tg-b-pista' }, h('span', null, 'Desliza hacia arriba para continuar'));
@@ -2299,7 +2318,7 @@ logo.animate([
         return h('div', { class: 'tg-pg' }, caja, hint());
       }
       function irA(nuevo) {
-        if (desbloqueado || navegando || nuevo === idx || nuevo < -1 || nuevo >= paginas.length) return;
+        if (desbloqueado || navegando || nuevo === idx || nuevo < -1 || nuevo >= paginas.length || loginBloquea()) return;
         const avanzar = nuevo > idx;
         const actual = idx < 0 ? pantalla : els[idx];
         let destino = nuevo < 0 ? pantalla : els[nuevo];
@@ -2327,7 +2346,7 @@ logo.animate([
         window.addEventListener('keydown', alTeclear, true);
       }
       function siguientePagina() {
-        if (desbloqueado) return;
+        if (desbloqueado || loginBloquea()) return;
         if (idx + 1 >= paginas.length) { desbloquear(); return; }
         irA(idx + 1);
       }
@@ -2336,6 +2355,7 @@ logo.animate([
       function activarArrastrePagina(el) {
         el.addEventListener('pointerdown', (e) => {
           if (!e.isPrimary || e.button !== 0 || desbloqueado || navegando) return;
+          if (el._tgLogin && !loginOk) return; // login obligatorio: la tarjeta no se arrastra
           const t = e.target;
           if (t && t.closest) {
             if (t.closest('button, input, label, a')) return; // los controles se tocan, no arrastran
@@ -2502,20 +2522,100 @@ logo.animate([
           if (bloqueoPinHash) { guardarBloqueoActivo(true); pintar(); return; } // ya hay un PIN creado: solo se activa
           window.removeEventListener('keydown', alTeclear, true); // mientras se crea el PIN, Espacio/Esc no mueven las páginas
           pinCrear = crearPantallaPin({
-            alCorrecto: () => { cerrarPinCrear(); guardarBloqueoActivo(true); pintar(); },
+            alCorrecto: () => { cerrarPinCrear(); guardarBloqueoActivo(true); pintar(); pintarPin(); },
             alVolver: () => { cerrarPinCrear(); guardarBloqueoActivo(false); pintar(); }
           });
           const el = document.getElementById('tg-pin'); if (el) el.classList.add('tg-pin-sobre'); // por encima de las tarjetas
         });
         no.addEventListener('click', () => { guardarBloqueoActivo(false); pintar(); });
-        pintar();
+        // CAMBIAR PIN: solo aparece cuando ya hay un PIN creado; repite el procedimiento de crearlo (2 veces) SIN pedir el actual.
+        // Si lo cancelas, el PIN anterior se conserva (solo se guarda al confirmar los dos códigos).
+        const cambiar = h('button', { class: 'tg-ob-grande', type: 'button', hidden: true }, 'Cambiar PIN', h('small', null, 'Crea un código nuevo.'));
+        const notaPin1 = h('div', { class: 'tg-ob-nota' }, NOTA_PIN_1);
+        const notaPin2 = h('div', { class: 'tg-ob-nota' }, NOTA_PIN_2);
+        const pintarPin = () => { const hay = !!bloqueoPinHash; cambiar.hidden = !hay; };
+        cambiar.addEventListener('click', () => {
+          if (pinCrear) return;
+          window.removeEventListener('keydown', alTeclear, true);
+          pinCrear = crearPantallaPin({
+            forzarCrear: true,
+            alCorrecto: () => { cerrarPinCrear(); pintarPin(); },
+            alVolver: () => { cerrarPinCrear(); pintarPin(); } // cancelar: se queda el PIN anterior y el estado del bloqueo no cambia
+          });
+          const el = document.getElementById('tg-pin'); if (el) el.classList.add('tg-pin-sobre');
+        });
+        pintar(); pintarPin();
         return paginaBase(h('div', { class: 'tg-b-nv-tarjeta tg-ob-tarjeta' },
           cabecera('¿Quieres pantalla de bloqueo?', 'Protege tu chat con un PIN de 4 dígitos. Si eliges «Sí», lo creas ahora. Puedes cambiarlo cuando quieras en Personalizar.'),
-          h('div', { class: 'tg-ob-scroll' }, si, no)));
+          h('div', { class: 'tg-ob-scroll' }, si, cambiar, no, notaPin1, notaPin2)));
+      }
+
+      // ---- PÁGINA: INICIO DE SESIÓN OBLIGATORIO (Google) ----
+      // Va justo después de deslizar la bienvenida y antes de "Antes de comenzar...". No se puede saltar: irA/siguientePagina/arrastre/teclado
+      // quedan bloqueados mientras NO haya una sesión de Google ACTIVA en el DOM (se vuelve a comprobar en vivo; el flag de localStorage solo evita repetirla).
+      const LOGIN_LS = 'tg-login-ok';
+      const RETORNO_LS = 'tg-login-retorno'; // se pone al ir a Google; al volver, la bienvenida se salta y se muestra la tarjeta de la cuenta
+      const loginGuardado = () => { try { return localStorage.getItem(LOGIN_LS) === '1'; } catch (e) { return false; } };
+      function leerSesionGoogle() {
+        try {
+          const a = document.querySelector('a[href*="accounts.google.com/SignOutOptions"], a[aria-label^="Cuenta de Google"], a[aria-label^="Google Account"]');
+          if (!a) return null;
+          const lbl = (a.getAttribute('aria-label') || '').replace(/\s+/g, ' ');
+          const m = lbl.match(/:\s*(.*?)\s*\(([^)]+@[^)]+)\)/);
+          const img = a.querySelector('.gb_me img, img');
+          return { nombre: (m && m[1]) || (lbl.split(':')[1] || '').trim() || 'amigo', foto: img && img.src && !/al-icon\.png/.test(img.src) ? img.src : '' };
+        } catch (e) { return null; }
+      }
+      function crearPaginaLogin() {
+        const url = (u) => 'https://accounts.google.com/' + u + 'continue=' + encodeURIComponent(location.href);
+        const estilo = h('style', null,
+          '.tg-lg-centrado{justify-content:center!important}.tg-lg-centrado .tg-ob-scroll{flex:none!important;overflow:visible!important}.tg-lg{width:100%;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:4px 2px}' +
+          '.tg-lg-av{width:clamp(72px,22vw,104px);aspect-ratio:1;border-radius:50%;object-fit:cover;display:flex;align-items:center;justify-content:center;background:var(--tg-nv-acento,#1a73e8);color:#fff;font-size:40px;font-weight:600}' +
+          '.tg-lg h3{margin:0;font-size:clamp(18px,5vw,22px)}.tg-lg p{margin:0;font-size:14px;opacity:.8}' +
+          '.tg-lg input{width:100%;box-sizing:border-box;padding:12px 14px;border-radius:14px;border:1px solid rgba(0,0,0,.25);font:inherit;font-size:15px;background:#fff;color:#1f1f1f}' +
+          '.tg-lg .tg-ob-grande{text-align:center}@keyframes tgLgFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}.tg-lg>*{animation:tgLgFade .7s ease both}');
+        const vista = h('div', { class: 'tg-lg' }, h('p', null, 'Comprobando sesión…'));
+        const pagina = paginaBase(h('div', { class: 'tg-b-nv-tarjeta tg-ob-tarjeta' },
+          cabecera('Inicia sesión', 'Deberás ingresar manualmente tu correo y tu contraseña debido a las políticas de seguridad de Google.'), h('div', { class: 'tg-ob-scroll', style: 'display:flex;flex-direction:column;justify-content:center' }, estilo, vista)));
+        pagina._tgLogin = true;
+        const pista = pagina.querySelector('.tg-b-pista'); if (pista) pista.style.display = 'none';
+
+        const tarjeta = pagina.querySelector('.tg-b-nv-tarjeta');
+        tarjeta.classList.add('tg-lg-centrado'); // también centrada mientras se comprueba la sesión
+        const pintarSesion = (s) => {
+          vista.textContent = ''; tarjeta.classList.remove('tg-lg-centrado');
+          const av = s.foto ? h('img', { class: 'tg-lg-av', src: s.foto, alt: '', draggable: 'false', referrerpolicy: 'no-referrer' }) : h('div', { class: 'tg-lg-av' }, (s.nombre[0] || '?').toUpperCase());
+          vista.append(av, h('h3', null, '¡En hora buena ' + s.nombre + '!'), h('p', null, 'Gracias por instalar la extensión, ¡te lo agradezco de verdad!'));
+          if (pista) pista.style.display = '';
+        };
+        const pintarSinSesion = () => {
+          vista.textContent = ''; tarjeta.classList.add('tg-lg-centrado'); // sin sesión: encabezado + botón centrados juntos
+          const b = h('button', { class: 'tg-ob-grande', type: 'button' }, 'Iniciar sesión');
+          b.addEventListener('click', () => {
+            try { localStorage.setItem(RETORNO_LS, '1'); } catch (e) {}
+            try { if (window.flutter_inappwebview) window.flutter_inappwebview.callHandler('audioBienvenida', 'mantener'); } catch (e) {} // la música no se pausa al salir de la página
+            location.href = 'https://accounts.google.com/ServiceLogin?continue=' + encodeURIComponent(location.href); // página oficial de Google, directo
+          });
+          vista.append(b);
+        };
+        let estado = '', t0 = Date.now();
+        const avisarListo = () => { try { if (RETORNO_LOGIN && window.flutter_inappwebview) window.flutter_inappwebview.callHandler('tgLoginListo'); } catch (e) {} }; // Dart quita la pantalla de carga
+        const ok = (s) => { estado = 'ok'; loginOk = true; try { localStorage.setItem(LOGIN_LS, '1'); } catch (e) {} pintarSesion(s); setTimeout(avisarListo, 150); };
+        const ciclo = setInterval(() => {
+          if (!pagina.isConnected && Date.now() - t0 > 3000) { clearInterval(ciclo); return; }
+          const s = leerSesionGoogle();
+          if (s) {
+            if (estado !== 'ok') ok(s);
+          } else if (estado !== 'no' && Date.now() - t0 > 2500) { // el encabezado de Google tarda en pintarse: se espera antes de dar por "sin sesión"
+            estado = 'no'; loginOk = false; try { localStorage.removeItem(LOGIN_LS); } catch (e) {} pintarSinSesion(); avisarListo();
+          }
+        }, 500);
+        return pagina;
       }
 
       if (PRIMERA_VEZ) { paginas.push(crearPaginaOnboarding, crearPaginaBloqueoPregunta); }
       if (esActualizacion && itemsNotas().length) paginas.push(crearPaginaNovedades);
+      if (esActualizacion && (PRIMERA_VEZ || !loginGuardado())) paginas.unshift(crearPaginaLogin); // la 1.ª tras la bienvenida
 
       // BIENVENIDA + PIN correcto: se cierra el PIN y sube la primera página (todavía falta deslizar para entrar)
       function pinCorrectoBienvenida() {
@@ -2619,8 +2719,10 @@ logo.animate([
       pantalla.addEventListener('pointerup', (e) => terminarArrastre(e, true));
       pantalla.addEventListener('pointercancel', (e) => terminarArrastre(e, false));
 
-      function bloquearTecla(e) { e.preventDefault(); e.stopImmediatePropagation(); }
+      const enFormLogin = (e) => { try { const o = (e.composedPath && e.composedPath()[0]) || e.target; return !!(o && o.closest && o.closest('.tg-lg-form')); } catch (x) { return false; } }; // permite escribir el correo
+      function bloquearTecla(e) { if (enFormLogin(e)) return; e.preventDefault(); e.stopImmediatePropagation(); }
       function alTeclear(e) {
+        if (enFormLogin(e)) return;
         // solo ESPACIO desbloquea; el resto de teclas no llega a la página
         if (e.code === 'Space' || e.key === ' ') {
           if (!e.repeat) mostrarPin();
