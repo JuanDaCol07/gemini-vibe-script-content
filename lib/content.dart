@@ -306,6 +306,8 @@ class _ContentScreenState extends State<ContentScreen>
   bool _esperandoLogin = false;
   bool _retornoLogin = false;
   bool _mantenerAudio = false;
+  bool _extensionLista =
+      false; // content.js ya corrió en la página actual (verificado en _verificarInyeccion)
 
   // ---- SPLASH (capa negra + logo por encima del WebView) ----
   // se completa cuando la página termina de cargar (onLoadStop); la canción arranca con él, antes del fade del splash
@@ -346,6 +348,7 @@ class _ContentScreenState extends State<ContentScreen>
       if (_audioOk == false) break;
       if (_progresoPagina >= 100 &&
           _splashListo.isCompleted &&
+          _extensionLista &&
           _audioOk == true &&
           _fps >= _fpsMinimo) {
         return true;
@@ -509,6 +512,8 @@ class _ContentScreenState extends State<ContentScreen>
           if (!await _bienvenidaFluida()) {
             _audioSolicitado = false;
             if (identical(_audioBienvenida, p)) await _liberarAudioBienvenida();
+            if (!_esperandoLogin)
+              _ocultarSplash(); // sin cinemática: el splash se va igual
             return false;
           }
           if (!identical(_audioBienvenida, p))
@@ -519,6 +524,8 @@ class _ContentScreenState extends State<ContentScreen>
             ); // recarga de la página: vuelve a empezar
           _audioIniciado = true;
           _retornoLogin = false;
+          // SINCRONÍA: el fade del splash y la canción arrancan en el MISMO instante; content.js recibe el true y 1200 ms después lanza la animación del logo
+          if (!_esperandoLogin) _ocultarSplash();
           await p.resume();
           final desde = _paginaCargadaEn;
           if (desde != null) {
@@ -1068,15 +1075,20 @@ class _ContentScreenState extends State<ContentScreen>
         await controller.evaluateJavascript(source: _contentJs);
         e = await estado();
         debugPrint('[tg] tras inyección manual: $e');
+        await Future.delayed(
+          const Duration(milliseconds: 300),
+        ); // deja que content.js pida la música
       }
     } catch (err) {
       debugPrint('[tg] _verificarInyeccion falló: $err');
     }
     // página cargada y content.js corrido (o intento de respaldo hecho): se quita el splash
     // pequeña pausa para que content.js pinte tema/fondo/bloqueo antes de revelar
+    _extensionLista =
+        true; // las tres condiciones de la bienvenida: página 100 % + extensión corriendo + música cargada + >= 20 FPS
     await Future.delayed(const Duration(milliseconds: 250));
-    if (_esperandoLogin)
-      return; // regreso del login: el splash lo quita 'tgLoginListo' (content.js ya está inyectado)
+    // si la bienvenida pidió la música, el splash lo quita el handler 'play' (junto con la canción); en el regreso del login, 'tgLoginListo'
+    if (_esperandoLogin || _audioSolicitado) return;
     _ocultarSplash();
   }
 
@@ -1281,6 +1293,7 @@ class _ContentScreenState extends State<ContentScreen>
         }
       },
       onLoadStart: (controller, url) {
+        _extensionLista = false;
         final host = url?.host ?? '';
         if (host.contains('accounts.google.com')) {
           _enLogin = true;

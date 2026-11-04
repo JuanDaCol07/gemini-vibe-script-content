@@ -670,7 +670,7 @@
   const BIENVENIDA_AUDIO_VOLUMEN = 1; // 0 a 1
   const BIENVENIDA_AUDIO_FADE_MS = 3000;
   const BIENVENIDA_SUB_CAMBIO_MS = 4000; // cada cuánto alterna el subtítulo de la bienvenida
-  const BIENVENIDA_MARCA_RETRASO_MS = 800; // la animación del logo empieza este tiempo DESPUÉS de que arranca la canción
+  const BIENVENIDA_MARCA_RETRASO_MS = 1200; // la animación del logo empieza este tiempo DESPUÉS de que arranca la canción
   const BIENVENIDA_BLUR_MS = Math.round(BIENVENIDA_MARCA_RETRASO_MS * 0.6); // el desenfoque 28→5px dura menos que el retraso: termina ANTES de que empiece el logo
   function urlAudioBienvenida() {
     try { if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) return chrome.runtime.getURL(encodeURI(BIENVENIDA_AUDIO_ARCHIVO)); } catch (e) { /* no es una extensión */ }
