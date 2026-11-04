@@ -156,6 +156,30 @@ class AlmacenPrefs {
     } catch (_) {}
   }
 
+  /// DEBUG: borra TODAS las preferencias de Gemini Vibes (SharedPreferences + archivos grandes de tg_prefs).
+  /// No toca la caché del script (content_cache.js). Nunca lanza excepciones.
+  Future<void> borrarTodo() async {
+    try {
+      await _cola; // que terminen las escrituras pendientes
+      for (final clave in clavesValidas) {
+        await _borrarSeguro(clave);
+      }
+      // por si quedó algún archivo de una clave que ya no es válida
+      if (await _dir.exists()) {
+        await for (final e in _dir.list()) {
+          final nombre = e.path.split(RegExp(r'[\\/]')).last;
+          if (e is File && nombre.startsWith(_prefijo)) {
+            try {
+              await e.delete();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[tg] borrarTodo falló: $e');
+    }
+  }
+
   // ---- caché del script OTA (archivo, no SharedPreferences) ----
   File get _archivoScript => File('${_dir.path}/content_cache.js');
 
@@ -353,7 +377,7 @@ class _ContentScreenState extends State<ContentScreen>
   //         Úsalo mientras pruebas cambios locales: si no, el script de GitHub (y su caché) GANA sobre tu archivo local.
   // false = flujo normal: GitHub -> caché -> assets.
   static const bool _soloAssetLocal =
-      false; // true SOLO mientras pruebas un content.js local (ignora GitHub y el caché)
+      true; // true SOLO mientras pruebas un content.js local (ignora GitHub y el caché)
 
   String _origenScript = 'ninguno'; // 'github' | 'cache' | 'asset' | 'ninguno'
 
@@ -711,7 +735,8 @@ class _ContentScreenState extends State<ContentScreen>
       'Gemini/Gemini-wallpaper-default-mobil.png',
     );
     final movil =
-        'window.TG_ES_MOVIL = $_esMovil; window.TG_KERNEL_DART = $_kernel; window.TG_LOGO_GEMINI = ${jsonEncode(logo)}; '
+        // TG_DEBUG: true solo si la app corre en modo debug; content.js lo usa para mostrar el botón "Borrar todos los datos y reiniciar" en Personalizar
+        'window.TG_ES_MOVIL = $_esMovil; window.TG_DEBUG = $kDebugMode; window.TG_KERNEL_DART = $_kernel; window.TG_LOGO_GEMINI = ${jsonEncode(logo)}; '
         'window.TG_FONDO_DEFECTO = ${jsonEncode(fondoH)}; window.TG_FONDO_DEFECTO_MOVIL = ${jsonEncode(fondoV)};';
     try {
       final mapa = await AlmacenPrefs.instancia.leerTodo();
@@ -956,6 +981,28 @@ class _ContentScreenState extends State<ContentScreen>
     }
   }
 
+  // DEBUG (solo kDebugMode): borra TODOS los datos guardados y reinicia la app "de cero".
+  // content.js ya borró su localStorage ("tg-*") y su IndexedDB antes de llamar a este handler ('tgBorrarDatos').
+  // Aquí: se para la música, se vacían las preferencias de Flutter y se recargan los scripts (con prefs vacías) para que arranque como la primera vez.
+  Future<bool> _borrarTodoYReiniciar(InAppWebViewController controller) async {
+    if (!kDebugMode) return false; // en release no hace nada
+    try {
+      await _audioBienvenidaAccion('stop');
+      _audioSolicitado = false;
+      _audioIniciado = false;
+      await AlmacenPrefs.instancia.borrarTodo();
+      _prefsInicialesJs =
+          await _leerPrefsComoJs(); // ahora vacío: TG_PREFS_INICIALES = {}
+      await controller.removeAllUserScripts();
+      await controller.addUserScripts(userScripts: _construirUserScripts());
+      await controller.reload();
+      return true;
+    } catch (e) {
+      debugPrint('[tg] no se pudo borrar todo y reiniciar: $e');
+      return false;
+    }
+  }
+
   // Confirma que content.js realmente corrió; si no, lo inyecta a mano (respaldo)
   Future<void> _verificarInyeccion(
     InAppWebViewController controller,
@@ -1149,6 +1196,14 @@ class _ContentScreenState extends State<ContentScreen>
             }
           },
         );
+
+        // content.js -> Flutter: botón DEBUG de Personalizar "Borrar todos los datos y reiniciar" (SOLO modo debug)
+        if (kDebugMode) {
+          controller.addJavaScriptHandler(
+            handlerName: 'tgBorrarDatos',
+            callback: (args) async => await _borrarTodoYReiniciar(controller),
+          );
+        }
 
         // content.js -> Flutter: menú "Actualizaciones Gemini Vibes" (SOLO móvil)
         if (_esMovil) {

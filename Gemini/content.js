@@ -23,7 +23,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 0; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 2; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -51,6 +51,7 @@
 • Nivel de rendimiento Medio: el fondo de "¿Por dónde empezamos?" conserva su desenfoque; la animación de desenfoque de la bienvenida solo corre en Alta.
 • Las burbujas del chat solo llevan blur mientras están en pantalla (nacen sin blur y lo pierden al salir).
 • Los ajustes de blur, Vibes, difuminado del scroll y scroll suave ahora se conservan al reiniciar la app.
+• Todas las tarjetas de la bienvenida (guía inicial, pregunta del bloqueo y novedades) ahora son un cuadro de tamaño fijo y llevan blur (solo en nivel Alta).
 `;
   const TG_URL_GITHUB_APP = 'https://github.com/JuanDaCol07/gemini-vibe-script-content/releases'; // <-- pon aquí la página de la app
 
@@ -653,7 +654,7 @@
     try { localStorage.setItem(ONBOARDING_LS, '1'); } catch (e) { /* sin localStorage */ }
     prefsGuardar({ geminiOnboardingVisto: true });
   }
-  const PRIMERA_VEZ = BIENVENIDA_PENDIENTE && fixVistoGuardado() === null && !onboardingVisto();
+  const PRIMERA_VEZ = BIENVENIDA_PENDIENTE && !onboardingVisto(); // la guía sale UNA vez si nunca se completó (antes exigía también fixVisto === null: en la extensión de Chrome el localStorage de Gemini ya traía un fix visto de versiones anteriores y la guía nunca aparecía)
   const BLOQUEO_OPACIDAD_INICIAL = 0;   // opacidad del body al empezar la transición (termina en 1)
   const BLOQUEO_ESCALA_INICIAL = 1.3;   // escala del body al empezar la transición (termina en 1)
   const BLOQUEO_DURACION_MS = 300;     // duración de la subida de la pantalla y de la entrada del body
@@ -1445,7 +1446,9 @@
       }
       /* BIENVENIDA: NOVEDADES de la actualización (tarjeta blanca dentro de la propia pantalla; sube desde abajo y hay que volver a deslizar) */
       .tg-pg > .tg-b-nv { position: absolute; top: 0; left: 0; right: 0; bottom: calc(7vh + 56px); padding: 16px; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1; }
-      .tg-pg .tg-b-nv-tarjeta { pointer-events: auto; width: min(420px, 100%); max-height: 100%; display: flex; flex-direction: column; background: #ffffff; color: #1f1f1f; text-align: left; cursor: grab;
+      /* TARJETAS (novedades, "Antes de comenzar...", pregunta del bloqueo): rectángulos ALTOS (ancho hasta 440px, alto ~1.6x el ancho, mínimo 600px si cabe;
+         si la pantalla es baja ocupan todo el alto disponible). En pantallas grandes se ESCALAN enteras (texto incluido) con zoom: ver ajustarEscalaTarjetas(). */
+      .tg-pg .tg-b-nv-tarjeta { --tg-cuadro: min(440px, calc(100vw - 32px)); --tg-alto: min(calc(100vh - 7vh - 56px - 32px), max(calc(var(--tg-cuadro) * 1.6), 600px)); position: relative; pointer-events: auto; flex: none; box-sizing: border-box; width: var(--tg-cuadro); height: var(--tg-alto); zoom: var(--tg-esc, 1); display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.72); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); color: #1f1f1f; text-align: left; cursor: grab;
         border-radius: 28px; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35); overflow: hidden; transform: translateY(120vh); transition: transform 520ms cubic-bezier(0.32, 0.72, 0, 1); will-change: transform; }
       .tg-pg .tg-b-nv.tg-nv-visible .tg-b-nv-tarjeta { transform: translateY(0); }
       .tg-pg .tg-b-nv-cab { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 22px 8px; text-align: center; }
@@ -1486,6 +1489,7 @@
         opacity: 0; transition: opacity 350ms ease; user-select: none;
       }
       #tg-pin.tg-pin-visible { opacity: 1; }
+      #tg-pin.tg-pin-sobre { z-index: 2147483647; background: #0b0d12; } /* PIN superpuesto a las tarjetas de la bienvenida (se crea desde la pregunta del bloqueo) */
       #tg-pin .tg-pin-fondo {
         position: absolute; inset: -60px; z-index: 0; pointer-events: none;
         background-color: #ffffff00; background-size: cover; background-position: center; background-repeat: no-repeat;
@@ -1557,8 +1561,15 @@
     const estiloOb = document.createElement('style');
     estiloOb.id = 'tg-onboarding-style';
     estiloOb.textContent = `
-      .tg-pg .tg-ob-tarjeta { width: min(440px, 100%); }
-      .tg-pg .tg-ob-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 0 20px 8px; cursor: auto; text-align: left; }
+      .tg-pg .tg-ob-tarjeta { width: var(--tg-cuadro); }
+      /* DEGRADADO INFERIOR: avisa que se puede seguir desplazando. Solo se ve (clase tg-mas) si el contenido de la tarjeta tiene más por mostrar abajo */
+      .tg-pg .tg-b-nv-tarjeta::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 84px; pointer-events: none; opacity: 0; transition: opacity 220ms ease;
+        background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.88) 78%, rgba(255, 255, 255, 0.96) 100%); z-index: 2; }
+      .tg-pg .tg-b-nv-tarjeta.tg-mas::after { opacity: 1; }
+      html.tg-blur-media .tg-pg .tg-b-nv-tarjeta::after, html.tg-blur-baja .tg-pg .tg-b-nv-tarjeta::after { background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, #ffffff 80%); }
+      /* blur de las tarjetas SOLO en nivel Alta: en Media y Baja quedan blancas, opacas y sin backdrop-filter */
+      html.tg-blur-media .tg-pg .tg-b-nv-tarjeta, html.tg-blur-baja .tg-pg .tg-b-nv-tarjeta { background: #ffffff; -webkit-backdrop-filter: none; backdrop-filter: none; }
+      .tg-pg .tg-ob-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 0 20px 22px; cursor: auto; text-align: left; }
       .tg-pg .tg-ob-sec { padding: 14px 0; border-top: 1px solid rgba(0,0,0,0.08); }
       .tg-pg .tg-ob-sec:first-child { border-top: 0; }
       .tg-pg .tg-ob-h { margin: 0 0 3px; font-size: 15px; font-weight: 600; }
@@ -2254,7 +2265,35 @@ logo.animate([
           h('h2', { class: 'tg-b-nv-titulo' }, titulo),
           sub ? h('div', { class: 'tg-b-nv-version' }, sub) : null);
       }
+      // ESCALA DE LAS TARJETAS: base 440px. En pantallas grandes (PC) todo el cuadro crece con zoom (--tg-esc), hasta 1.75x, sin pasarse del alto/ancho disponible.
+      // En pantallas chicas (móvil) --tg-esc no existe (=1) y el tamaño lo decide solo el CSS (--tg-cuadro), como antes.
+      const TARJETA_BASE_PX = 440, TARJETA_ALTO_RATIO = 1.6, TARJETA_ALTO_MIN_PX = 600, TARJETA_ESCALA_MAX = 1.75, TARJETA_PROPORCION_VMIN = 0.58;
+      function ajustarEscalaTarjetas() {
+        try {
+          const w = window.innerWidth, hh = window.innerHeight;
+          const altoBase = Math.max(TARJETA_BASE_PX * TARJETA_ALTO_RATIO, TARJETA_ALTO_MIN_PX);          // alto de la tarjeta sin escalar
+          const libreAlto = hh * 0.93 - 88;                                                                // alto máximo que cabe (igual que el CSS)
+          const escMaxima = Math.min((w - 32) / TARJETA_BASE_PX, libreAlto / altoBase, TARJETA_ESCALA_MAX);
+          const escDeseada = Math.max(1, Math.min(w, hh) * TARJETA_PROPORCION_VMIN / TARJETA_BASE_PX);
+          const esc = Math.min(escDeseada, escMaxima);
+          if (esc > 1.001) { raiz.style.setProperty('--tg-esc', esc.toFixed(3)); raiz.style.setProperty('--tg-cuadro', TARJETA_BASE_PX + 'px'); raiz.style.setProperty('--tg-alto', altoBase + 'px'); }
+          else { raiz.style.removeProperty('--tg-esc'); raiz.style.removeProperty('--tg-cuadro'); raiz.style.removeProperty('--tg-alto'); }
+        } catch (e) { /* sin ventana */ }
+      }
+      window.addEventListener('resize', ajustarEscalaTarjetas);
+      // degradado inferior: se enciende (clase tg-mas) mientras la zona con scroll de la tarjeta tenga más contenido abajo
+      function vigilarScrollTarjeta(tarjeta) {
+        const zona = tarjeta.querySelector('.tg-ob-scroll, .tg-b-nv-lista');
+        if (!zona) return;
+        const medir = () => tarjeta.classList.toggle('tg-mas', zona.scrollHeight - zona.scrollTop - zona.clientHeight > 6);
+        zona.addEventListener('scroll', medir, { passive: true });
+        window.addEventListener('resize', medir);
+        if (window.ResizeObserver) { try { const ro = new ResizeObserver(medir); ro.observe(zona); [...zona.children].forEach((c) => ro.observe(c)); } catch (e) { /* sin ResizeObserver */ } }
+        setTimeout(medir, 0); setTimeout(medir, 600); setTimeout(medir, 1500); // por si las imágenes terminan de cargar después
+      }
       function paginaBase(tarjeta) {
+        ajustarEscalaTarjetas();
+        setTimeout(() => vigilarScrollTarjeta(tarjeta), 0);
         const caja = h('div', { class: 'tg-b-nv tg-nv-visible' }, tarjeta);
         caja.style.setProperty('--tg-nv-acento', acentoActual());
         return h('div', { class: 'tg-pg' }, caja, hint());
@@ -2410,7 +2449,7 @@ logo.animate([
           vista.style.color = burbujaTexto(burbuja);
           if (miniU) miniU.style.background = burbujaCSS(burbuja, true);
           botonesColor.forEach((b) => b.setAttribute('aria-pressed', (burbujaPers && b._c.h === burbuja.h && b._c.s === burbuja.s) || (!burbujaPers && b._c.h === BURBUJA_BASE.h) ? 'true' : 'false'));
-          const pg = vista.closest('.tg-pg'); if (pg) pg.querySelector('.tg-b-nv').style.setProperty('--tg-nv-acento', acentoActual());
+          const ac = acentoActual(); document.querySelectorAll('.tg-pg .tg-b-nv').forEach((c) => c.style.setProperty('--tg-nv-acento', ac)); // TODAS las tarjetas ya creadas (también las que no son esta)
         }
 
         // rendimiento (blur)
@@ -2441,11 +2480,9 @@ logo.animate([
             h('p', { class: 'tg-ob-p' }, 'Si tu teléfono va justo, un nivel más bajo se siente más fluido.'),
             h('div', { class: 'tg-ob-seg' }, botonesNivel),
             h('div', { class: 'tg-ob-nota' }, nota)));
-        const sig = h('button', { class: 'tg-ob-sig', type: 'button' }, 'Continuar');
-        sig.addEventListener('click', siguientePagina);
         const pagina = paginaBase(h('div', { class: 'tg-b-nv-tarjeta tg-ob-tarjeta' },
           cabecera('Antes de comenzar...', 'Personaliza tu experiencia para tener una buena primera impresión.'),
-          scroll, h('div', { class: 'tg-ob-pie' }, sig)));
+          scroll));
         // al estar ya dentro del DOM de la página, se pinta todo
         Promise.resolve().then(() => { pintarFondosOb(); pintarBurbujaOb(); pintarNivel(); });
         setTimeout(pintarFondosOb, 700); // por si el fondo por defecto termina de cargar un instante después
@@ -2457,14 +2494,24 @@ logo.animate([
         const si = h('button', { class: 'tg-ob-grande', type: 'button', 'aria-pressed': 'false' }, 'Sí, activarla', h('small', null, 'Pide un PIN de 4 dígitos al abrir Gemini.'));
         const no = h('button', { class: 'tg-ob-grande', type: 'button', 'aria-pressed': 'false' }, 'Ahora no', h('small', null, 'Entras directo, sin PIN.'));
         const pintar = () => { const a = bloqueoActivoGuardado(); si.setAttribute('aria-pressed', a ? 'true' : 'false'); no.setAttribute('aria-pressed', a ? 'false' : 'true'); };
-        si.addEventListener('click', () => { guardarBloqueoActivo(true); pintar(); });
+        // "Sí": si todavía no hay PIN, se superpone la pantalla de PIN para crearlo ahora (dos veces). Si lo cancelas, vuelve a "Ahora no".
+        let pinCrear = null;
+        const cerrarPinCrear = () => { if (pinCrear) { pinCrear.cerrar(true); pinCrear = null; } window.addEventListener('keydown', alTeclear, true); };
+        si.addEventListener('click', () => {
+          if (pinCrear) return;
+          if (bloqueoPinHash) { guardarBloqueoActivo(true); pintar(); return; } // ya hay un PIN creado: solo se activa
+          window.removeEventListener('keydown', alTeclear, true); // mientras se crea el PIN, Espacio/Esc no mueven las páginas
+          pinCrear = crearPantallaPin({
+            alCorrecto: () => { cerrarPinCrear(); guardarBloqueoActivo(true); pintar(); },
+            alVolver: () => { cerrarPinCrear(); guardarBloqueoActivo(false); pintar(); }
+          });
+          const el = document.getElementById('tg-pin'); if (el) el.classList.add('tg-pin-sobre'); // por encima de las tarjetas
+        });
         no.addEventListener('click', () => { guardarBloqueoActivo(false); pintar(); });
         pintar();
-        const sig = h('button', { class: 'tg-ob-sig', type: 'button' }, 'Continuar');
-        sig.addEventListener('click', siguientePagina);
         return paginaBase(h('div', { class: 'tg-b-nv-tarjeta tg-ob-tarjeta' },
-          cabecera('¿Quieres pantalla de bloqueo?', 'Protege tu chat con un PIN. Tu PIN se crea la próxima vez que se bloquee. Puedes cambiarlo cuando quieras en Personalizar.'),
-          h('div', { class: 'tg-ob-scroll' }, si, no), h('div', { class: 'tg-ob-pie' }, sig)));
+          cabecera('¿Quieres pantalla de bloqueo?', 'Protege tu chat con un PIN de 4 dígitos. Si eliges «Sí», lo creas ahora. Puedes cambiarlo cuando quieras en Personalizar.'),
+          h('div', { class: 'tg-ob-scroll' }, si, no)));
       }
 
       if (PRIMERA_VEZ) { paginas.push(crearPaginaOnboarding, crearPaginaBloqueoPregunta); }
@@ -5327,6 +5374,25 @@ p.gds-body-s.ng-star-inserted {
     return item;
   }
 
+  // ===== DEBUG: BORRAR TODOS LOS DATOS =====
+  // Solo existe el botón si la app corre en modo debug (Dart pone window.TG_DEBUG = true). Borra localStorage "tg-*", IndexedDB de fondos y todas las
+  // preferencias, y pide a Dart (handler 'tgBorrarDatos') limpiar su almacén y reiniciar la app. Si Dart no tiene el handler, solo recarga la página.
+  const TG_CLAVES_PREFS = ['geminiAudioBienvenida', 'geminiAudioBienvenidaEdicion', 'geminiAudioBienvenidaNombre', 'geminiAudioBienvenidaOriginal', 'geminiAudioBienvenidaOriginalNombre',
+    'geminiBienvenidaActiva', 'geminiBloqueoActivo', 'geminiBlurNivel', 'geminiBurbuja', 'geminiFondo', 'geminiFondoBloqueo', 'geminiFondoBloqueoTipo', 'geminiFondoTipo',
+    'geminiLenis', 'geminiPerfil', 'geminiPinBloqueo', 'geminiSinBlur', 'geminiSinFade', 'geminiTema', 'geminiVibesActivo', 'geminiFixVisto', 'geminiOnboardingVisto'];
+  function tgModoDebug() { try { return ES_APP_FLUTTER && (window.TG_DEBUG === true || window.TG_DEBUG === 'true'); } catch (e) { return false; } }
+  function borrarTodosLosDatos() {
+    try { Object.keys(localStorage).filter((k) => k.indexOf('tg-') === 0).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* sin localStorage */ }
+    try { ['tg-fondos-extension', typeof BD_NOMBRE === 'string' ? BD_NOMBRE : null].filter(Boolean).forEach((n) => indexedDB.deleteDatabase(n)); } catch (e) { /* sin indexedDB */ }
+    try { prefsBorrar(TG_CLAVES_PREFS); } catch (e) { /* sin almacén */ }
+    const recargar = () => setTimeout(() => { try { location.reload(); } catch (e) { /* nada */ } }, 400);
+    try {
+      const fl = window.flutter_inappwebview;
+      if (fl && typeof fl.callHandler === 'function') { const r = fl.callHandler('tgBorrarDatos'); if (r && r.catch) r.catch(recargar); return; } // Dart limpia y reinicia
+    } catch (e) { /* sin puente */ }
+    recargar();
+  }
+
   function abrirPanelPersonalizar() {
     actualizarFondoMenuLateral();
     const previo = document.getElementById('tg-personalizar-backdrop');
@@ -5659,6 +5725,22 @@ p.gds-body-s.ng-star-inserted {
     backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) cerrar(); });
     backdrop.querySelector('.tg-p-cerrar').addEventListener('click', cerrar);
     panel.addEventListener('click', (e) => e.stopPropagation());
+
+    // ---- DEBUG: borrar todos los datos y reiniciar (SOLO app en modo debug; hasta abajo del todo) ----
+    // Dart (content.dart) debe inyectar window.TG_DEBUG = kDebugMode ANTES de este script. En release, o en la extensión de Chrome, el botón no existe.
+    if (tgModoDebug()) {
+      panel.appendChild(h('section', { class: 'tg-p-seccion' },
+        h('h3', { class: 'tg-p-titulo' }, 'Debug'),
+        h('p', { class: 'tg-p-sub' }, 'Solo visible en modo debug. Borra TODOS los datos guardados (ajustes, fondos, PIN, música, bienvenida vista) y reinicia la app como si fuera la primera vez.'),
+        (() => {
+          const bd = h('button', { class: 'tg-p-btn', type: 'button', style: 'color:#ff6b6b;border-color:rgba(255,107,107,0.55);' }, SVG_RESET(), 'Borrar todos los datos y reiniciar');
+          bd.addEventListener('click', () => {
+            if (!window.confirm('⚠️ ADVERTENCIA\n\nSe borrarán TODOS los datos de Gemini Vibes: ajustes, fondos, música, PIN y la bienvenida vista.\nLa app se reiniciará como si fuera la primera vez.\n\nEsta acción no se puede deshacer. ¿Continuar?')) return;
+            borrarTodosLosDatos();
+          });
+          return bd;
+        })()));
+    }
 
     pintarBurbuja();
     pintarFondos();
