@@ -7828,6 +7828,116 @@ p.gds-body-s.ng-star-inserted {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', programarRevision);
   }
 
+  // ============================================================================================
+  // INDICADOR DE CARGA (Material 3 Expressive): una figura que rota y se transforma en el CENTRO de la pantalla
+  // Aparece cuando Gemini está "cargando": barrita de progreso de arriba (mat-progress-bar / role=progressbar), puntitos de
+  // "pensando" o respuesta que aún no tiene texto. Se va solo (con un fade) cuando termina. Funciona con Vibes encendido o apagado.
+  // Formas, en orden (como el de Material): estallido suave > galleta de 9 > pentágono > píldora > sol > trébol de 4 > óvalo
+  // ============================================================================================
+  (function () {
+    const TAM_PX = 64;            // tamaño del indicador
+    const PASO_MS = 700;          // cuánto dura cada figura (pausa + transformación)
+    const PAUSA = 0.35;           // parte del paso que se queda quieta antes de transformarse (0-1)
+    const GIRO_GRADOS_S = 70;     // giro continuo (grados por segundo)
+    const COLOR_CLARO = '#6750A4', COLOR_OSCURO = '#D0BCFF';
+    const SELECTORES = [
+      'mat-progress-bar', '[role="progressbar"]',
+      '.response-container[data-tg-cargando]',
+      'thinking-dots-animation:not(.response-container-header *)'
+    ].join(',');
+    const N = 96, TAU = Math.PI * 2;
+    const norm = (f) => { const a = []; let m = 0; for (let i = 0; i < N; i++) { const r = f(i / N * TAU); a.push(r); if (r > m) m = r; } return a.map((r) => r / m); };
+    const lobulos = (n, base, amp, filo) => (th) => base + amp * Math.pow((1 + Math.cos(n * th)) / 2, filo);
+    const poligono = (n, red) => (th) => { const seg = TAU / n; const d = ((th % seg) + seg) % seg - seg / 2; const rp = Math.cos(Math.PI / n) / Math.cos(d); const med = (1 + Math.cos(Math.PI / n)) / 2; return rp + (med - rp) * red; };
+    const elipse = (a, b, p, rot) => (th) => { const ph = th - rot; return Math.pow(Math.pow(Math.abs(Math.cos(ph) / a), p) + Math.pow(Math.abs(Math.sin(ph) / b), p), -1 / p); };
+    const FORMAS = [
+      lobulos(10, 0.76, 0.24, 1.8),                       // estallido suave
+      (th) => 0.88 + 0.12 * Math.cos(9 * th),             // galleta de 9 lados
+      poligono(5, 0.6),                                   // pentágono redondeado
+      elipse(1, 0.62, 2.8, -Math.PI / 4),                 // píldora
+      lobulos(8, 0.84, 0.16, 0.8),                        // sol
+      (th) => 0.82 - 0.18 * Math.cos(4 * th),             // trébol de 4
+      elipse(1, 0.7, 2, -0.6)                             // óvalo
+    ].map(norm);
+    const R = 44; // radio máximo dentro del viewBox de 100 (el resto lo suaviza el borde redondeado)
+    const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+
+    const st = document.createElement('style');
+    st.id = 'tg-cargando-style';
+    st.textContent = `
+      #tg-cargando { position: fixed; left: 50%; top: 50%; width: ${TAM_PX}px; height: ${TAM_PX}px; margin: -${TAM_PX / 2}px 0 0 -${TAM_PX / 2}px;
+        z-index: 2147481000; pointer-events: none; color: ${COLOR_OSCURO}; opacity: 0; visibility: hidden; transform: scale(0.6);
+        transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.2, 0, 0, 1), visibility 0s linear 0.25s; }
+      html[data-tema="claro"] #tg-cargando { color: ${COLOR_CLARO}; }
+      #tg-cargando.tg-on { opacity: 1; visibility: visible; transform: scale(1); transition-delay: 0s; }
+      #tg-cargando svg { display: block; width: 100%; height: 100%; overflow: visible; will-change: transform; }
+      html:not(.tg-blur-baja):not(.tg-blur-media) #tg-cargando svg { filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.35)); }
+    `;
+    (document.head || document.documentElement).appendChild(st);
+
+    let raiz = null, svg = null, trazo = null;
+    let visible = false, desde = 0, sinCargaDesde = 0, raf = 0, ultimoD = '', ocultoEn = 0;
+    function crear() {
+      raiz = document.createElement('div');
+      raiz.id = 'tg-cargando';
+      raiz.setAttribute('role', 'status');
+      raiz.setAttribute('aria-label', 'Cargando');
+      raiz.innerHTML = '<svg viewBox="-50 -50 100 100" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/></svg>';
+      svg = raiz.firstChild; trazo = svg.firstChild;
+      document.documentElement.appendChild(raiz);
+    }
+    function dibujar(a, b, e, giro) {
+      let d = '';
+      for (let i = 0; i < N; i++) {
+        const r = (a[i] + (b[i] - a[i]) * e) * R, th = i / N * TAU;
+        d += (i ? 'L' : 'M') + (r * Math.cos(th)).toFixed(1) + ' ' + (r * Math.sin(th)).toFixed(1);
+      }
+      d += 'Z';
+      if (d !== ultimoD) { ultimoD = d; trazo.setAttribute('d', d); }
+      svg.style.transform = 'rotate(' + giro.toFixed(1) + 'deg)';
+    }
+    function cuadro(ahora) {
+      raf = 0;
+      if (!visible && ahora - ocultoEn > 320) return; // ya terminó el fade de salida
+      const paso = (ahora - desde) / PASO_MS;
+      const idx = Math.floor(paso), fr = paso - idx;
+      const m = Math.min(1, Math.max(0, (fr - PAUSA) / (1 - PAUSA)));
+      const e = ease(m);
+      dibujar(FORMAS[idx % FORMAS.length], FORMAS[(idx + 1) % FORMAS.length], e, (ahora - desde) / 1000 * GIRO_GRADOS_S + (idx + e) * 30);
+      raf = requestAnimationFrame(cuadro);
+    }
+    function mostrar() {
+      if (!raiz) crear();
+      visible = true; desde = performance.now(); sinCargaDesde = 0;
+      if (sinMovimiento()) { dibujar(FORMAS[2], FORMAS[2], 0, 0); } else if (!raf) raf = requestAnimationFrame(cuadro);
+      raiz.classList.add('tg-on');
+    }
+    function ocultar() {
+      visible = false; ocultoEn = performance.now();
+      if (raiz) raiz.classList.remove('tg-on'); // la animación sigue durante el fade de salida y luego se detiene sola
+    }
+    function hayCarga() {
+      const lista = document.querySelectorAll(SELECTORES);
+      for (let i = 0; i < lista.length; i++) {
+        const el = lista[i];
+        if (el.closest('#tg-bloqueo, #tg-pin, #tg-personalizar-panel, #tg-cargando')) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) return true;
+      }
+      return false;
+    }
+    function revisar() {
+      const hay = !pantallaBloqueada && hayCarga();
+      const t = performance.now();
+      if (hay) { sinCargaDesde = 0; if (!visible) mostrar(); }
+      else if (visible) {
+        if (!sinCargaDesde) sinCargaDesde = t;
+        if (pantallaBloqueada || (t - sinCargaDesde >= 300 && t - desde >= 700)) ocultar(); // nunca parpadea: mínimo 0,7 s visible
+      }
+    }
+    cada(revisar, 200);
+  })();
+
   revisarTemaBody();
   try { actualizarVarSafeTop(); } catch (e) { /* sin área segura */ }
   aplicarVibes(); // deja todo en el estado guardado (encendido/apagado) una vez creadas todas las hojas de estilo
