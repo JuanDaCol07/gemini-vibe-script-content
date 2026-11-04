@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 2; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 3; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
