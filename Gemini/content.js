@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 0; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 1; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -41,6 +41,7 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
+• Rendimiento en móvil: nivel Medio solo desenfoca burbujas y caja de escribir; los mensajes fuera de pantalla se omiten del render.
 • La bienvenida de primera vez ahora dice «¡Hola!» y alterna con «¡Gemini de toda la vida ha recibido un glow up!».
 • En la tarjeta de la pantalla de bloqueo, cuando ya hay un PIN aparece el botón «Cambiar PIN» (sin pedir el actual) y avisos sobre qué pasa si lo olvidas y cómo se guarda.
 • Primera vez: nueva guía «Antes de comenzar...» (fondos, color de tu burbuja y rendimiento con ajuste automático según FPS y RAM), luego te pregunta si quieres pantalla de bloqueo y al final las novedades.
@@ -413,6 +414,8 @@
     st.textContent = `
       @layer tg-blur {
         html.tg-movil { --tg-bf14: 9px; }
+        html.tg-movil user-query, html.tg-movil model-response { content-visibility: auto; contain-intrinsic-size: auto 400px; }
+        html.tg-movil.tg-blur-media :is(input-area-v2, top-bar-actions, bard-sidenav) { will-change: auto !important; }
         html.tg-movil :is(button, [role="button"], [role="menuitem"], a, summary, label, input, textarea, select) {
           touch-action: manipulation !important; -webkit-tap-highlight-color: transparent !important;
         }
@@ -482,21 +485,6 @@
       '[data-tg-creando-caja]:not([data-tg-creando-unica])',
       'input-area-v2 .text-input-field',
       'input-area-v2 .input-area-fieldset > .text-input-field',
-      'top-bar-actions button.mat-mdc-icon-button',
-      '.side-nav-menu-button button.mat-mdc-icon-button',
-      'chat-app-side-nav-menu-button button.mat-mdc-icon-button',
-      'top-bar-actions .left-section button.mat-mdc-button',
-      'top-bar-actions .center-section button.mat-mdc-button',
-      'bard-mode-switcher:not(:is(input-area-v2 *)) button',
-      'gem-icon-button[data-test-id="prompt-copy-button"]',
-      'gem-icon-button[data-test-id="prompt-edit-button"]',
-      // barra lateral (escritorio y vista angosta)
-      'bard-sidenav', 'side-navigation-content', '.sidenav-with-history-container',
-      '.mat-drawer.mat-sidenav', 'mat-sidenav', '[data-tg-capa="blur"]',
-      // fondo difuminado de "¿Por dónde empezamos?": la capa chat-window::before (solo existe con html.tg-cero) conserva su backdrop-filter en "media"
-      'html.tg-cero chat-window',
-      // menús contextuales (ajustes, "+", gem-menu...) y el marco del panel Personalizar (NO su fondo de pantalla completa)
-      '[data-tg-menu-capa="blur"]', '.desktop-settings-menu:not([data-tg-menu-capa])', '#tg-personalizar-panel'
     ].join(', ');
     const est = document.createElement('style');
     est.id = 'tg-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
