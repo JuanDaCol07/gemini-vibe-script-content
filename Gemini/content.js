@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 1; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 2; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -41,6 +41,7 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
+• Nueva última pantalla de la bienvenida: «Todo listo.» con animación letra por letra; las letras llevan blur solo en nivel Alta.
 • Rendimiento en móvil: nivel Medio solo desenfoca burbujas y caja de escribir; los mensajes fuera de pantalla se omiten del render.
 • La bienvenida de primera vez ahora dice «¡Hola!» y alterna con «¡Gemini de toda la vida ha recibido un glow up!».
 • En la tarjeta de la pantalla de bloqueo, cuando ya hay un PIN aparece el botón «Cambiar PIN» (sin pedir el actual) y avisos sobre qué pasa si lo olvidas y cómo se guarda.
@@ -2221,11 +2222,12 @@ logo.animate([
           const LETRA_ESCALONADO_MS = 75;  // retraso entre una letra y la siguiente
           const LETRA_DURACION_MS = 950;   // duración de cada letra
           nombre.querySelectorAll('.tg-b-bv-letra').forEach((letra, i) => {
+            const bl = nivelBlur === 'alta'; // el blur de las letras solo existe en calidad Alta
             letra.animate([
-              { opacity: 0, transform: 'translateY(0.9em)', easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
-              { opacity: 1, transform: 'translateY(-0.14em)', offset: 0.55, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, // se pasa un poco
-              { opacity: 1, transform: 'translateY(0.04em)', offset: 0.8, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },   // rebota hacia abajo
-              { opacity: 1, transform: 'translateY(0)' }                                                                  // se asienta
+              Object.assign({ opacity: 0, transform: 'translateY(0.9em)', easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }, bl ? { filter: 'blur(10px)' } : {}),
+              Object.assign({ opacity: 1, transform: 'translateY(-0.14em)', offset: 0.55, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, bl ? { filter: 'blur(0px)' } : {}), // se pasa un poco
+              Object.assign({ opacity: 1, transform: 'translateY(0.04em)', offset: 0.8, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, bl ? { filter: 'blur(0px)' } : {}),   // rebota hacia abajo
+              Object.assign({ opacity: 1, transform: 'translateY(0)' }, bl ? { filter: 'blur(0px)' } : {})                                                                  // se asienta
             ], { duration: LETRA_DURACION_MS, delay: 80 + i * LETRA_ESCALONADO_MS, fill: 'both' });
           });
           // SUBIDA SUAVE (sin rebote): logo + título (.tg-b-bv-marca) y subtítulo suben juntos un poco, con ease in-out.
@@ -2383,6 +2385,32 @@ logo.animate([
       function crearPaginaNovedades() {
         const lista = h('ul', { class: 'tg-b-nv-lista' }, itemsNotas().map((t) => h('li', null, t)));
         return paginaBase(h('div', { class: 'tg-b-nv-tarjeta' }, cabecera('Novedades de la actualización', 'Versión ' + TG_VERSION), lista));
+      }
+
+      // ---- PÁGINA FINAL: "Todo listo." (título letra por letra como el logo de inicio, subtítulo con fade) ----
+      function crearPaginaFinal() {
+        const estiloTxt = 'color:#fff;text-shadow:0 2px 10px rgba(0,0,0,0.4);';
+        const letras = Array.from('Todo listo.').map((c) => h('span', { 'aria-hidden': 'true', style: 'display:inline-block;opacity:0;will-change:transform,opacity;' }, c === ' ' ? '\u00a0' : c));
+        const titulo = h('div', { 'aria-label': 'Todo listo.', style: estiloTxt + 'font-size:clamp(34px,9vw,64px);font-weight:500;line-height:1.15;letter-spacing:-0.02em;white-space:nowrap;' }, letras);
+        const sub = h('div', { style: estiloTxt + 'font-size:clamp(16px,2.2vw,24px);opacity:0;padding:0 24px;margin-top:12px;' }, '¡Es hora de sumergirte en tu propia estética!');
+        const pagina = h('div', { class: 'tg-pg' },
+          h('div', { style: 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;' }, titulo, sub), hint());
+        const bl = nivelBlur === 'alta';
+        setTimeout(() => { // espera a que la página termine de subir
+          if (!pagina.isConnected) return;
+          letras.forEach((letra, i) => {
+            if (!letra.animate) { letra.style.opacity = '1'; return; }
+            letra.animate([
+              Object.assign({ opacity: 0, transform: 'translateY(0.9em)', easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }, bl ? { filter: 'blur(10px)' } : {}),
+              Object.assign({ opacity: 1, transform: 'translateY(-0.14em)', offset: 0.55, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, bl ? { filter: 'blur(0px)' } : {}),
+              Object.assign({ opacity: 1, transform: 'translateY(0.04em)', offset: 0.8, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, bl ? { filter: 'blur(0px)' } : {}),
+              Object.assign({ opacity: 1, transform: 'translateY(0)' }, bl ? { filter: 'blur(0px)' } : {})
+            ], { duration: 950, delay: i * 75, fill: 'both' });
+          });
+          if (sub.animate) sub.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 0.85, transform: 'translateY(0)' }], { duration: 800, delay: 11 * 75 + 500, easing: 'ease-out', fill: 'both' });
+          else sub.style.opacity = '0.85';
+        }, 500);
+        return pagina;
       }
 
       // ---- PÁGINA: "Antes de comenzar..." (fondos, burbuja, rendimiento) ----
@@ -2605,6 +2633,7 @@ logo.animate([
 
       if (PRIMERA_VEZ) { paginas.push(crearPaginaOnboarding, crearPaginaBloqueoPregunta); }
       if (esActualizacion && itemsNotas().length) paginas.push(crearPaginaNovedades);
+      if (esActualizacion) paginas.push(crearPaginaFinal); // última pantalla: "Todo listo."
       if (esActualizacion && (PRIMERA_VEZ || !loginGuardado())) paginas.unshift(crearPaginaLogin); // la 1.ª tras la bienvenida
 
       // BIENVENIDA + PIN correcto: se cierra el PIN y sube la primera página (todavía falta deslizar para entrar)
