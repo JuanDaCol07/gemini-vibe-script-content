@@ -266,6 +266,9 @@
   // evento 'tg-bloqueo-cambio' y cada parte se pone al día (una sola vez, sin repetir lo que se perdió).
   // ============================================================================================
   let pantallaBloqueada = false;
+  // marcas de tiempo (performance.now) para que el planificador no compita con la animación de envío ni con el teclado
+  let vueloHasta = 0;       // mientras dura el vuelo del mensaje enviado
+  let escribiendoHasta = 0; // mientras se está escribiendo en la caja
   // true mientras el body está escalado (bloqueado o durante el zoom de entrada/salida): en ese tiempo NO se mide el layout
   // (getBoundingClientRect devolvería medidas escaladas y el header / burbujas quedarían mal colocados)
   let cuerpoEscalado = false;
@@ -399,7 +402,7 @@
   // 1) toque inmediato en botones (sin espera de doble-toque ni resaltado) · 2) la caja de escribir pierde el blur mientras se escribe
   // 3) los botones de arriba pierden el blur mientras se hace scroll (se re-desenfocaban en cada fotograma) · 4) radio de 14px -> 9px.
   // Todo cuelga de html.tg-movil: en la extensión de Chrome no se activa. Dentro de @layer para ganar a los !important sin capa.
-  const MOVIL_OPACIDAD_ESCRIBIENDO = 0.3; // oscuridad/claridad que se SUMA a la caja al quitarle el blur (sube si la quieres más opaca)
+  const MOVIL_OPACIDAD_ESCRIBIENDO = 0.95; // opacidad con la que queda la caja al quitarle el blur (0.95 = casi opaca, sin salto al escribir)
   const MOVIL_OPACIDAD_SCROLL = 0.3;      // igual, para los botones de arriba mientras se hace scroll
   (function () {
     if (typeof ES_APP_FLUTTER === 'undefined' || !ES_APP_FLUTTER) return;
@@ -3232,13 +3235,13 @@ logo.animate([
       }
 
       html.tg-blur-baja input-area-v2 .text-input-field:focus-within {
-  background: rgba(0, 0, 0, 0.9) !important;
-  background-color: rgba(0, 0, 0, 0.9) !important;
+  background: rgba(0, 0, 0, 0.95) !important;
+  background-color: rgba(0, 0, 0, 0.95) !important;
 }
 
 html[data-tema="claro"].tg-blur-baja input-area-v2 .text-input-field:focus-within {
-  background: rgba(255, 255, 255, 0.85) !important;
-  background-color: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  background-color: rgba(255, 255, 255, 0.95) !important;
 }
 
       /* Texto legible sobre fondos claros */
@@ -4485,7 +4488,8 @@ p.gds-body-s.ng-star-inserted {
       } else {
         const bfBlur = Math.max(0, L(aBF.blur, bBF.blur));
         const extra = bBF.extra || aBF.extra || '';
-        backdropFilterVal = `blur(${Math.round(bfBlur)}px)${extra ? ' ' + extra : ''}`; // entero: cambia menos veces => menos re-rasterizados
+        const paso = ES_APP_FLUTTER ? 4 : 1; // en el móvil el blur del fondo cambia en saltos de 4px: muchos menos re-pintados
+        backdropFilterVal = `blur(${Math.round(bfBlur / paso) * paso}px)${extra ? ' ' + extra : ''}`;
       }
     }
 
@@ -4520,6 +4524,17 @@ p.gds-body-s.ng-star-inserted {
     volarDesdeInput(el, r, ultimoEnvio);
   }
 
+  // contenedor que hace scroll del chat (se usa para seguir el destino sin medir el layout en cada fotograma)
+  function contenedorScroll(el) {
+    let p = el.parentElement, primero = null;
+    while (p && p !== document.body && p !== document.documentElement) {
+      const oy = getComputedStyle(p).overflowY;
+      if (oy === 'auto' || oy === 'scroll') { if (p.scrollHeight > p.clientHeight + 1) return p; if (!primero) primero = p; }
+      p = p.parentElement;
+    }
+    return primero || document.scrollingElement || document.documentElement;
+  }
+
   function volarDesdeInput(el, r0, origen) {
     // 1) clon de la burbuja, sin ids ni marcas de animación, fuera del scroller
     const g = el.cloneNode(true);
@@ -4530,6 +4545,7 @@ p.gds-body-s.ng-star-inserted {
     g.inert = true;
     const cs = getComputedStyle(el);
     const origBF = cs.getPropertyValue('backdrop-filter') || cs.getPropertyValue('-webkit-backdrop-filter') || '';
+    const movil = !!ES_APP_FLUTTER;
     // !important inline: vence a los !important de la hoja (margin, max-width, transform-origin, transition...)
     const fijar = (k, v) => g.style.setProperty(k, v, 'important');
     fijar('position', 'fixed'); fijar('left', '0'); fijar('top', '0'); fijar('right', 'auto'); fijar('bottom', 'auto');
@@ -4537,25 +4553,38 @@ p.gds-body-s.ng-star-inserted {
     fijar('width', r0.width + 'px'); fijar('height', r0.height + 'px');
     fijar('z-index', VUELO_Z); fijar('pointer-events', 'none');
     fijar('transform-origin', 'center center'); fijar('transition', 'none'); fijar('animation', 'none');
-    fijar('will-change', 'transform, filter, backdrop-filter'); fijar('contain', 'layout paint');
+    // móvil: solo transform y filter van a la GPU (backdrop-filter en will-change obligaba a recomponer el fondo en cada fotograma)
+    fijar('will-change', movil ? 'transform, filter' : 'transform, filter, backdrop-filter'); fijar('contain', 'layout paint');
     // fuera de user-query el clon ya no hereda la tipografía/color: se copian tal cual los tiene la real
     ['font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color'].forEach((p) => fijar(p, cs.getPropertyValue(p)));
 
     let w = r0.width, h = r0.height;
-    let destino = r0;
-    // pinta el clon para el instante p (0-1) de la animación, midiendo dónde está AHORA la burbuja real
-    function pintar(p) {
+    let destino = { left: r0.left, top: r0.top };
+    // móvil: el destino se calcula con el scroll (barato) y solo se mide el layout de verdad cada 8 fotogramas
+    const scroller = movil ? contenedorScroll(el) : null;
+    let stBase = scroller ? scroller.scrollTop : 0;
+    let frame = 0;
+    function medir() {
       const rt = el.getBoundingClientRect(); // Gemini hace scroll y mueve el layout mientras vuela
-      if (rt.width >= 1 && rt.height >= 1) destino = rt;
-      if (Math.abs(destino.width - w) > 0.5 || Math.abs(destino.height - h) > 0.5) {
-        w = destino.width; h = destino.height;
+      if (rt.width < 1 || rt.height < 1) return;
+      destino = { left: rt.left, top: rt.top };
+      stBase = scroller ? scroller.scrollTop : 0;
+      if (Math.abs(rt.width - w) > 0.5 || Math.abs(rt.height - h) > 0.5) {
+        w = rt.width; h = rt.height;
         fijar('width', w + 'px'); fijar('height', h + 'px');
       }
-      const st = vueloEstado(p, origen.x - (destino.left + w / 2), origen.y - (destino.top + h / 2), w, h, origBF);
+    }
+    // pinta el clon para el instante p (0-1) de la animación
+    function pintar(p) {
+      if (!movil || frame % 8 === 0) medir();
+      frame++;
+      const top = scroller ? destino.top - (scroller.scrollTop - stBase) : destino.top;
+      const st = vueloEstado(p, origen.x - (destino.left + w / 2), origen.y - (top + h / 2), w, h, origBF);
       // solo se escribe lo que cambió respecto al fotograma anterior
-      const tr = `translate(${(destino.left + st.x).toFixed(2)}px, ${(destino.top + st.y).toFixed(2)}px) scaleX(${st.scaleX.toFixed(4)}) scaleY(${st.scaleY.toFixed(4)})`;
+      const tr = `translate(${(destino.left + st.x).toFixed(2)}px, ${(top + st.y).toFixed(2)}px) scaleX(${st.scaleX.toFixed(4)}) scaleY(${st.scaleY.toFixed(4)})`;
       if (tr !== g._tgTr) { g._tgTr = tr; fijar('transform', tr); }
-      const fl = nivelBlur !== 'alta' ? 'none' : `blur(${st.blur.toFixed(1)}px)`; // media y baja: ningún filter en la animación de vuelo
+      // móvil: el blur cambia de 2 en 2 px (el ojo no lo nota y el navegador no repinta el filtro en cada fotograma)
+      const fl = nivelBlur !== 'alta' ? 'none' : (movil ? `blur(${Math.round(st.blur / 2) * 2}px)` : `blur(${st.blur.toFixed(1)}px)`); // media y baja: ningún filter en la animación de vuelo
       if (fl !== g._tgFl) { g._tgFl = fl; fijar('filter', fl); }
       if (st.backdropFilter !== undefined && st.backdropFilter !== g._tgBf) {
         g._tgBf = st.backdropFilter;
@@ -4569,20 +4598,26 @@ p.gds-body-s.ng-star-inserted {
     // 2) la burbuja real se queda escondida (data-anim="wait" -> opacity 0) hasta que el clon aterriza
     el._vuelo = g;
     const t0 = performance.now();
+    vueloHasta = t0 + VUELO_MS + 300; // el planificador (layout, header, fade, menú) espera mientras el clon vuela
 
+    function fin() {
+      vueloHasta = 0;
+      try { Tareas.marcar('layout'); Tareas.marcar('menuLateral'); } catch (e) { /* aún no está todo creado */ }
+    }
     function aterrizar() {
-      if (el._vuelo !== g) return;
+      if (el._vuelo !== g) { fin(); return; }
       el._vuelo = null;
       el._aterrizoEn = performance.now(); // las fotos del mismo mensaje esperan a este momento (ver retrasoPorBurbuja)
       g.remove();
+      fin();
       if (!el.isConnected) return;
       el._animado = true;
       el.setAttribute('data-sin-anim', ''); // aparece tal cual, sin repetir animación (el clon ya hizo el trabajo)
       el.setAttribute('data-anim', 'in');
     }
     function cuadro(ahora) {
-      if (el._vuelo !== g) { g.remove(); return; }
-      if (!el.isConnected) { el._vuelo = null; g.remove(); return; }
+      if (el._vuelo !== g) { g.remove(); fin(); return; }
+      if (!el.isConnected) { el._vuelo = null; g.remove(); fin(); return; }
       const p = Math.min(1, Math.max(0, (ahora - t0) / VUELO_MS));
       pintar(p);
       if (p >= 1) { aterrizar(); return; }
@@ -6405,10 +6440,17 @@ p.gds-body-s.ng-star-inserted {
   // ============================================================================================
   const Tareas = (function () {
     const reg = new Map(), sucias = new Set();
-    let programado = false;
+    let programado = false, espera = null, forzar = false;
     function correr() {
       programado = false;
       if (document.hidden || pantallaBloqueada || cuerpoEscalado) return; // se retoma en visibilitychange / al desbloquear / al terminar el zoom
+      if (ES_APP_FLUTTER && !forzar) { // móvil: durante el vuelo del mensaje o mientras se teclea, el layout espera (se junta todo y corre una sola vez)
+        const t = performance.now();
+        if (t < vueloHasta || t < escribiendoHasta) {
+          if (!espera) espera = setTimeout(() => { espera = null; if (sucias.size) pedir(); }, 120);
+          return;
+        }
+      }
       const lista = Array.from(sucias); sucias.clear();
       lista.forEach((n) => { try { reg.get(n)(); } catch (e) { console.warn('[tg] error en tarea ' + n + ':', e); } });
     }
@@ -6418,13 +6460,14 @@ p.gds-body-s.ng-star-inserted {
     function reanudar() { reg.forEach((f, n) => sucias.add(n)); if (!document.hidden) pedir(); }
     document.addEventListener('tg-bloqueo-cambio', () => { if (!pantallaBloqueada) reanudar(); });
     // ahora(): corre TODAS las tareas de inmediato y de forma síncrona (sin esperar al siguiente frame)
-    function ahora() { reg.forEach((f, n) => sucias.add(n)); programado = false; correr(); }
+    function ahora() { reg.forEach((f, n) => sucias.add(n)); programado = false; forzar = true; try { correr(); } finally { forzar = false; } }
     return {
       registrar(n, f) { reg.set(n, f); },
       marcar(n) { sucias.add(n); if (!document.hidden && !pantallaBloqueada && !cuerpoEscalado) pedir(); },
       ahora
     };
   })();
+  if (ES_APP_FLUTTER) document.addEventListener('input', () => { escribiendoHasta = performance.now() + 250; }, { capture: true, passive: true });
   // setInterval que no trabaja con la pestaña oculta
   const cada = (fn, ms) => setInterval(() => { if (!document.hidden && !pantallaBloqueada) { try { fn(); } catch (e) { console.warn('[tg] ' + fn.name + ':', e); } } }, ms);
 
