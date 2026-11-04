@@ -306,6 +306,8 @@ class _ContentScreenState extends State<ContentScreen>
   bool _esperandoLogin = false;
   bool _retornoLogin = false;
   bool _mantenerAudio = false;
+  bool _bienvenidaEnCurso =
+      false; // content.js está calentando (Gemini completo ~6 s) antes de montar la bienvenida: el splash no se quita todavía
   bool _extensionLista =
       false; // content.js ya corrió en la página actual (verificado en _verificarInyeccion)
 
@@ -501,6 +503,7 @@ class _ContentScreenState extends State<ContentScreen>
       switch (accion) {
         case 'play':
           _audioSolicitado = true;
+          _bienvenidaEnCurso = false;
           // si quedaba un reproductor desvaneciéndose (stop anterior), se descarta y se arma uno nuevo
           if (_audioFade != null) await _liberarAudioBienvenida();
           if (_audioBienvenida == null) _precargarAudioBienvenida();
@@ -534,6 +537,11 @@ class _ContentScreenState extends State<ContentScreen>
             );
           }
           break;
+        case 'calentando':
+          _bienvenidaEnCurso = true;
+          _splashSeguro?.cancel();
+          _splashSeguro = Timer(const Duration(seconds: 30), _ocultarSplash);
+          break;
         case 'mantener':
           _mantenerAudio =
               true; // se va a Google: el pause por visibilitychange de la página se ignora
@@ -555,6 +563,7 @@ class _ContentScreenState extends State<ContentScreen>
           _audioSolicitado = false;
           _audioIniciado = false;
           _mantenerAudio = false;
+          _bienvenidaEnCurso = false;
           _desvanecerAudioBienvenida();
           break;
       }
@@ -1088,7 +1097,7 @@ class _ContentScreenState extends State<ContentScreen>
         true; // las tres condiciones de la bienvenida: página 100 % + extensión corriendo + música cargada + >= 20 FPS
     await Future.delayed(const Duration(milliseconds: 250));
     // si la bienvenida pidió la música, el splash lo quita el handler 'play' (junto con la canción); en el regreso del login, 'tgLoginListo'
-    if (_esperandoLogin || _audioSolicitado) return;
+    if (_esperandoLogin || _audioSolicitado || _bienvenidaEnCurso) return;
     _ocultarSplash();
   }
 

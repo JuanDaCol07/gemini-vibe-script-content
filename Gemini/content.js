@@ -2057,6 +2057,7 @@
 
     // ---- bloquear ----
     const RETORNO_LOGIN = (() => { try { const v = localStorage.getItem('tg-login-retorno') === '1'; localStorage.removeItem('tg-login-retorno'); return v; } catch (e) { return false; } })();
+    let fpsCalentamiento = null; // FPS medidos con Gemini completo corriendo (calentamiento de la primera vez); mandan sobre los de la animación de la bienvenida
     function pausarCuerpo(v) { raiz.classList.toggle('tg-bloqueo-pausa', !!v); }
     function bloquear(animado, bienvenida) { // bienvenida: false (reloj) | 'actualizacion' | 'inicio'
       if (bloqueado) return;
@@ -2169,6 +2170,7 @@
         requestAnimationFrame(paso);
       }
       function fpsActual() {
+        if (fpsCalentamiento !== null) return fpsCalentamiento;
         const dt = fpsM.fin - fpsM.t0;
         if (fpsM.oculto || dt < 700 || fpsM.n < 10) return null;
         return (fpsM.n - 1) / (dt / 1000);
@@ -2768,7 +2770,24 @@ logo.animate([
 
     // al cargar la página por primera vez: bienvenida de ACTUALIZACIÓN si el kernel cambió; si no, bienvenida de INICIO si "Mostrar bienvenida" está activo;
     // si no, la pantalla del reloj (solo llegamos aquí con el bloqueo activado)
-    bloquear(false, BIENVENIDA_PENDIENTE ? 'actualizacion' : (MOSTRAR_BIENVENIDA ? 'inicio' : false));
+    const iniciarBienvenida = () => bloquear(false, BIENVENIDA_PENDIENTE ? 'actualizacion' : (MOSTRAR_BIENVENIDA ? 'inicio' : false));
+    // CALENTAMIENTO (solo app móvil, primera vez): detrás de la pantalla de carga negra corre la página de Gemini COMPLETA (calidad alta, sin bienvenida)
+    // durante CALENTAMIENTO_MS y se miden los FPS reales; después se monta solo la bienvenida. Así la recomendación de calidad no sale inflada por una página vacía.
+    const CALENTAMIENTO_MS = 6000, CALENTAMIENTO_DESCARTE_MS = 1500; // el arranque (primeros 1.5 s) no cuenta
+    if (PRIMERA_VEZ && ES_APP_FLUTTER && !RETORNO_LOGIN && window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+      try { window.flutter_inappwebview.callHandler('audioBienvenida', 'calentando'); } catch (e) {}
+      let n = 0, t0 = 0, tFin = 0, oculto = false;
+      const inicio = performance.now();
+      const paso = (t) => {
+        if (document.hidden) oculto = true;
+        if (t - inicio >= CALENTAMIENTO_DESCARTE_MS) { if (!t0) t0 = t; else n++; tFin = t; }
+        if (t - inicio < CALENTAMIENTO_MS) { requestAnimationFrame(paso); return; }
+        const dt = tFin - t0;
+        if (!oculto && dt > 1000 && n > 10) fpsCalentamiento = n / (dt / 1000);
+        iniciarBienvenida();
+      };
+      requestAnimationFrame(paso);
+    } else iniciarBienvenida();
   })();
 
   // Input tipo file oculto (lo abre el ítem "Cambiar fondo" del menú de ajustes)
