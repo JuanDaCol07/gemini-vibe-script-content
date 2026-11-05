@@ -267,6 +267,7 @@
   // ============================================================================================
   let pantallaBloqueada = false;
   // marcas de tiempo (performance.now) para que el planificador no compita con la animación de envío ni con el teclado
+  let cargandoConv = false; // true mientras está la barrita de "Cargando la conversación": mensajes ocultos y el content no toca las burbujas
   let tgForma = null;       // lo rellena el indicador de carga: montar(el)/parar(el) para reutilizarlo (ej. botón de actualizaciones)
   let vueloHasta = 0;       // mientras dura el vuelo del mensaje enviado
   let escribiendoHasta = 0; // mientras se está escribiendo en la caja
@@ -6446,9 +6447,9 @@ p.gds-body-s.ng-star-inserted {
     function correr() {
       programado = false;
       if (document.hidden || pantallaBloqueada || cuerpoEscalado) return; // se retoma en visibilitychange / al desbloquear / al terminar el zoom
-      if (ES_APP_FLUTTER && !forzar) { // móvil: durante el vuelo del mensaje o mientras se teclea, el layout espera (se junta todo y corre una sola vez)
+      if (!forzar) { // carga de conversación (todas las plataformas) / vuelo del mensaje y tecleo (móvil): el layout espera y corre una sola vez
         const t = performance.now();
-        if (t < vueloHasta || t < escribiendoHasta) {
+        if (cargandoConv || (ES_APP_FLUTTER && (t < vueloHasta || t < escribiendoHasta))) {
           if (!espera) espera = setTimeout(() => { espera = null; if (sucias.size) pedir(); }, 120);
           return;
         }
@@ -6676,6 +6677,7 @@ p.gds-body-s.ng-star-inserted {
 
   function procesarLote() {
     lotePendiente = false;
+    if (cargandoConv) return; // conversación cargando: los nodos se quedan en cola y se procesan al quitarse la barrita
     const nodos = loteNodos.splice(0);
     const quito = loteQuitaron; loteQuitaron = false;
     let hizoAlgo = quito;
@@ -7879,6 +7881,7 @@ p.gds-body-s.ng-star-inserted {
         transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.2, 0, 0, 1), visibility 0s linear 0.25s; }
       html[data-tema="claro"] #tg-cargando { color: ${COLOR_CLARO}; }
       #tg-cargando.tg-on { opacity: 1; visibility: visible; transform: scale(1); transition-delay: 0s; }
+      html.tg-cargando-conv .conversation-container, html.tg-cargando-conv user-query, html.tg-cargando-conv model-response { visibility: hidden !important; }
       @keyframes tgCargaGiro { to { transform: rotate(360deg); } }
       .tg-giro { animation: tgCargaGiro ${(360 / GIRO_GRADOS_S).toFixed(2)}s linear infinite; }
       @media (prefers-reduced-motion: reduce) { .tg-giro { animation: none; } }
@@ -7946,16 +7949,26 @@ p.gds-body-s.ng-star-inserted {
       }
       return false;
     }
+    const SEL_BARRA_CONV = 'mat-progress-bar[aria-label*="onversaci"], mat-progress-bar[aria-label*="onversation"]';
     let cargaConvDesde = 0;
+    function terminarConv() {
+      cargandoConv = false;
+      document.documentElement.classList.remove('tg-cargando-conv');
+      try { Tareas.marcar('layout'); } catch (e) { /* aún no está listo */ }
+      if (loteNodos.length && !lotePendiente) { lotePendiente = true; requestAnimationFrame(procesarLote); } // ahora sí: las burbujas que llegaron mientras cargaba
+    }
+    function revisarConv() {
+      const barra = !pantallaBloqueada && document.querySelector(SEL_BARRA_CONV);
+      const hay = !!barra && barra.getBoundingClientRect().height > 0;
+      const t = performance.now();
+      if (hay) {
+        if (!cargaConvDesde) cargaConvDesde = t;
+        const vencido = t - cargaConvDesde >= 8000; // seguro: si la barra se queda pegada, a los 8 s se muestra todo igual
+        if (!vencido && !cargandoConv) { cargandoConv = true; document.documentElement.classList.add('tg-cargando-conv'); }
+        else if (vencido && cargandoConv) terminarConv();
+      } else if (cargaConvDesde) { cargaConvDesde = 0; if (cargandoConv) terminarConv(); }
+    }
     function revisar() {
-      if (ES_APP_FLUTTER && !pantallaBloqueada) { // conversación cargando: Tareas (layout, header, fade...) esperan; tope de 6 s
-        const barra = document.querySelector('mat-progress-bar');
-        if (barra && barra.getBoundingClientRect().height > 0) {
-          const t = performance.now();
-          if (!cargaConvDesde) cargaConvDesde = t;
-          if (t - cargaConvDesde < 6000) vueloHasta = Math.max(vueloHasta, t + 400);
-        } else if (cargaConvDesde) { cargaConvDesde = 0; try { Tareas.marcar('layout'); } catch (e) { /* aún no está listo */ } }
-      }
       const hay = !pantallaBloqueada && hayCarga();
       const t = performance.now();
       if (hay) { sinCargaDesde = 0; if (!visible) mostrar(); }
@@ -7981,6 +7994,7 @@ p.gds-body-s.ng-star-inserted {
     function parar(cont) { if (!cont._tgSpin) return; if (cont._tgSpin > 0) cancelAnimationFrame(cont._tgSpin); cont._tgSpin = 0; cont.textContent = ''; }
     tgForma = { montar, parar };
     cada(revisar, 200);
+    cada(revisarConv, 100);
   })();
 
   revisarTemaBody();
