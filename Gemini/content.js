@@ -856,7 +856,8 @@
         .tg-edm-aj label em { font-style: normal; font-size: 13px; opacity: 0.75; text-align: right; }
         .tg-edm-aj input[type=range] { width: 100%; accent-color: var(--edm-ac); margin: 0; }
         .tg-edm-msg { min-height: 18px; margin-top: 10px; font-size: 12.5px; opacity: 0.7; text-align: center; }
-        @media (prefers-reduced-motion: reduce) { .tg-edm-b { transition: none; } }`;
+        html.tg-panel-seguro.tg-panel-seguro immersive-panel :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation: none !important; }
+      @media (prefers-reduced-motion: reduce) { .tg-edm-b { transition: none; } }`;
       (document.head || document.documentElement).appendChild(st);
     }
     // ---------- estado ----------
@@ -8160,16 +8161,16 @@ p.gds-body-s.ng-star-inserted {
       @keyframes tgQEntraB { from { opacity: 0; transform: translate3d(48px, 0, 0); } to { opacity: 1; transform: none; } }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-q-run="a"] :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation-name: tgQEntraA !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-q-run="b"] :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation-name: tgQEntraB !important; }
-      html.tg-panel-seguro.tg-panel-seguro immersive-panel .outer-container { position: relative !important; padding-top: calc(var(--tg-panel-top, 64px) + 96px) !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .outer-container { position: relative !important; padding-top: calc(var(--tg-panel-top, 64px) + 110px) !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar [data-tg-tit] { visibility: hidden !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar {
-        position: absolute !important; top: var(--tg-panel-top, 64px) !important; left: 0 !important; right: 0 !important; height: 44px !important;
+        position: absolute !important; top: calc(var(--tg-panel-top, 64px) + 14px) !important; left: 0 !important; right: 0 !important; height: 44px !important;
         display: block !important; z-index: 6 !important; visibility: visible !important; opacity: 1 !important; pointer-events: none !important;
       }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar .toolbar { display: flex !important; justify-content: space-between !important; align-items: center !important; height: 44px !important; padding: 0 10px !important; box-sizing: border-box !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar :is(.left-panel, .action-buttons) { display: flex !important; align-items: center !important; pointer-events: auto !important; visibility: visible !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar {
-        position: fixed !important; top: var(--tg-bar-t, 64px) !important; left: var(--tg-bar-l, 60px) !important; right: var(--tg-bar-r, 60px) !important; width: auto !important; height: 44px !important;
+        position: fixed !important; top: calc(var(--tg-bar-t, 64px) + 14px) !important; left: var(--tg-bar-l, 60px) !important; right: var(--tg-bar-r, 60px) !important; width: auto !important; height: 44px !important;
         display: flex !important; align-items: center !important; z-index: 5 !important; margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;
       }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-bar-step-container { display: flex !important; flex-wrap: nowrap !important; align-items: center !important; gap: 8px !important; width: 100% !important; }
@@ -8177,7 +8178,7 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-bar-step-indicator-container { order: 0 !important; flex: none !important; margin: 0 !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-status { font-size: 12px !important; white-space: nowrap !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .score-container {
-        position: fixed !important; left: var(--tg-panel-l, 0px) !important; right: 0 !important; top: calc(var(--tg-bar-t, 64px) + 46px) !important;
+        position: fixed !important; left: var(--tg-panel-l, 0px) !important; right: 0 !important; top: calc(var(--tg-bar-t, 64px) + 60px) !important;
         justify-content: center !important; z-index: 3 !important; pointer-events: none !important;
       }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .question-number { text-align: center !important; display: block !important; width: 100% !important; }
@@ -8185,7 +8186,11 @@ p.gds-body-s.ng-star-inserted {
       /* ===== BAJA y MEDIA: fondo del menú negro semitransparente 0.5, SIN blur ===== */
       html.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) chat-window.immersives-mode, html.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) chat-window.lm-canvas-styling { background: transparent !important; background-color: transparent !important; }
       html.tg-panel-seguro.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) :is(learning-immersive-panel, .outer-container, [data-tg-panel-fondo]) { background: transparent !important; background-color: transparent !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
-      html.tg-panel-seguro.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) immersive-panel { background: rgba(0, 0, 0, 0.5) !important; background-color: rgba(0, 0, 0, 0.5) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+      html.tg-panel-seguro.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) immersive-panel { background: transparent !important; background-color: transparent !important; isolation: isolate !important; }
+      html.tg-panel-seguro.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) immersive-panel::before {
+        content: '' !important; position: fixed !important; inset: 0 0 0 var(--tg-panel-l, 0px) !important; z-index: -1 !important; pointer-events: none !important;
+        background: rgba(0, 0, 0, 0.5) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+      }
       /* MEDIA: blur SOLO en las opciones de respuesta (capa propia, sin transición de blur, toque inmediato) */
       html.tg-panel-seguro.tg-panel-seguro.tg-blur-media immersive-panel button.option {
         -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important; background: rgba(0, 0, 0, 0.55) !important; background-color: rgba(0, 0, 0, 0.55) !important;
@@ -8205,8 +8210,17 @@ p.gds-body-s.ng-star-inserted {
       });
       const nq = panel.querySelector('.question-number'), tq = nq ? nq.textContent : '';
       if (tq !== panel._tgQN) {
-        const primera = panel._tgQN === undefined; panel._tgQN = tq;
-        if (!primera) panel.setAttribute('data-tg-q-run', panel.getAttribute('data-tg-q-run') === 'a' ? 'b' : 'a');
+        panel._tgQN = tq;
+      }
+      // entrada: desde la derecha, uno por uno, con fade (Web Animations; se repite en cada pregunta)
+      const ops = panel.querySelectorAll('.option-container');
+      const clave = tq + '|' + ops.length;
+      if (ops.length && clave !== panel._tgQK) {
+        panel._tgQK = clave;
+        const els = Array.prototype.slice.call(ops).concat(Array.prototype.slice.call(panel.querySelectorAll('.hint-button-container gem-button, .navigation-buttons-container gem-button')));
+        els.forEach((el, i) => {
+          try { el.animate([{ opacity: 0, transform: 'translate3d(70px,0,0)' }, { opacity: 1, transform: 'translate3d(0,0,0)' }], { duration: 520, delay: i * 90, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'backwards' }); } catch (e) { /* sin WAAPI */ }
+        });
       }
     }
     function marcarOpcionesViejo(panel) {
