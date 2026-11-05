@@ -8018,6 +8018,15 @@ p.gds-body-s.ng-star-inserted {
         padding-top: var(--tg-panel-top, 120px) !important; box-sizing: border-box !important; background-color: var(--tg-panel-gris) !important;
       }
       ${OCULTAR_CSS}
+      /* el brillo de fondo (.lm-glow) no se ve: se quita del todo con el panel abierto */
+      html.tg-panel-seguro chat-window .lm-glow, html.tg-panel-seguro chat-window .lm-glow *, chat-window.immersives-mode .lm-glow, chat-window.immersives-mode .lm-glow * {
+        display: none !important; background: transparent !important; box-shadow: none !important; filter: none !important; opacity: 0 !important;
+      }
+      /* la barra de arriba del panel: sin fondo ni sombra ni blur (los iconos siguen visibles) */
+      html.tg-panel-seguro immersive-panel toolbar, html.tg-panel-seguro immersive-panel toolbar .toolbar,
+      html.tg-panel-seguro immersive-panel toolbar .left-panel, html.tg-panel-seguro immersive-panel toolbar .action-buttons {
+        background: transparent !important; box-shadow: none !important; border: 0 !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+      }
       /* iconos de la barra del panel (cerrar, compartir): fondo redondeado suave, del color del propio icono */
       html.tg-panel-seguro immersive-panel .toolbar .mdc-icon-button {
         background-color: color-mix(in srgb, currentColor 14%, transparent) !important; border-radius: 9999px !important;
