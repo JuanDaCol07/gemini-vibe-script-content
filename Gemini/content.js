@@ -7999,6 +7999,54 @@ p.gds-body-s.ng-star-inserted {
     cada(revisarConv, 100);
   })();
 
+  // ============================================================================================
+  // PANEL INMERSIVO (cuestionarios, etc.) EN EL MÓVIL
+  // Arranca debajo de la zona segura (barra de estado + botones de arriba de Gemini) y todo lo de arriba se rellena con el gris SÓLIDO del propio panel
+  // ============================================================================================
+  (function () {
+    if (!ES_APP_FLUTTER) return;
+    const raiz = document.documentElement;
+    const st = document.createElement('style');
+    st.id = 'tg-panel-seguro-style';
+    st.textContent = `
+      html.tg-panel-seguro immersive-panel,
+      html.tg-panel-seguro immersive-panel learning-immersive-panel { background-color: var(--tg-panel-gris) !important; }
+      html.tg-panel-seguro immersive-panel .outer-container {
+        padding-top: var(--tg-panel-top, 120px) !important; box-sizing: border-box !important; background-color: var(--tg-panel-gris) !important;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(st);
+    let activo = false, ultTop = -1;
+    // primer fondo casi opaco hacia arriba desde el elemento, forzado a sólido (sin transparencia)
+    function colorSolido(el) {
+      for (let e = el; e; e = e.parentElement) {
+        const n = (getComputedStyle(e).backgroundColor || '').match(/[\d.]+/g);
+        if (n && n.length >= 3 && (n.length < 4 || parseFloat(n[3]) > 0.6)) return 'rgb(' + n[0] + ', ' + n[1] + ', ' + n[2] + ')';
+      }
+      return raiz.getAttribute('data-tema') === 'claro' ? '#f4f4f6' : '#1c1b1d';
+    }
+    // borde de abajo de los botones de Gemini (menú, selector de modelo...) + un respiro; nunca menos que la zona segura + 64px
+    function techo() {
+      let b = 0;
+      document.querySelectorAll('top-bar-actions button').forEach((x) => { const r = x.getBoundingClientRect(); if (r.height > 0 && r.top < 260 && r.bottom > b) b = r.bottom; });
+      const seg = (parseFloat(raiz.style.getPropertyValue('--tg-safe-top')) || 0) + 64;
+      return Math.round(Math.max(b, seg) + 10);
+    }
+    function ajustar() {
+      const panel = document.querySelector('immersive-panel');
+      if (!panel) { if (activo) { activo = false; raiz.classList.remove('tg-panel-seguro'); } return; }
+      const t = techo();
+      if (t !== ultTop) { ultTop = t; raiz.style.setProperty('--tg-panel-top', t + 'px'); }
+      if (!activo) {
+        activo = true;
+        raiz.classList.remove('tg-panel-seguro'); // se mide el gris ORIGINAL del panel antes de aplicar nuestras reglas
+        raiz.style.setProperty('--tg-panel-gris', colorSolido(panel.querySelector('.outer-container') || panel));
+        raiz.classList.add('tg-panel-seguro');
+      }
+    }
+    cada(ajustar, 150);
+  })();
+
   revisarTemaBody();
   try { actualizarVarSafeTop(); } catch (e) { /* sin área segura */ }
   aplicarVibes(); // deja todo en el estado guardado (encendido/apagado) una vez creadas todas las hojas de estilo
