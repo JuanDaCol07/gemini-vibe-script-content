@@ -492,6 +492,7 @@
       '[data-tg-creando-caja]:not([data-tg-creando-unica])',
       'input-area-v2 .text-input-field',
       'input-area-v2 .input-area-fieldset > .text-input-field',
+      'immersive-panel button.option',
     ].join(', ');
     const est = document.createElement('style');
     est.id = 'tg-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
@@ -8067,7 +8068,7 @@ p.gds-body-s.ng-star-inserted {
         background: transparent !important; background-color: transparent !important; box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
       }
       /* entrada: desde la izquierda con opacidad, uno por uno (solo transform + opacity) */
-      @keyframes tgQEntra { from { opacity: 0; transform: translate3d(-48px, 0, 0); } to { opacity: 1; transform: none; } }
+      @keyframes tgQEntra { from { opacity: 0; transform: translate3d(48px, 0, 0); } to { opacity: 1; transform: none; } }
       html.tg-panel-seguro immersive-panel .option-container,
       html.tg-panel-seguro immersive-panel .hint-button-container gem-button,
       html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button { animation: tgQEntra 560ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
@@ -8155,8 +8156,8 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro.tg-panel-seguro immersive-panel * { text-shadow: none; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel :is(.question-text-container, .question-number, .progress-status) { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
       html[data-tema="claro"].tg-panel-seguro.tg-panel-seguro immersive-panel :is(.question-text-container, .question-number, .progress-status) { text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7); }
-      @keyframes tgQEntraA { from { opacity: 0; transform: translate3d(-48px, 0, 0); } to { opacity: 1; transform: none; } }
-      @keyframes tgQEntraB { from { opacity: 0; transform: translate3d(-48px, 0, 0); } to { opacity: 1; transform: none; } }
+      @keyframes tgQEntraA { from { opacity: 0; transform: translate3d(48px, 0, 0); } to { opacity: 1; transform: none; } }
+      @keyframes tgQEntraB { from { opacity: 0; transform: translate3d(48px, 0, 0); } to { opacity: 1; transform: none; } }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-q-run="a"] :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation-name: tgQEntraA !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-q-run="b"] :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation-name: tgQEntraB !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .outer-container { position: relative !important; padding-top: calc(var(--tg-panel-top, 64px) + 96px) !important; }
@@ -8181,6 +8182,16 @@ p.gds-body-s.ng-star-inserted {
       }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .question-number { text-align: center !important; display: block !important; width: 100% !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .action-buttons-container { padding-bottom: calc(44px + env(safe-area-inset-bottom, 0px)) !important; box-sizing: border-box !important; }
+      /* ===== BAJA y MEDIA: fondo del menú negro semitransparente 0.5, SIN blur ===== */
+      html.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) chat-window.immersives-mode, html.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) chat-window.lm-canvas-styling { background: transparent !important; background-color: transparent !important; }
+      html.tg-panel-seguro.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) :is(learning-immersive-panel, .outer-container, [data-tg-panel-fondo]) { background: transparent !important; background-color: transparent !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+      html.tg-panel-seguro.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) immersive-panel { background: rgba(0, 0, 0, 0.5) !important; background-color: rgba(0, 0, 0, 0.5) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+      /* MEDIA: blur SOLO en las opciones de respuesta (capa propia, sin transición de blur, toque inmediato) */
+      html.tg-panel-seguro.tg-panel-seguro.tg-blur-media immersive-panel button.option {
+        -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important; background: rgba(0, 0, 0, 0.55) !important; background-color: rgba(0, 0, 0, 0.55) !important;
+        transform: translateZ(0); contain: layout paint style !important; touch-action: manipulation !important; transition: transform 0.1s ease !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro.tg-blur-media immersive-panel button.option[data-tg-q=\"ok\"] { background: var(--tg-q-acento, #0059ff) !important; background-color: var(--tg-q-acento, #0059ff) !important; }
     `;
     (document.head || document.documentElement).appendChild(st);
     let activo = false, ultTop = -1, ultMarcado = 0;
