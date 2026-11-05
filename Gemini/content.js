@@ -7969,6 +7969,8 @@ p.gds-body-s.ng-star-inserted {
       } else if (cargaConvDesde) { cargaConvDesde = 0; if (cargandoConv) terminarConv(); }
     }
     function revisar() {
+      // no depende del lote de mutaciones (en el móvil llega tarde): se marca aquí mismo la respuesta que aún no tiene texto
+      try { if (!cargandoConv) marcarCargandoRespuesta(); } catch (e) { /* sin respuestas todavía */ }
       const hay = !pantallaBloqueada && hayCarga();
       const t = performance.now();
       if (hay) { sinCargaDesde = 0; if (!visible) mostrar(); }
