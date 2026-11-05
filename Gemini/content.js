@@ -7887,6 +7887,15 @@ p.gds-body-s.ng-star-inserted {
     `;
     (document.head || document.documentElement).appendChild(st);
 
+    const NS_SVG = 'http://www.w3.org/2000/svg';
+    function nuevoSvg() { // sin innerHTML: Gemini usa Trusted Types y en el WebView de la app lo bloquearía
+      const sv = document.createElementNS(NS_SVG, 'svg');
+      sv.setAttribute('class', 'tg-giro'); sv.setAttribute('viewBox', '-50 -50 100 100'); sv.setAttribute('aria-hidden', 'true');
+      const tr = document.createElementNS(NS_SVG, 'path');
+      tr.setAttribute('fill', 'currentColor'); tr.setAttribute('stroke', 'currentColor'); tr.setAttribute('stroke-width', '5'); tr.setAttribute('stroke-linejoin', 'round');
+      sv.appendChild(tr);
+      return { sv, tr };
+    }
     let raiz = null, svg = null, trazo = null;
     let visible = false, desde = 0, sinCargaDesde = 0, raf = 0, ultimoD = '', ocultoEn = 0;
     function crear() {
@@ -7894,8 +7903,7 @@ p.gds-body-s.ng-star-inserted {
       raiz.id = 'tg-cargando';
       raiz.setAttribute('role', 'status');
       raiz.setAttribute('aria-label', 'Cargando');
-      raiz.innerHTML = '<svg class="tg-giro" viewBox="-50 -50 100 100" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/></svg>';
-      svg = raiz.firstChild; trazo = svg.firstChild;
+      const o = nuevoSvg(); svg = o.sv; trazo = o.tr; raiz.appendChild(svg);
       document.documentElement.appendChild(raiz);
     }
     const PASOS = 12, cache = {};
@@ -7919,6 +7927,7 @@ p.gds-body-s.ng-star-inserted {
     }
     function mostrar() {
       if (!raiz) crear();
+      try { raiz.style.setProperty('color', burbujaCSS(burbuja, false), 'important'); } catch (e) { /* sin burbuja: queda el violeta por defecto */ }
       visible = true; desde = performance.now(); sinCargaDesde = 0;
       if (sinMovimiento()) { poner(camino(2, 0)); } else if (!raf) raf = requestAnimationFrame(cuadro);
       raiz.classList.add('tg-on');
@@ -7958,8 +7967,8 @@ p.gds-body-s.ng-star-inserted {
     // misma figura animada pero dentro de cualquier contenedor (botón de actualizaciones): usa el color del texto (currentColor)
     function montar(cont) {
       if (cont._tgSpin) return;
-      cont.innerHTML = '<svg class="tg-giro" viewBox="-50 -50 100 100" aria-hidden="true" style="width:100%;height:100%;display:block;overflow:visible"><path fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/></svg>';
-      const sv = cont.firstChild, tr = sv.firstChild, t0 = performance.now(), quieto = sinMovimiento();
+      const o = nuevoSvg(); o.sv.style.cssText = 'width:100%;height:100%;display:block;overflow:visible'; cont.appendChild(o.sv);
+      const sv = o.sv, tr = o.tr, t0 = performance.now(), quieto = sinMovimiento();
       const pintar = (ahora) => {
         const paso = (ahora - t0) / PASO_MS, idx = Math.floor(paso);
         const m = Math.min(1, Math.max(0, (paso - idx - PAUSA) / (1 - PAUSA)));
@@ -7969,7 +7978,7 @@ p.gds-body-s.ng-star-inserted {
       const bucle = (ahora) => { if (!cont._tgSpin) return; pintar(ahora); cont._tgSpin = requestAnimationFrame(bucle); };
       if (quieto) { pintar(t0 + PASO_MS * 2.2); cont._tgSpin = -1; } else cont._tgSpin = requestAnimationFrame(bucle);
     }
-    function parar(cont) { if (!cont._tgSpin) return; if (cont._tgSpin > 0) cancelAnimationFrame(cont._tgSpin); cont._tgSpin = 0; cont.innerHTML = ''; }
+    function parar(cont) { if (!cont._tgSpin) return; if (cont._tgSpin > 0) cancelAnimationFrame(cont._tgSpin); cont._tgSpin = 0; cont.textContent = ''; }
     tgForma = { montar, parar };
     cada(revisar, 200);
   })();
