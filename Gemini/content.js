@@ -8006,6 +8006,9 @@ p.gds-body-s.ng-star-inserted {
   (function () {
     if (!ES_APP_FLUTTER) return;
     const raiz = document.documentElement;
+    // lo que queda DETRÁS del panel y se ve a través del blur: se vuelve transparente (quita de la lista lo que quieras que se siga viendo)
+    const OCULTAR_DETRAS = ['chat-window input-container', '#tg-fade-chat', 'chat-window .lm-glow', 'chat-window .autosuggest-scrim'];
+    const OCULTAR_CSS = OCULTAR_DETRAS.map((x) => 'html.tg-panel-seguro ' + x).join(', ') + ' { opacity: 0 !important; pointer-events: none !important; transition: opacity 0.2s ease !important; }';
     const st = document.createElement('style');
     st.id = 'tg-panel-seguro-style';
     st.textContent = `
@@ -8014,9 +8017,43 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro immersive-panel .outer-container {
         padding-top: var(--tg-panel-top, 120px) !important; box-sizing: border-box !important; background-color: var(--tg-panel-gris) !important;
       }
+      ${OCULTAR_CSS}
+      /* iconos de la barra del panel (cerrar, compartir): fondo redondeado suave, del color del propio icono */
+      html.tg-panel-seguro immersive-panel .toolbar .mdc-icon-button {
+        background-color: color-mix(in srgb, currentColor 14%, transparent) !important; border-radius: 9999px !important;
+      }
+      /* tooltips mientras el panel está abierto: cristal translúcido con blur (no puede ser 100 % transparente o no se leería) */
+      html.tg-panel-seguro .mdc-tooltip__surface, html.tg-panel-seguro .mat-mdc-tooltip .mdc-tooltip__surface,
+      html.tg-panel-seguro gem-tooltip, html.tg-panel-seguro .gem-tooltip, html.tg-panel-seguro [role="tooltip"] {
+        background-color: rgba(30, 30, 32, 0.35) !important; -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important; box-shadow: none !important;
+      }
+      /* nivel de blur ALTA: fondo transparente con blur de 5px (en media y baja se queda el gris sólido) */
+      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel,
+      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel learning-immersive-panel,
+      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel .outer-container { background-color: transparent !important; }
+      /* fondos que Gemini pone en capas internas (los detecta ajustar()): también transparentes; el blur va en UNA sola capa que cubre el panel */
+      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-fondo] { background: transparent !important; }
+      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur] { -webkit-backdrop-filter: blur(5px) !important; backdrop-filter: blur(5px) !important; }
     `;
     (document.head || document.documentElement).appendChild(st);
-    let activo = false, ultTop = -1;
+    let activo = false, ultTop = -1, ultMarcado = 0;
+    // marca las capas grandes con fondo propio (el gris sólido puede venir de cualquiera) y elige UNA que cubra el panel para el blur
+    function marcar(panel) {
+      const pr = panel.getBoundingClientRect(), area = Math.max(1, pr.width * pr.height);
+      const lista = [panel].concat(Array.prototype.slice.call(panel.querySelectorAll('*'), 0, 400));
+      for (let i = 0; i < lista.length; i++) {
+        const e = lista[i];
+        if (e.hasAttribute('data-tg-panel-fondo')) continue;
+        const r = e.getBoundingClientRect();
+        if (r.width * r.height < area * 0.35) continue;
+        const cs = getComputedStyle(e), c = (cs.backgroundColor || '').match(/[\d.]+/g) || [];
+        if ((c.length >= 3 && (c.length < 4 || parseFloat(c[3]) > 0.05)) || (cs.backgroundImage && cs.backgroundImage !== 'none')) e.setAttribute('data-tg-panel-fondo', '');
+      }
+      const cand = [panel, panel.querySelector('learning-immersive-panel'), panel.querySelector('.outer-container')].filter(Boolean);
+      const cubre = (e) => { const r = e.getBoundingClientRect(); return r.height >= innerHeight * 0.7 && r.width >= innerWidth * 0.9; };
+      const objetivo = cand.find(cubre) || panel;
+      cand.forEach((e) => { if (e === objetivo) e.setAttribute('data-tg-panel-blur', ''); else e.removeAttribute('data-tg-panel-blur'); });
+    }
     // primer fondo casi opaco hacia arriba desde el elemento, forzado a sólido (sin transparencia)
     function colorSolido(el) {
       for (let e = el; e; e = e.parentElement) {
@@ -8044,6 +8081,8 @@ p.gds-body-s.ng-star-inserted {
         raiz.style.setProperty('--tg-panel-gris', colorSolido(panel.querySelector('.outer-container') || panel));
         raiz.classList.add('tg-panel-seguro');
       }
+      const ahora = performance.now();
+      if (ahora - ultMarcado > 1000) { ultMarcado = ahora; marcar(panel); } // el contenido cambia (siguiente pregunta, respuestas): se revisa cada segundo
     }
     cada(ajustar, 150);
   })();
