@@ -8005,7 +8005,6 @@ p.gds-body-s.ng-star-inserted {
   // Arranca debajo de la zona segura (barra de estado + botones de arriba de Gemini) y todo lo de arriba se rellena con el gris SÓLIDO del propio panel
   // ============================================================================================
   (function () {
-    if (!ES_APP_FLUTTER) return;
     const raiz = document.documentElement;
     // lo que queda DETRÁS del panel y se ve a través del blur: se vuelve transparente (quita de la lista lo que quieras que se siga viendo)
     const OCULTAR_DETRAS = ['chat-window input-container', '#tg-fade-chat', 'chat-window .lm-glow', 'chat-window .autosuggest-scrim'];
@@ -8050,8 +8049,11 @@ p.gds-body-s.ng-star-inserted {
       /* el blur (12px + brightness 0.85) va en una capa APARTE (::before) y no en el propio panel: un backdrop-filter en el panel impide que los botones de dentro difuminen el fondo */
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur] { isolation: isolate !important; }
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur]::before {
-        content: '' !important; position: fixed !important; inset: 0 !important; z-index: -1 !important; pointer-events: none !important;
+        content: '' !important; position: fixed !important; inset: 0 0 0 calc(var(--tg-panel-l, 0px) - var(--tg-fade-out, 0px)) !important; z-index: -1 !important; pointer-events: none !important;
         -webkit-backdrop-filter: blur(12px) brightness(0.85) !important; backdrop-filter: blur(24px) brightness(0.7) !important;
+      }
+      html.tg-panel-seguro.tg-ancho:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur]::before {
+        -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-fade, 0px)) !important; mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-fade, 0px)) !important;
       }
       /* botones del panel (opciones, Pista, Atrás, Siguiente, iconos): fondo con blur, solo en nivel ALTA */
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel button { -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important; }
@@ -8065,10 +8067,10 @@ p.gds-body-s.ng-star-inserted {
         background: transparent !important; background-color: transparent !important; box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
       }
       /* entrada: desde la izquierda con opacidad, uno por uno (solo transform + opacity) */
-      @keyframes tgQEntra { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+      @keyframes tgQEntra { from { opacity: 0; transform: translate3d(-48px, 0, 0); } to { opacity: 1; transform: none; } }
       html.tg-panel-seguro immersive-panel .option-container,
       html.tg-panel-seguro immersive-panel .hint-button-container gem-button,
-      html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button { animation: tgQEntra 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+      html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button { animation: tgQEntra 560ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
       html.tg-panel-seguro immersive-panel .option-container:nth-child(2) { animation-delay: 70ms; }
       html.tg-panel-seguro immersive-panel .option-container:nth-child(3) { animation-delay: 140ms; }
       html.tg-panel-seguro immersive-panel .option-container:nth-child(4) { animation-delay: 210ms; }
@@ -8137,12 +8139,66 @@ p.gds-body-s.ng-star-inserted {
       }
       html.tg-panel-seguro immersive-panel .score-item-incorrect { background: rgba(255, 107, 107, 0.45) !important; }
       html.tg-panel-seguro immersive-panel .score-item-correct { background: rgba(120, 220, 140, 0.45) !important; }
+      /* ===== OPTIMIZACIÓN + NUEVO LAYOUT ===== */
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel :is(button, .score-item-container, .toolbar .mdc-icon-button) {
+        -webkit-backdrop-filter: none !important; backdrop-filter: none !important; will-change: auto !important;
+        touch-action: manipulation !important; -webkit-tap-highlight-color: transparent !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel button.option,
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .hint-button-container button,
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .navigation-buttons-container button.mat-tonal-button {
+        background: rgba(0, 0, 0, 0.82) !important; background-color: rgba(0, 0, 0, 0.82) !important; transition: transform 0.1s ease !important;
+      }
+      html[data-tema="claro"].tg-panel-seguro.tg-panel-seguro immersive-panel button.option { background: rgba(255, 255, 255, 0.85) !important; background-color: rgba(255, 255, 255, 0.85) !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel button.option[data-tg-q="ok"] { background: var(--tg-q-acento, #0059ff) !important; background-color: var(--tg-q-acento, #0059ff) !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel button:active { transform: scale(0.97) !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel * { text-shadow: none; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel :is(.question-text-container, .question-number, .progress-status) { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+      html[data-tema="claro"].tg-panel-seguro.tg-panel-seguro immersive-panel :is(.question-text-container, .question-number, .progress-status) { text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7); }
+      @keyframes tgQEntraA { from { opacity: 0; transform: translate3d(-48px, 0, 0); } to { opacity: 1; transform: none; } }
+      @keyframes tgQEntraB { from { opacity: 0; transform: translate3d(-48px, 0, 0); } to { opacity: 1; transform: none; } }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-q-run="a"] :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation-name: tgQEntraA !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-q-run="b"] :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation-name: tgQEntraB !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .outer-container { position: relative !important; padding-top: calc(var(--tg-panel-top, 64px) + 96px) !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar [data-tg-tit] { visibility: hidden !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar {
+        position: absolute !important; top: var(--tg-panel-top, 64px) !important; left: 0 !important; right: 0 !important; height: 44px !important;
+        display: block !important; z-index: 6 !important; visibility: visible !important; opacity: 1 !important; pointer-events: none !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar .toolbar { display: flex !important; justify-content: space-between !important; align-items: center !important; height: 44px !important; padding: 0 10px !important; box-sizing: border-box !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar :is(.left-panel, .action-buttons) { display: flex !important; align-items: center !important; pointer-events: auto !important; visibility: visible !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar {
+        position: fixed !important; top: var(--tg-bar-t, 64px) !important; left: var(--tg-bar-l, 60px) !important; right: var(--tg-bar-r, 60px) !important; width: auto !important; height: 44px !important;
+        display: flex !important; align-items: center !important; z-index: 5 !important; margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-bar-step-container { display: flex !important; flex-wrap: nowrap !important; align-items: center !important; gap: 8px !important; width: 100% !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-bar-step-list { flex: 1 1 0 !important; min-width: 0 !important; order: 1 !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-bar-step-indicator-container { order: 0 !important; flex: none !important; margin: 0 !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-status { font-size: 12px !important; white-space: nowrap !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .score-container {
+        position: fixed !important; left: var(--tg-panel-l, 0px) !important; right: 0 !important; top: calc(var(--tg-bar-t, 64px) + 46px) !important;
+        justify-content: center !important; z-index: 3 !important; pointer-events: none !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .question-number { text-align: center !important; display: block !important; width: 100% !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .action-buttons-container { padding-bottom: calc(44px + env(safe-area-inset-bottom, 0px)) !important; box-sizing: border-box !important; }
     `;
     (document.head || document.documentElement).appendChild(st);
     let activo = false, ultTop = -1, ultMarcado = 0;
     let ultAcento = '';
     // marca cada opción como correcta ('ok') o incorrecta ('no') según la etiqueta que Gemini le pone, y marca esa etiqueta
     function marcarOpciones(panel) {
+      panel.querySelectorAll('button.option').forEach((b) => {
+        const c = b.classList, s = (c.contains('revealed-correct') || c.contains('answered-correct')) ? 'ok' : c.contains('answered-incorrect') ? 'no' : '';
+        if ((b.getAttribute('data-tg-q') || '') !== s) { if (s) b.setAttribute('data-tg-q', s); else b.removeAttribute('data-tg-q'); }
+        if (s) { const bd = b.querySelector('.option-badge'); if (bd && !bd.hasAttribute('data-tg-q-badge')) bd.setAttribute('data-tg-q-badge', ''); }
+      });
+      const nq = panel.querySelector('.question-number'), tq = nq ? nq.textContent : '';
+      if (tq !== panel._tgQN) {
+        const primera = panel._tgQN === undefined; panel._tgQN = tq;
+        if (!primera) panel.setAttribute('data-tg-q-run', panel.getAttribute('data-tg-q-run') === 'a' ? 'b' : 'a');
+      }
+    }
+    function marcarOpcionesViejo(panel) {
       panel.querySelectorAll('button.option').forEach((b) => {
         let badge = null, s = '';
         const hijos = b.querySelectorAll('*');
@@ -8181,6 +8237,7 @@ p.gds-body-s.ng-star-inserted {
     }
     // borde de abajo de los botones de Gemini (menú, selector de modelo...) + un respiro; nunca menos que la zona segura + 56px
     function techo() {
+      if (!ES_APP_FLUTTER) return window.innerWidth / Math.max(1, window.innerHeight) > 1.3 ? 16 : 64;
       let b = 0;
       document.querySelectorAll('top-bar-actions button').forEach((x) => { const r = x.getBoundingClientRect(); if (r.height > 0 && r.top < 260 && r.bottom > b) b = r.bottom; });
       const seg = (parseFloat(raiz.style.getPropertyValue('--tg-safe-top')) || 0) + 56;
@@ -8199,14 +8256,31 @@ p.gds-body-s.ng-star-inserted {
         raiz.classList.add('tg-panel-seguro');
       }
       try {
+        const pr = panel.getBoundingClientRect(), ancho = window.innerWidth / Math.max(1, window.innerHeight) > 1.3 && pr.left > 100;
+        const pl = ancho ? Math.round(pr.left) : 0, fd = ancho ? '220px' : '0px';
+        raiz.classList.toggle('tg-ancho', !!ancho);
+        if (panel._tgPL !== pl) { panel._tgPL = pl; raiz.style.setProperty('--tg-panel-l', pl + 'px'); raiz.style.setProperty('--tg-fade', fd); raiz.style.setProperty('--tg-fade-out', ancho ? '110px' : '0px'); }
+        const T = panel.querySelector('toolbar');
+        const bs = Array.from(panel.querySelectorAll('toolbar button')).map((x) => x.getBoundingClientRect()).filter((r) => r.width > 0);
+        if (T && bs.length) {
+          const mid = pr.left + pr.width / 2;
+          const L = bs.filter((r) => r.left + r.width / 2 < mid), R = bs.filter((r) => r.left + r.width / 2 >= mid);
+          const a = L.length ? L.reduce((m, r) => Math.max(m, r.right), 0) + 10 : pr.left + 24;
+          const c = R.length ? R.reduce((m, r) => Math.min(m, r.left), 1e9) : pr.right - 24;
+          const v = [Math.round(bs[0].top + bs[0].height / 2 - 22) + 'px', Math.round(a) + 'px', Math.round(window.innerWidth - c + 10) + 'px'];
+          if (v.join() !== panel._tgBar) { panel._tgBar = v.join(); raiz.style.setProperty('--tg-bar-t', v[0]); raiz.style.setProperty('--tg-bar-l', v[1]); raiz.style.setProperty('--tg-bar-r', v[2]); }
+          T.querySelectorAll('*').forEach((e) => { if (!e.children.length && !e.closest('button') && !e.hasAttribute('data-tg-tit') && (e.textContent || '').trim().length > 3) { e.setAttribute('data-tg-tit', ''); } });
+        }
+      } catch (e) {}
+      try {
         const ac = burbujaCSS(burbuja, false);
         if (ac !== ultAcento) { ultAcento = ac; raiz.style.setProperty('--tg-q-acento', ac); raiz.style.setProperty('--tg-q-acento-texto', burbujaTexto(burbuja)); }
         marcarOpciones(panel);
       } catch (e) { /* sin burbuja aún */ }
       const ahora = performance.now();
-      if (ahora - ultMarcado > 1000) { ultMarcado = ahora; marcar(panel); } // el contenido cambia (siguiente pregunta, respuestas): se revisa cada segundo
+      if (ahora - ultMarcado > 3000) { ultMarcado = ahora; marcar(panel); } // el contenido cambia (siguiente pregunta, respuestas): se revisa cada segundo
     }
-    cada(ajustar, 150);
+    cada(ajustar, 250);
   })();
 
   revisarTemaBody();
