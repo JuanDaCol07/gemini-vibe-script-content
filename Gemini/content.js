@@ -8036,6 +8036,10 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro gem-tooltip, html.tg-panel-seguro .gem-tooltip, html.tg-panel-seguro [role="tooltip"] {
         background-color: rgba(30, 30, 32, 0.35) !important; -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important; box-shadow: none !important;
       }
+      /* el propio <chat-window> en modo inmersivo trae background-color: var(--gem-sys-color--surface): en nivel ALTA queda transparente */
+      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) chat-window.immersives-mode, html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) chat-window.lm-canvas-styling {
+        background: transparent !important; background-color: transparent !important; box-shadow: none !important;
+      }
       /* nivel de blur ALTA: fondo transparente con blur de 5px (en media y baja se queda el gris sólido) */
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel,
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel learning-immersive-panel,
