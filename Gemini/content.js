@@ -8051,7 +8051,7 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur] { isolation: isolate !important; }
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur]::before {
         content: '' !important; position: fixed !important; inset: 0 !important; z-index: -1 !important; pointer-events: none !important;
-        -webkit-backdrop-filter: blur(12px) brightness(0.85) !important; backdrop-filter: blur(24px) brightness(0.95) !important;
+        -webkit-backdrop-filter: blur(12px) brightness(0.85) !important; backdrop-filter: blur(24px) brightness(0.8) !important;
       }
       /* botones del panel (opciones, Pista, Atrás, Siguiente, iconos): fondo con blur, solo en nivel ALTA */
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel button { -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important; }
