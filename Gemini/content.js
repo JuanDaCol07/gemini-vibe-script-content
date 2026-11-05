@@ -8050,10 +8050,11 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur] { isolation: isolate !important; }
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur]::before {
         content: '' !important; position: fixed !important; inset: 0 0 0 calc(var(--tg-panel-l, 0px) - var(--tg-fade-out, 0px)) !important; z-index: -1 !important; pointer-events: none !important;
+        -webkit-mask-image: none; mask-image: none;
         -webkit-backdrop-filter: blur(12px) brightness(0.85) !important; backdrop-filter: blur(24px) brightness(0.7) !important;
       }
       html.tg-panel-seguro.tg-ancho:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur]::before {
-        -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-fade, 0px)) !important; mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-fade, 0px)) !important;
+        -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-pfade, 0px)) !important; mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-pfade, 0px)) !important;
       }
       /* botones del panel (opciones, Pista, Atrás, Siguiente, iconos): fondo con blur, solo en nivel ALTA */
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel button { -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important; }
@@ -8259,7 +8260,7 @@ p.gds-body-s.ng-star-inserted {
         const pr = panel.getBoundingClientRect(), ancho = window.innerWidth / Math.max(1, window.innerHeight) > 1.3 && pr.left > 100;
         const pl = ancho ? Math.round(pr.left) : 0, fd = ancho ? '220px' : '0px';
         raiz.classList.toggle('tg-ancho', !!ancho);
-        if (panel._tgPL !== pl) { panel._tgPL = pl; raiz.style.setProperty('--tg-panel-l', pl + 'px'); raiz.style.setProperty('--tg-fade', fd); raiz.style.setProperty('--tg-fade-out', ancho ? '110px' : '0px'); }
+        if (panel._tgPL !== pl) { panel._tgPL = pl; raiz.style.setProperty('--tg-panel-l', pl + 'px'); raiz.style.setProperty('--tg-pfade', fd); raiz.style.setProperty('--tg-fade-out', ancho ? '110px' : '0px'); }
         const T = panel.querySelector('toolbar');
         const bs = Array.from(panel.querySelectorAll('toolbar button')).map((x) => x.getBoundingClientRect()).filter((r) => r.width > 0);
         if (T && bs.length) {
