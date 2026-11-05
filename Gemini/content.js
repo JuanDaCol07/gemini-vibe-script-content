@@ -847,6 +847,8 @@
         .tg-edm-linea { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; margin-left: -22px; z-index: 2; cursor: ew-resize; touch-action: none; will-change: translate; }
         .tg-edm-linea::after { content: ''; position: absolute; left: 50%; top: 16px; bottom: 0; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--edm-ac); }
         .tg-edm-linea::before { content: ''; position: absolute; left: 50%; top: 4px; margin-left: -7px; border: 7px solid transparent; border-top: 11px solid var(--edm-ac); border-bottom: 0; }
+        .tg-edm-seek { position: absolute; left: 0; top: 0; bottom: 0; width: 40px; margin-left: -20px; z-index: 3; display: none; cursor: ew-resize; touch-action: none; will-change: translate; background: transparent; }
+        .tg-edm-seek.on { display: block; }
         .tg-edm-lfin { z-index: 1; }
         .tg-edm-lfin::after { background: rgba(255,255,255,0.85); }
         .tg-edm-lfin::before { border-top-color: rgba(255,255,255,0.85); }
@@ -856,7 +858,6 @@
         .tg-edm-aj label em { font-style: normal; font-size: 13px; opacity: 0.75; text-align: right; }
         .tg-edm-aj input[type=range] { width: 100%; accent-color: var(--edm-ac); margin: 0; }
         .tg-edm-msg { min-height: 18px; margin-top: 10px; font-size: 12.5px; opacity: 0.7; text-align: center; }
-        html.tg-panel-seguro.tg-panel-seguro immersive-panel :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation: none !important; }
       @media (prefers-reduced-motion: reduce) { .tg-edm-b { transition: none; } }`;
       (document.head || document.documentElement).appendChild(st);
     }
@@ -871,7 +872,8 @@
     let reproPos = null;      // segundos reproducidos desde el inicio del corte (null = nada que mostrar). Se queda al pausar como referencia.
     let o0 = 0, t0r = 0, seguir = true;
     let ctx = null, fuente = null, gan = null, raf = 0, sonando = false, guardando = false, cw = 0, crudo = null;
-    const durEf = () => durFija == null ? Math.max(1, total - ini) : Math.max(1, Math.min(durFija, total - ini));
+    const EDM_MAX_DUR = 90;   // duración máxima del corte: 1:30 (evita que la app se caiga con canciones largas)
+    const durEf = () => Math.max(1, Math.min(durFija == null ? Infinity : durFija, total - ini, EDM_MAX_DUR));
     const fadeEf = () => Math.min(fade, durEf() / 2);
     const vistaPos = () => reproPos == null ? ini : Math.min(total, ini + reproPos);
 
@@ -896,7 +898,8 @@
     const msg = h('div', { class: 'tg-edm-msg' }, '');
     const pool = [];
     for (let k = 0; k < EDM_N; k++) { const b = h('span', { class: 'tg-edm-b' }); b._j = null; b._f = -1; pool.push(b); onda.appendChild(b); }
-    onda.appendChild(lineaFin); onda.appendChild(linea);
+    const seek = h('span', { class: 'tg-edm-seek', 'aria-label': 'Mover la reproducción' });
+    onda.appendChild(lineaFin); onda.appendChild(linea); onda.appendChild(seek);
     const velo = h('div', { id: 'tg-edm' },
       h('div', { class: 'tg-edm-card', role: 'dialog', 'aria-label': 'Editar música de bienvenida' },
         h('div', { class: 'tg-edm-top' }, h('div', { class: 'tg-edm-tit' }, h('b', null, 'Editar música'), tSub), bX, bOk),
@@ -942,6 +945,12 @@
         if (xPlay !== null && !fuera && !cortada) fr = Math.round(Math.max(0, Math.min(1, (xPlay - x) / EDM_BAR)) * 100);
         if (el._f !== fr) { el._f = fr; el.style.setProperty('--f', String(fr)); }
       }
+      if (xPlay === null) seek.classList.remove('on');
+      else {
+        seek.classList.add('on'); seek.style.translate = xPlay + 'px 0';
+        const xi = cx + (piIni - pi) * EDM_STEP, xf = cx + (piFin - pi) * EDM_STEP;
+        seek.style.pointerEvents = (Math.abs(xPlay - xi) < 14 || Math.abs(xPlay - xf) < 14) ? 'none' : 'auto';   // junto a las rayitas de corte mandan ellas
+      }
       linea.style.translate = (cx + (piIni - pi) * EDM_STEP) + 'px 0';
       lineaFin.style.translate = (cx + (piFin - pi) * EDM_STEP) + 'px 0';
     }
@@ -953,10 +962,10 @@
       fin.style.left = (fe * 100) + '%';
     }
     function pintarAjustes() {
-      const maxD = Math.max(1, Math.floor(total - ini)), minD = Math.min(3, maxD);
+      const maxD = Math.max(1, Math.min(EDM_MAX_DUR, Math.floor(total - ini))), minD = Math.min(3, maxD);
       rDur.min = String(minD); rDur.max = String(maxD);
-      rDur.value = String(durFija == null ? maxD : Math.min(durFija, maxD));
-      vDur.textContent = (durFija == null || durFija >= maxD) ? 'Hasta el final' : fmtTiempo(durFija);
+      rDur.value = String(durFija == null ? maxD : Math.min(Math.round(durFija), maxD));
+      vDur.textContent = (durFija == null && total - ini <= EDM_MAX_DUR + 0.05) ? 'Hasta el final' : fmtTiempo(durEf());
       rFade.max = String(Math.max(0, Math.min(8, Math.floor(durEf() / 2 * 2) / 2)));
       rFade.value = String(Math.min(fade, parseFloat(rFade.max)));
       vFade.textContent = fade > 0 ? fade.toFixed(1).replace('.0', '') + ' s' : 'Sin fade';
@@ -977,17 +986,17 @@
       if (sonando && ctx) reproPos = Math.max(0, Math.min(durEf(), o0 + ctx.currentTime - t0r));
       parar(false);
     }
-    function reproducir() {
+    function reproducir(desde, sinCentrar) {
       if (!buf) return;
       parar(false);
       try {
         if (!ctx) { const AC = window.AudioContext || window.webkitAudioContext; ctx = new AC(); }
         if (ctx.state === 'suspended') ctx.resume();
         const dur = durEf(), f = fadeEf();
-        const o = (reproPos == null || reproPos >= dur - 0.05) ? 0 : reproPos;   // reanuda donde se pausó; si ya terminó, desde el inicio
+        const o = acotar(desde || 0, 0, Math.max(0, dur - 0.1));   // el botón de reproducir SIEMPRE empieza desde el inicio del corte (solo el arrastre de la barrita usa otra posición)
         const t0 = ctx.currentTime + 0.05;
         o0 = o; t0r = t0; reproPos = o; seguir = true;
-        if (cw && (cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP < 8 || cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP > cw * 0.6)) centro = ini + o;
+        if (!sinCentrar && cw && (cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP < 8 || cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP > cw * 0.6)) centro = ini + o;
         gan = ctx.createGain(); fuente = ctx.createBufferSource(); fuente.buffer = buf;
         fuente.connect(gan); gan.connect(ctx.destination);
         const g = gan.gain, env = (x) => f > 0 ? Math.max(0, Math.min(1, x / f, (dur - x) / f)) : 1;
@@ -1019,12 +1028,12 @@
     const acotar = (v, a, b) => Math.max(a, Math.min(b, v));
     function moverInicio(s) { ini = acotar(s, 0, Math.max(0, total - 1)); parar(true); pintarTodo(); }
     function moverFin(t) {
-      const maxD = Math.max(1, total - ini), minD = Math.min(3, maxD), d = acotar(t - ini, minD, maxD);
-      durFija = d >= maxD - 0.05 ? null : d; parar(true); pintarTodo();
+      const maxD = Math.max(1, Math.min(total - ini, EDM_MAX_DUR)), minD = Math.min(3, maxD), d = acotar(t - ini, minD, maxD);
+      durFija = d >= total - ini - 0.05 ? null : d; parar(true); pintarTodo();
     }
     // las ondas SOLO desplazan la vista (no tocan el punto de corte)
     onda.addEventListener('pointerdown', (ev) => {
-      if (!buf || (ev.target.closest && ev.target.closest('.tg-edm-linea'))) return;
+      if (!buf || (ev.target.closest && ev.target.closest('.tg-edm-linea, .tg-edm-seek'))) return;
       seguir = false;
       const x0 = ev.clientX, c0 = centro;
       try { onda.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
@@ -1044,6 +1053,20 @@
         el.addEventListener('pointermove', mover); el.addEventListener('pointerup', soltar); el.addEventListener('pointercancel', soltar);
       });
     }
+    // arrastrar la última barrita rellenada (div invisible): adelanta y retrocede la canción como en un reproductor
+    seek.addEventListener('pointerdown', (ev) => {
+      if (!buf || reproPos == null) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const estaba = sonando; if (sonando) pausar();
+      const x0 = ev.clientX, p0 = reproPos || 0; seguir = false;
+      try { seek.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
+      const mover = (e) => { reproPos = acotar(p0 + ((e.clientX - x0) / EDM_STEP) * EDM_SEG, 0, durEf()); pintarPista(); pintarOnda(); };
+      const soltar = () => {
+        seek.removeEventListener('pointermove', mover); seek.removeEventListener('pointerup', soltar); seek.removeEventListener('pointercancel', soltar);
+        if (estaba) reproducir(reproPos, true);
+      };
+      seek.addEventListener('pointermove', mover); seek.addEventListener('pointerup', soltar); seek.addEventListener('pointercancel', soltar);
+    });
     engarzarMarca(linea, () => ini, moverInicio);
     engarzarMarca(lineaFin, () => ini + durEf(), moverFin);
     pista.addEventListener('pointerdown', (ev) => {
@@ -1057,9 +1080,9 @@
     rFade.addEventListener('input', () => { fade = parseFloat(rFade.value) || 0; parar(true); pintarAjustes(); });
     rDur.addEventListener('input', () => {
       const v = parseInt(rDur.value, 10), maxD = parseInt(rDur.max, 10);
-      durFija = v >= maxD ? null : v; parar(true); pintarAjustes(); pintarPista(); pintarOnda();
+      durFija = (v >= maxD && total - ini <= EDM_MAX_DUR + 0.05) ? null : v; parar(true); pintarAjustes(); pintarPista(); pintarOnda();
     });
-    bPlay.addEventListener('click', () => { if (sonando) pausar(); else reproducir(); });
+    bPlay.addEventListener('click', () => { if (sonando) pausar(); else reproducir(0); });
 
     // ---------- cerrar / guardar ----------
     function cerrar() {
@@ -1088,7 +1111,7 @@
         const ed = { ini, dur: durFija, fade, orig: infoOrig.orig };
         const datos = { geminiAudioBienvenida: url, geminiAudioBienvenidaNombre: nuevo, geminiAudioBienvenidaEdicion: JSON.stringify(ed) };
         // la canción propia original se guarda aparte la primera vez que se edita; la de la extensión se vuelve a leer del archivo
-        if (infoOrig.orig === 'propia' && infoOrig.origUrl && !infoOrig.guardado) { datos.geminiAudioBienvenidaOriginal = infoOrig.origUrl; datos.geminiAudioBienvenidaOriginalNombre = nombre; }
+        if (infoOrig.orig === 'propia' && infoOrig.origUrl) { datos.geminiAudioBienvenidaOriginal = infoOrig.origUrl; datos.geminiAudioBienvenidaOriginalNombre = nombre.replace(/ \(editada\)(?=\.[^.]+$)/, ''); }   // SIEMPRE se guarda el original completo junto a la copia editada
         musicaCache = url;
         musicaOrig = { url: infoOrig.orig === 'propia' ? (infoOrig.origUrl || '') : '', nombre, edicion: ed };
         try { PREFS_INICIALES.geminiAudioBienvenidaNombre = nuevo; } catch (e) { /* solo lectura */ }
@@ -8080,6 +8103,7 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro immersive-panel .hint-button-container gem-button { animation-delay: 280ms; }
       html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button:nth-child(1) { animation-delay: 350ms; }
       html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button:nth-child(2) { animation-delay: 420ms; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation: none !important; }
       @media (prefers-reduced-motion: reduce) { html.tg-panel-seguro immersive-panel :is(.option-container, gem-button) { animation: none !important; } }
       /* botones: mismo fondo que las burbujas de Gemini */
       html.tg-panel-seguro immersive-panel button.option,
