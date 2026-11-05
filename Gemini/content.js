@@ -871,6 +871,8 @@
     let infoOrig = { orig: 'propia' };   // de dónde sale el original (ver obtenerAudioParaEditar)
     let reproPos = null;      // segundos reproducidos desde el inicio del corte (null = nada que mostrar). Se queda al pausar como referencia.
     let o0 = 0, t0r = 0, seguir = true;
+    let marcaAbs = null;      // posición (s, sobre la canción completa) donde quedó el marcador al pausar: se conserva mientras mueves el inicio o el final
+    let inicioMovido = false; // true si moviste la rayita de inicio: el siguiente play arranca desde el inicio; si no, solo reanuda
     let ctx = null, fuente = null, gan = null, raf = 0, sonando = false, guardando = false, cw = 0, crudo = null;
     const EDM_MAX_DUR = 90;   // duración máxima del corte: 1:30 (evita que la app se caiga con canciones largas)
     const durEf = () => Math.max(1, Math.min(durFija == null ? Infinity : durFija, total - ini, EDM_MAX_DUR));
@@ -979,11 +981,12 @@
       if (fuente) { try { fuente.onended = null; fuente.stop(); } catch (e) { /* ya parado */ } fuente = null; }
       if (gan) { try { gan.disconnect(); } catch (e) { /* nada */ } gan = null; }
       sonando = false;
-      if (borrar) reproPos = null;
+      if (borrar) { reproPos = null; marcaAbs = null; }
       iconoPlay(); pintarPista(); pintarOnda();
     }
     function pausar() {
       if (sonando && ctx) reproPos = Math.max(0, Math.min(durEf(), o0 + ctx.currentTime - t0r));
+      marcaAbs = null;
       parar(false);
     }
     function reproducir(desde, sinCentrar) {
@@ -995,7 +998,7 @@
         const dur = durEf(), f = fadeEf();
         const o = acotar(desde || 0, 0, Math.max(0, dur - 0.1));   // el botón de reproducir SIEMPRE empieza desde el inicio del corte (solo el arrastre de la barrita usa otra posición)
         const t0 = ctx.currentTime + 0.05;
-        o0 = o; t0r = t0; reproPos = o; seguir = true;
+        o0 = o; t0r = t0; reproPos = o; seguir = true; marcaAbs = null; inicioMovido = false;
         if (!sinCentrar && cw && (cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP < 8 || cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP > cw * 0.6)) centro = ini + o;
         gan = ctx.createGain(); fuente = ctx.createBufferSource(); fuente.buffer = buf;
         fuente.connect(gan); gan.connect(ctx.destination);
@@ -1026,10 +1029,21 @@
 
     // ---------- gestos ----------
     const acotar = (v, a, b) => Math.max(a, Math.min(b, v));
-    function moverInicio(s) { ini = acotar(s, 0, Math.max(0, total - 1)); parar(true); pintarTodo(); }
+    function moverInicio(s) {
+      // el marcador (donde se pausó) NO se borra: se queda en su sitio y solo desaparece si el inicio lo pasa por encima
+      if (sonando) pausar();
+      if (marcaAbs == null && reproPos != null) marcaAbs = ini + reproPos;
+      ini = acotar(s, 0, Math.max(0, total - 1)); inicioMovido = true;
+      parar(false);
+      reproPos = (marcaAbs != null && marcaAbs >= ini && marcaAbs <= ini + durEf()) ? marcaAbs - ini : null;
+      pintarTodo();
+    }
     function moverFin(t) {
       const maxD = Math.max(1, Math.min(total - ini, EDM_MAX_DUR)), minD = Math.min(3, maxD), d = acotar(t - ini, minD, maxD);
-      durFija = d >= total - ini - 0.05 ? null : d; parar(true); pintarTodo();
+      durFija = d >= total - ini - 0.05 ? null : d;
+      if (sonando) pausar(); else parar(false);
+      if (reproPos != null && reproPos > durEf()) { reproPos = null; marcaAbs = null; }
+      pintarTodo();
     }
     // las ondas SOLO desplazan la vista (no tocan el punto de corte)
     onda.addEventListener('pointerdown', (ev) => {
@@ -1060,7 +1074,7 @@
       const estaba = sonando; if (sonando) pausar();
       const x0 = ev.clientX, p0 = reproPos || 0; seguir = false;
       try { seek.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
-      const mover = (e) => { reproPos = acotar(p0 + ((e.clientX - x0) / EDM_STEP) * EDM_SEG, 0, durEf()); pintarPista(); pintarOnda(); };
+      const mover = (e) => { reproPos = acotar(p0 + ((e.clientX - x0) / EDM_STEP) * EDM_SEG, 0, durEf()); marcaAbs = null; pintarPista(); pintarOnda(); };
       const soltar = () => {
         seek.removeEventListener('pointermove', mover); seek.removeEventListener('pointerup', soltar); seek.removeEventListener('pointercancel', soltar);
         if (estaba) reproducir(reproPos, true);
@@ -1082,7 +1096,11 @@
       const v = parseInt(rDur.value, 10), maxD = parseInt(rDur.max, 10);
       durFija = (v >= maxD && total - ini <= EDM_MAX_DUR + 0.05) ? null : v; parar(true); pintarAjustes(); pintarPista(); pintarOnda();
     });
-    bPlay.addEventListener('click', () => { if (sonando) pausar(); else reproducir(0); });
+    bPlay.addEventListener('click', () => {
+      if (sonando) { pausar(); return; }
+      // si moviste la rayita de inicio (o ya terminó o no hay marcador): desde el inicio; si no, solo reanuda donde se pausó
+      if (inicioMovido || reproPos == null || reproPos >= durEf() - 0.1) reproducir(0); else reproducir(reproPos);
+    });
 
     // ---------- cerrar / guardar ----------
     function cerrar() {
