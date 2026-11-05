@@ -267,6 +267,7 @@
   // ============================================================================================
   let pantallaBloqueada = false;
   // marcas de tiempo (performance.now) para que el planificador no compita con la animación de envío ni con el teclado
+  let tgForma = null;       // lo rellena el indicador de carga: montar(el)/parar(el) para reutilizarlo (ej. botón de actualizaciones)
   let vueloHasta = 0;       // mientras dura el vuelo del mensaje enviado
   let escribiendoHasta = 0; // mientras se está escribiendo en la caja
   // true mientras el body está escalado (bloqueado o durante el zoom de entrada/salida): en ese tiempo NO se mide el layout
@@ -6005,7 +6006,7 @@ p.gds-body-s.ng-star-inserted {
       .tg-u-btn:active { transform: scale(0.97); }
       .tg-u-btn:disabled { opacity: 0.65; cursor: default; transform: none; }
       .tg-u-btn:focus-visible, .tg-u-x:focus-visible { box-shadow: 0 0 0 3px var(--p-hover); }
-      .tg-u-spin { display: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: tgUSpin 0.8s linear infinite; }
+      .tg-u-spin { display: none; width: 20px; height: 20px; }
       .tg-u-btn[data-ocupado] .tg-u-spin { display: inline-block; }
       @keyframes tgUSpin { to { transform: rotate(360deg); } }
       .tg-u-ok { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 18px; font-weight: 500; color: var(--p-texto); text-align: center; }
@@ -6095,6 +6096,7 @@ p.gds-body-s.ng-star-inserted {
       btn.hidden = alDia;
       btn.disabled = ocupado;
       btn.toggleAttribute('data-ocupado', ocupado);
+      try { const sp = btn.querySelector('.tg-u-spin'); if (sp && tgForma) { if (ocupado) tgForma.montar(sp); else tgForma.parar(sp); } } catch (e) { /* sin figura: el botón sigue funcionando */ }
       q('btn-txt').textContent = S.fase === 'buscando' ? 'Buscando…' : S.fase === 'actualizando' ? 'Actualizando…' : kern ? 'Ir a GitHub' : nueva ? 'Actualizar' : 'Buscar actualizaciones';
       q('err').textContent = S.error;
       q('err').hidden = !S.error;
@@ -6679,7 +6681,14 @@ p.gds-body-s.ng-star-inserted {
     let hizoAlgo = quito;
     const buscandoCreando = envioParaScroll && performance.now() - envioParaScroll < 10 * 60 * 1000;
     let tocoEstructura = quito;
-    for (const n of nodos) {
+    const t0Lote = performance.now();
+    for (let k = 0; k < nodos.length; k++) {
+      const n = nodos[k];
+      if (ES_APP_FLUTTER && k > 0 && performance.now() - t0Lote > 8) { // se acabó el presupuesto del fotograma: el resto va en el siguiente
+        loteNodos.unshift(...nodos.slice(k));
+        if (!lotePendiente) { lotePendiente = true; requestAnimationFrame(procesarLote); }
+        break;
+      }
       if (!n.isConnected || enMarkdown(n)) continue; // texto que llega en streaming: nada que hacer
       hizoAlgo = true;
       // cada paso aislado: si uno falla no se pierden los demás ni el resto del lote
@@ -7870,6 +7879,9 @@ p.gds-body-s.ng-star-inserted {
         transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.2, 0, 0, 1), visibility 0s linear 0.25s; }
       html[data-tema="claro"] #tg-cargando { color: ${COLOR_CLARO}; }
       #tg-cargando.tg-on { opacity: 1; visibility: visible; transform: scale(1); transition-delay: 0s; }
+      @keyframes tgCargaGiro { to { transform: rotate(360deg); } }
+      .tg-giro { animation: tgCargaGiro ${(360 / GIRO_GRADOS_S).toFixed(2)}s linear infinite; }
+      @media (prefers-reduced-motion: reduce) { .tg-giro { animation: none; } }
       #tg-cargando svg { display: block; width: 100%; height: 100%; overflow: visible; will-change: transform; }
       html:not(.tg-blur-baja):not(.tg-blur-media) #tg-cargando svg { filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.35)); }
     `;
@@ -7882,34 +7894,33 @@ p.gds-body-s.ng-star-inserted {
       raiz.id = 'tg-cargando';
       raiz.setAttribute('role', 'status');
       raiz.setAttribute('aria-label', 'Cargando');
-      raiz.innerHTML = '<svg viewBox="-50 -50 100 100" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/></svg>';
+      raiz.innerHTML = '<svg class="tg-giro" viewBox="-50 -50 100 100" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/></svg>';
       svg = raiz.firstChild; trazo = svg.firstChild;
       document.documentElement.appendChild(raiz);
     }
-    function dibujar(a, b, e, giro) {
-      let d = '';
-      for (let i = 0; i < N; i++) {
-        const r = (a[i] + (b[i] - a[i]) * e) * R, th = i / N * TAU;
-        d += (i ? 'L' : 'M') + (r * Math.cos(th)).toFixed(1) + ' ' + (r * Math.sin(th)).toFixed(1);
-      }
-      d += 'Z';
-      if (d !== ultimoD) { ultimoD = d; trazo.setAttribute('d', d); }
-      svg.style.transform = 'rotate(' + giro.toFixed(1) + 'deg)';
+    const PASOS = 12, cache = {};
+    function camino(i, k) { // trazo entre la forma i y la siguiente en el paso k: se calcula UNA vez y luego sale de la caché
+      const key = i * (PASOS + 1) + k;
+      let d = cache[key];
+      if (d) return d;
+      const a = FORMAS[i], b = FORMAS[(i + 1) % FORMAS.length], e = ease(k / PASOS);
+      d = '';
+      for (let j = 0; j < N; j++) { const rr = (a[j] + (b[j] - a[j]) * e) * R, th = j / N * TAU; d += (j ? 'L' : 'M') + (rr * Math.cos(th)).toFixed(1) + ' ' + (rr * Math.sin(th)).toFixed(1); }
+      return (cache[key] = d + 'Z');
     }
+    function poner(d) { if (d !== ultimoD) { ultimoD = d; trazo.setAttribute('d', d); } }
     function cuadro(ahora) {
       raf = 0;
       if (!visible && ahora - ocultoEn > 320) return; // ya terminó el fade de salida
-      const paso = (ahora - desde) / PASO_MS;
-      const idx = Math.floor(paso), fr = paso - idx;
-      const m = Math.min(1, Math.max(0, (fr - PAUSA) / (1 - PAUSA)));
-      const e = ease(m);
-      dibujar(FORMAS[idx % FORMAS.length], FORMAS[(idx + 1) % FORMAS.length], e, (ahora - desde) / 1000 * GIRO_GRADOS_S + (idx + e) * 30);
+      const paso = (ahora - desde) / PASO_MS, idx = Math.floor(paso);
+      const m = Math.min(1, Math.max(0, (paso - idx - PAUSA) / (1 - PAUSA)));
+      poner(camino(idx % FORMAS.length, Math.round(m * PASOS))); // solo toca el DOM cuando la forma cambió de verdad
       raf = requestAnimationFrame(cuadro);
     }
     function mostrar() {
       if (!raiz) crear();
       visible = true; desde = performance.now(); sinCargaDesde = 0;
-      if (sinMovimiento()) { dibujar(FORMAS[2], FORMAS[2], 0, 0); } else if (!raf) raf = requestAnimationFrame(cuadro);
+      if (sinMovimiento()) { poner(camino(2, 0)); } else if (!raf) raf = requestAnimationFrame(cuadro);
       raiz.classList.add('tg-on');
     }
     function ocultar() {
@@ -7926,7 +7937,16 @@ p.gds-body-s.ng-star-inserted {
       }
       return false;
     }
+    let cargaConvDesde = 0;
     function revisar() {
+      if (ES_APP_FLUTTER && !pantallaBloqueada) { // conversación cargando: Tareas (layout, header, fade...) esperan; tope de 6 s
+        const barra = document.querySelector('mat-progress-bar');
+        if (barra && barra.getBoundingClientRect().height > 0) {
+          const t = performance.now();
+          if (!cargaConvDesde) cargaConvDesde = t;
+          if (t - cargaConvDesde < 6000) vueloHasta = Math.max(vueloHasta, t + 400);
+        } else if (cargaConvDesde) { cargaConvDesde = 0; try { Tareas.marcar('layout'); } catch (e) { /* aún no está listo */ } }
+      }
       const hay = !pantallaBloqueada && hayCarga();
       const t = performance.now();
       if (hay) { sinCargaDesde = 0; if (!visible) mostrar(); }
@@ -7935,6 +7955,22 @@ p.gds-body-s.ng-star-inserted {
         if (pantallaBloqueada || (t - sinCargaDesde >= 300 && t - desde >= 700)) ocultar(); // nunca parpadea: mínimo 0,7 s visible
       }
     }
+    // misma figura animada pero dentro de cualquier contenedor (botón de actualizaciones): usa el color del texto (currentColor)
+    function montar(cont) {
+      if (cont._tgSpin) return;
+      cont.innerHTML = '<svg class="tg-giro" viewBox="-50 -50 100 100" aria-hidden="true" style="width:100%;height:100%;display:block;overflow:visible"><path fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/></svg>';
+      const sv = cont.firstChild, tr = sv.firstChild, t0 = performance.now(), quieto = sinMovimiento();
+      const pintar = (ahora) => {
+        const paso = (ahora - t0) / PASO_MS, idx = Math.floor(paso);
+        const m = Math.min(1, Math.max(0, (paso - idx - PAUSA) / (1 - PAUSA)));
+        const d = camino(idx % FORMAS.length, Math.round(m * PASOS));
+        if (tr._d !== d) { tr._d = d; tr.setAttribute('d', d); }
+      };
+      const bucle = (ahora) => { if (!cont._tgSpin) return; pintar(ahora); cont._tgSpin = requestAnimationFrame(bucle); };
+      if (quieto) { pintar(t0 + PASO_MS * 2.2); cont._tgSpin = -1; } else cont._tgSpin = requestAnimationFrame(bucle);
+    }
+    function parar(cont) { if (!cont._tgSpin) return; if (cont._tgSpin > 0) cancelAnimationFrame(cont._tgSpin); cont._tgSpin = 0; cont.innerHTML = ''; }
+    tgForma = { montar, parar };
     cada(revisar, 200);
   })();
 
