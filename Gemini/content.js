@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 3; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 4; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -41,6 +41,7 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
+• Menús interactivos (cuestionarios): botones con fondo blur estilo burbuja que entran uno a uno desde la izquierda, la opción correcta se ilumina con el color de tu burbuja, textos sin halo, botones del toolbar redondos y pequeños y nueva barra de progreso translúcida.
 • Nueva última pantalla de la bienvenida: «Todo listo.» con animación letra por letra; las letras llevan blur solo en nivel Alta.
 • Rendimiento en móvil: nivel Medio solo desenfoca burbujas y caja de escribir; los mensajes fuera de pantalla se omiten del render.
 • La bienvenida de primera vez ahora dice «¡Hola!» y alterna con «¡Gemini de toda la vida ha recibido un glow up!».
@@ -8040,16 +8041,119 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) chat-window.immersives-mode, html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) chat-window.lm-canvas-styling {
         background: transparent !important; background-color: transparent !important; box-shadow: none !important;
       }
-      /* nivel de blur ALTA: fondo transparente con blur de 5px (en media y baja se queda el gris sólido) */
+      /* nivel de blur ALTA: fondo transparente con blur de 12px y brillo 0.85 (en media y baja se queda el gris sólido) */
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel,
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel learning-immersive-panel,
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel .outer-container { background-color: transparent !important; }
       /* fondos que Gemini pone en capas internas (los detecta ajustar()): también transparentes; el blur va en UNA sola capa que cubre el panel */
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-fondo] { background: transparent !important; }
-      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur] { -webkit-backdrop-filter: blur(5px) !important; backdrop-filter: blur(5px) !important; }
+      /* el blur (12px + brightness 0.85) va en una capa APARTE (::before) y no en el propio panel: un backdrop-filter en el panel impide que los botones de dentro difuminen el fondo */
+      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur] { isolation: isolate !important; }
+      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur]::before {
+        content: '' !important; position: fixed !important; inset: 0 !important; z-index: -1 !important; pointer-events: none !important;
+        -webkit-backdrop-filter: blur(12px) brightness(0.85) !important; backdrop-filter: blur(24px) brightness(0.95) !important;
+      }
+      /* botones del panel (opciones, Pista, Atrás, Siguiente, iconos): fondo con blur, solo en nivel ALTA */
+      html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel button { -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important; }
+      /* sombra en TODOS los textos del panel (todos los niveles) para que se lean sobre cualquier fondo */
+      /* ===== REDISEÑO DE LOS MENÚS INTERACTIVOS (cuestionarios) ===== */
+      /* textos: sin halo ni "tarjetita"; solo una sombra fina para leerse sobre el fondo */
+      html.tg-panel-seguro immersive-panel * { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+      html[data-tema="claro"].tg-panel-seguro immersive-panel * { text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7); }
+      html.tg-panel-seguro immersive-panel button * { text-shadow: none; }
+      html.tg-panel-seguro immersive-panel :is(.question, .question-container, .question-text-container, structured-content-container, message-content, .markdown, activity-set, .scroll-container) {
+        background: transparent !important; background-color: transparent !important; box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+      }
+      /* entrada: desde la izquierda con opacidad, uno por uno (solo transform + opacity) */
+      @keyframes tgQEntra { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+      html.tg-panel-seguro immersive-panel .option-container,
+      html.tg-panel-seguro immersive-panel .hint-button-container gem-button,
+      html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button { animation: tgQEntra 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+      html.tg-panel-seguro immersive-panel .option-container:nth-child(2) { animation-delay: 70ms; }
+      html.tg-panel-seguro immersive-panel .option-container:nth-child(3) { animation-delay: 140ms; }
+      html.tg-panel-seguro immersive-panel .option-container:nth-child(4) { animation-delay: 210ms; }
+      html.tg-panel-seguro immersive-panel .option-container:nth-child(n+5) { animation-delay: 280ms; }
+      html.tg-panel-seguro immersive-panel .hint-button-container gem-button { animation-delay: 280ms; }
+      html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button:nth-child(1) { animation-delay: 350ms; }
+      html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button:nth-child(2) { animation-delay: 420ms; }
+      @media (prefers-reduced-motion: reduce) { html.tg-panel-seguro immersive-panel :is(.option-container, gem-button) { animation: none !important; } }
+      /* botones: mismo fondo que las burbujas de Gemini */
+      html.tg-panel-seguro immersive-panel button.option,
+      html.tg-panel-seguro immersive-panel .hint-button-container button,
+      html.tg-panel-seguro immersive-panel .navigation-buttons-container button.mat-tonal-button {
+        background: var(--tg-resp-bg, rgba(0, 0, 0, 0.8)) !important; background-color: var(--tg-resp-bg, rgba(0, 0, 0, 0.8)) !important;
+        color: var(--tg-texto, #fff) !important; border: 0 !important; border-radius: 18px !important; box-shadow: none !important;
+        -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
+        transition: background-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease !important;
+      }
+      html.tg-panel-seguro immersive-panel button.option * { color: inherit !important; }
+      html.tg-panel-seguro immersive-panel .hint-button-container button, html.tg-panel-seguro immersive-panel .navigation-buttons-container button { border-radius: 9999px !important; }
+      html.tg-panel-seguro immersive-panel .navigation-buttons-container button:disabled { opacity: 0.45 !important; }
+      html.tg-panel-seguro immersive-panel .navigation-buttons-container button.mdc-button--unelevated:not(.mat-tonal-button) {
+        background: var(--tg-q-acento, #0059ff) !important; background-color: var(--tg-q-acento, #0059ff) !important;
+        color: var(--tg-q-acento-texto, #fff) !important; border-radius: 9999px !important; box-shadow: none !important;
+      }
+      html.tg-panel-seguro immersive-panel .navigation-buttons-container button.mdc-button--unelevated:not(.mat-tonal-button) * { color: inherit !important; text-shadow: none; }
+      /* opción correcta: se ilumina con el color de TU burbuja */
+      html.tg-panel-seguro immersive-panel button.option[data-tg-q="ok"] {
+        background: var(--tg-q-acento, #0059ff) !important; background-color: var(--tg-q-acento, #0059ff) !important;
+        color: var(--tg-q-acento-texto, #fff) !important;
+        box-shadow: 0 0 22px color-mix(in srgb, var(--tg-q-acento, #0059ff) 60%, transparent), inset 0 0 0 1px rgba(255, 255, 255, 0.25) !important;
+      }
+      html.tg-panel-seguro immersive-panel button.option[data-tg-q="no"] { box-shadow: inset 0 0 0 1.5px rgba(255, 107, 107, 0.6) !important; }
+      html.tg-panel-seguro immersive-panel button.option [data-tg-q-badge] { border-radius: 9999px !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+      html.tg-panel-seguro immersive-panel button.option[data-tg-q="ok"] [data-tg-q-badge] { background: rgba(255, 255, 255, 0.25) !important; color: inherit !important; }
+      html.tg-panel-seguro immersive-panel button.option[data-tg-q="ok"] [data-tg-q-badge] * { color: inherit !important; }
+      /* toolbar: botones redondos como los de arriba, pero más pequeños */
+      html.tg-panel-seguro immersive-panel .toolbar .mdc-icon-button {
+        width: 36px !important; height: 36px !important; padding: 0 !important; border-radius: 50% !important;
+        display: inline-flex !important; align-items: center !important; justify-content: center !important; overflow: hidden !important;
+        background: var(--tg-input-bg, rgba(0, 0, 0, 0.55)) !important; background-color: var(--tg-input-bg, rgba(0, 0, 0, 0.55)) !important;
+        -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important; box-shadow: none !important;
+      }
+      html.tg-panel-seguro immersive-panel .toolbar .mdc-icon-button :is(mat-icon, gem-icon) { width: 20px !important; height: 20px !important; font-size: 20px !important; color: var(--tg-texto, #fff) !important; }
+      /* barra de progreso: segmentos translúcidos; los hechos y el actual toman el color de tu burbuja */
+      html.tg-panel-seguro immersive-panel .progress-bar-step-container { display: flex !important; flex-wrap: wrap !important; align-items: center !important; gap: 10px 8px !important; }
+      html.tg-panel-seguro immersive-panel .progress-bar-step-list { display: flex !important; flex: 1 1 100% !important; gap: 4px !important; margin: 0 !important; padding: 0 !important; list-style: none !important; }
+      html.tg-panel-seguro immersive-panel .progress-bar-step-list-item { flex: 1 1 0 !important; min-width: 0 !important; }
+      html.tg-panel-seguro immersive-panel .progress-bar-step-unit-container { width: 100% !important; padding: 6px 0 !important; background: transparent !important; border: 0 !important; }
+      html.tg-panel-seguro immersive-panel .progress-bar-step-unit {
+        height: 6px !important; width: 100% !important; border-radius: 9999px !important; background: rgba(255, 255, 255, 0.22) !important; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
+        transition: background-color 0.3s ease, box-shadow 0.3s ease !important;
+      }
+      html[data-tema="claro"].tg-panel-seguro immersive-panel .progress-bar-step-unit { background: rgba(0, 0, 0, 0.18) !important; }
+      html.tg-panel-seguro immersive-panel .progress-bar-step-list-item:has(~ .progress-bar-step-list-item .progress-bar-step-unit.current) .progress-bar-step-unit {
+        background: color-mix(in srgb, var(--tg-q-acento, #0059ff) 60%, transparent) !important;
+      }
+      html.tg-panel-seguro immersive-panel .progress-bar-step-unit.current {
+        background: var(--tg-q-acento, #0059ff) !important; box-shadow: 0 0 10px color-mix(in srgb, var(--tg-q-acento, #0059ff) 70%, transparent) !important;
+      }
+      html.tg-panel-seguro immersive-panel .progress-bar-step-indicator-container { margin-right: auto !important; }
+      html.tg-panel-seguro immersive-panel .progress-bar-step-indicator-container, html.tg-panel-seguro immersive-panel .progress-steps-container { background: transparent !important; position: static !important; }
+      html.tg-panel-seguro immersive-panel .score-container { display: flex !important; gap: 8px !important; margin: 0 !important; position: static !important; }
+      html.tg-panel-seguro immersive-panel .score-item-container {
+        display: inline-flex !important; align-items: center !important; gap: 4px !important; padding: 4px 12px !important; border-radius: 9999px !important;
+        -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important;
+      }
+      html.tg-panel-seguro immersive-panel .score-item-incorrect { background: rgba(255, 107, 107, 0.45) !important; }
+      html.tg-panel-seguro immersive-panel .score-item-correct { background: rgba(120, 220, 140, 0.45) !important; }
     `;
     (document.head || document.documentElement).appendChild(st);
     let activo = false, ultTop = -1, ultMarcado = 0;
+    let ultAcento = '';
+    // marca cada opción como correcta ('ok') o incorrecta ('no') según la etiqueta que Gemini le pone, y marca esa etiqueta
+    function marcarOpciones(panel) {
+      panel.querySelectorAll('button.option').forEach((b) => {
+        let badge = null, s = '';
+        const hijos = b.querySelectorAll('*');
+        for (let i = 0; i < hijos.length; i++) {
+          const t = hijos[i].textContent || '';
+          if (t.length < 32 && /^\s*(Respuesta correcta|Correct answer|Incorrectas?|Incorrect)\s*$/i.test(t)) { badge = hijos[i]; s = /^\s*(Respuesta correcta|Correct)/i.test(t) ? 'ok' : 'no'; break; }
+        }
+        if (badge && !badge.hasAttribute('data-tg-q-badge')) badge.setAttribute('data-tg-q-badge', '');
+        if (b.getAttribute('data-tg-q') !== s) { if (s) b.setAttribute('data-tg-q', s); else b.removeAttribute('data-tg-q'); }
+      });
+    }
     // marca las capas grandes con fondo propio (el gris sólido puede venir de cualquiera) y elige UNA que cubra el panel para el blur
     function marcar(panel) {
       const pr = panel.getBoundingClientRect(), area = Math.max(1, pr.width * pr.height);
@@ -8094,6 +8198,11 @@ p.gds-body-s.ng-star-inserted {
         raiz.style.setProperty('--tg-panel-gris', colorSolido(panel.querySelector('.outer-container') || panel));
         raiz.classList.add('tg-panel-seguro');
       }
+      try {
+        const ac = burbujaCSS(burbuja, false);
+        if (ac !== ultAcento) { ultAcento = ac; raiz.style.setProperty('--tg-q-acento', ac); raiz.style.setProperty('--tg-q-acento-texto', burbujaTexto(burbuja)); }
+        marcarOpciones(panel);
+      } catch (e) { /* sin burbuja aún */ }
       const ahora = performance.now();
       if (ahora - ultMarcado > 1000) { ultMarcado = ahora; marcar(panel); } // el contenido cambia (siguiente pregunta, respuestas): se revisa cada segundo
     }
