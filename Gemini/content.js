@@ -8025,12 +8025,13 @@ p.gds-body-s.ng-star-inserted {
       }
       return raiz.getAttribute('data-tema') === 'claro' ? '#f4f4f6' : '#1c1b1d';
     }
-    // borde de abajo de los botones de Gemini (menú, selector de modelo...) + un respiro; nunca menos que la zona segura + 64px
+    // borde de abajo de los botones de Gemini (menú, selector de modelo...) + un respiro; nunca menos que la zona segura + 56px
     function techo() {
       let b = 0;
       document.querySelectorAll('top-bar-actions button').forEach((x) => { const r = x.getBoundingClientRect(); if (r.height > 0 && r.top < 260 && r.bottom > b) b = r.bottom; });
-      const seg = (parseFloat(raiz.style.getPropertyValue('--tg-safe-top')) || 0) + 64;
-      return Math.round(Math.max(b, seg) + 10);
+      const seg = (parseFloat(raiz.style.getPropertyValue('--tg-safe-top')) || 0) + 56;
+      const AJUSTE_PX = -14; // respiro bajo los botones de Gemini: negativo = más arriba, positivo = más abajo
+      return Math.round(Math.max(b, seg) + AJUSTE_PX);
     }
     function ajustar() {
       const panel = document.querySelector('immersive-panel');
