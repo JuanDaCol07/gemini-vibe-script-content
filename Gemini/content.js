@@ -7845,9 +7845,9 @@ p.gds-body-s.ng-star-inserted {
   // ============================================================================================
   (function () {
     const TAM_PX = 64;            // tamaño del indicador
-    const PASO_MS = 700;          // cuánto dura cada figura (pausa + transformación)
+    const PASO_MS = 450;          // cuánto dura cada figura (pausa + transformación)
     const PAUSA = 0.35;           // parte del paso que se queda quieta antes de transformarse (0-1)
-    const GIRO_GRADOS_S = 70;     // giro continuo (grados por segundo)
+    const GIRO_GRADOS_S = 150;     // giro continuo (grados por segundo)
     const COLOR_CLARO = '#6750A4', COLOR_OSCURO = '#D0BCFF';
     const SELECTORES = [
       'mat-progress-bar', '[role="progressbar"]',
@@ -7883,7 +7883,7 @@ p.gds-body-s.ng-star-inserted {
       .tg-giro { animation: tgCargaGiro ${(360 / GIRO_GRADOS_S).toFixed(2)}s linear infinite; }
       @media (prefers-reduced-motion: reduce) { .tg-giro { animation: none; } }
       #tg-cargando svg { display: block; width: 100%; height: 100%; overflow: visible; will-change: transform; }
-      html:not(.tg-blur-baja):not(.tg-blur-media) #tg-cargando svg { filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.35)); }
+      #tg-cargando svg { filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 8px rgba(0, 0, 0, 0.35)); } /* sombra en todos los niveles de blur */
     `;
     (document.head || document.documentElement).appendChild(st);
 
