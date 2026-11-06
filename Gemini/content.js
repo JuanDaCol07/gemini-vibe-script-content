@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 5; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 6; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -8483,10 +8483,10 @@ p.gds-body-s.ng-star-inserted {
 
     const est = document.createElement('style');
     est.textContent =
-      '.zero-state-container h1[data-test-id="message"]{white-space:nowrap !important;font-size:min(34px,7.4vw) !important;text-align:center;}' +
+      '.zero-state-container h1[data-test-id="message"]{white-space:nowrap !important;font-size:min(34px,7.4vw) !important;text-align:center;max-width:100vw;}' +
       '#tg-saludo{display:inline-block;white-space:nowrap;text-shadow:0 2px 12px rgba(0,0,0,0.55),0 0 2px rgba(0,0,0,0.35);}' +
       '#tg-saludo span{display:inline-block;will-change:transform,opacity;}' +
-      '#tg-borradores{width:min(420px,calc(100vw - 40px));margin:14px auto 0;padding:10px;border-radius:22px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;' +
+      '#tg-borradores{align-self:center;flex:none;width:min(420px,calc(100vw - 40px));margin:14px auto 0;padding:10px;border-radius:22px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;' +
       'background:rgba(18,18,20,0.45);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 8px 30px rgba(0,0,0,0.3);color:#fff;font-family:"Google Sans",system-ui,sans-serif;}' +
       '#tg-borradores .tg-bor-tit{font-size:12px;font-weight:600;opacity:0.8;padding:0 6px 2px;}' +
       '#tg-borradores button{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;padding:10px 14px;border-radius:14px;background:rgba(255,255,255,0.12);' +
@@ -8541,6 +8541,30 @@ p.gds-body-s.ng-star-inserted {
       h1.appendChild(cont);
     }
 
+    // ---- abrir un borrador sin recargar: navegación SPA (pushState + popstate) y se rellena la caja ----
+    function abrirBorrador(x) {
+      let u; try { u = new URL(x.url); } catch (e) { return; }
+      if (u.origin !== location.origin) { location.assign(x.url); return; }
+      const destino = u.pathname + u.search;
+      if (destino !== location.pathname + location.search) {
+        history.pushState(history.state, '', destino);
+        window.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+        setTimeout(() => { if (location.pathname + location.search === destino && enEstadoCero() && /\/app\/[^/]+/.test(destino)) location.assign(x.url); }, 3500); // respaldo si la SPA no navegó
+      }
+      const t0 = performance.now();
+      (function esperar() {
+        const ed = document.querySelector('input-area-v2 .ql-editor, rich-textarea .ql-editor');
+        const listo = ed && location.pathname + location.search === destino && (!/\/app\/[^/]+/.test(destino) || !enEstadoCero());
+        if (listo) {
+          ed.focus();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, x.texto);
+          return;
+        }
+        if (performance.now() - t0 < 8000) setTimeout(esperar, 150);
+      })();
+    }
+
     // ---- tarjeta ----
     function pintar() {
       let c = document.getElementById('tg-borradores');
@@ -8548,7 +8572,8 @@ p.gds-body-s.ng-star-inserted {
       if (h1) animarTitulo(h1);
       const a = leer();
       if (!a.length || !h1 || !enEstadoCero()) { if (c) c.remove(); return; }
-      const ancla = h1.closest('.lm-mobile-sparkle-and-text') || h1.parentElement;
+      const padre = h1.closest('.top-section-container') || h1.closest('.zero-state-container');
+      if (!padre) return;
       if (!c) { c = document.createElement('div'); c.id = 'tg-borradores'; }
       const firma = JSON.stringify(a.map((x) => x.url + x.texto));
       if (c._f !== firma) {
@@ -8556,12 +8581,12 @@ p.gds-body-s.ng-star-inserted {
         const t = document.createElement('div'); t.className = 'tg-bor-tit'; t.textContent = 'Borradores'; c.appendChild(t);
         a.forEach((x) => {
           const b = document.createElement('button'); b.type = 'button'; b.textContent = x.texto.replace(/\s+/g, ' ');
-          b.addEventListener('click', () => { location.assign(x.url); });
+          b.addEventListener('click', () => abrirBorrador(x));
           c.appendChild(b);
         });
       }
-      if (c.previousElementSibling !== ancla || !c.isConnected) {
-        ancla.insertAdjacentElement('afterend', c);
+      if (c.parentElement !== padre || padre.lastElementChild !== c) {
+        padre.appendChild(c);
         c.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 500, easing: 'ease-out', fill: 'both' });
       }
     }
