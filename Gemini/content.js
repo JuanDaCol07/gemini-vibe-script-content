@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 6; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 7; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -8487,22 +8487,33 @@ p.gds-body-s.ng-star-inserted {
       '#tg-saludo{display:inline-block;white-space:nowrap;text-shadow:0 2px 12px rgba(0,0,0,0.55),0 0 2px rgba(0,0,0,0.35);}' +
       '#tg-saludo span{display:inline-block;will-change:transform,opacity;}' +
       '#tg-borradores{align-self:center;flex:none;width:min(420px,calc(100vw - 40px));margin:14px auto 0;padding:10px;border-radius:22px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;' +
-      'background:rgba(18,18,20,0.45);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 8px 30px rgba(0,0,0,0.3);color:#fff;font-family:"Google Sans",system-ui,sans-serif;}' +
+      'background:rgba(8,12,24,0.86);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 8px 30px rgba(0,0,0,0.45);color:#fff;font-family:"Google Sans",system-ui,sans-serif;}' +
       '#tg-borradores .tg-bor-tit{font-size:12px;font-weight:600;opacity:0.8;padding:0 6px 2px;}' +
-      '#tg-borradores button{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;padding:10px 14px;border-radius:14px;background:rgba(255,255,255,0.12);' +
-      'font-size:14px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;-webkit-tap-highlight-color:transparent;}' +
-      '#tg-borradores button:active{transform:scale(0.98);background:rgba(255,255,255,0.2);}';
+      '#tg-borradores button{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;padding:10px 14px;border-radius:14px;background:rgba(0,0,0,0.38);' +
+      'font-size:14px;line-height:1.3;-webkit-tap-highlight-color:transparent;}' +
+      '#tg-borradores .tg-bor-chat{display:block;font-size:12px;font-weight:600;opacity:0.7;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+      '#tg-borradores .tg-bor-txt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+      '#tg-borradores button:active{transform:scale(0.98);background:rgba(0,0,0,0.55);}';
     (document.head || document.documentElement).appendChild(est);
 
     // ---- captura optimizada: un guardado por pausa de 300 ms, y solo si el texto cambió ----
     let timer = 0, ultimoTexto = null;
+    function tituloChat() { // nombre del chat: el de la barra lateral; si no está en el DOM, el inicio de la primera pregunta
+      const m = location.pathname.match(/\/app\/([^/?]+)/);
+      if (!m) return '';
+      const a = document.querySelector('gem-nav-list-item[data-test-id="conversation"] a[href*="/app/' + m[1] + '"]');
+      let t = a ? (a.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      if (!t) { const q = document.querySelector('#chat-history user-query'); if (q) t = (q.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40); }
+      return t;
+    }
     function volcar(ed) {
       const texto = (ed.innerText || '').replace(/\u200b/g, '').trim();
       const url = urlActual();
       if (texto === ultimoTexto + '|' + url) return;
       ultimoTexto = texto + '|' + url;
+      const previo = leer().find((x) => x.url === url);
       const a = leer().filter((x) => x.url !== url);
-      if (texto) a.unshift({ url: url, texto: texto.slice(0, 200), t: Date.now() });
+      if (texto) a.unshift({ url: url, texto: texto, titulo: tituloChat() || (previo && previo.titulo) || '', t: Date.now() });
       guardar(a.slice(0, MAX));
     }
     function descartar() { // prompt enviado: ese borrador ya no existe
@@ -8552,16 +8563,24 @@ p.gds-body-s.ng-star-inserted {
         setTimeout(() => { if (location.pathname + location.search === destino && enEstadoCero() && /\/app\/[^/]+/.test(destino)) location.assign(x.url); }, 3500); // respaldo si la SPA no navegó
       }
       const t0 = performance.now();
+      const conId = /\/app\/[^/]+/.test(destino);
+      let cuenta = -1, desde = performance.now(), intentos = 0;
       (function esperar() {
         const ed = document.querySelector('input-area-v2 .ql-editor, rich-textarea .ql-editor');
-        const listo = ed && location.pathname + location.search === destino && (!/\/app\/[^/]+/.test(destino) || !enEstadoCero());
+        const n = document.querySelectorAll('#chat-history user-query, #chat-history model-response').length;
+        if (n !== cuenta) { cuenta = n; desde = performance.now(); } // el chat sigue cargando mensajes mientras n cambia
+        const enDestino = location.pathname + location.search === destino;
+        const listo = ed && enDestino && (!conId || (n > 0 && performance.now() - desde > 900));
         if (listo) {
-          ed.focus();
-          document.execCommand('selectAll', false, null);
-          document.execCommand('insertText', false, x.texto);
+          if ((ed.innerText || '').trim() !== x.texto.trim()) {
+            ed.focus();
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, x.texto);
+          }
+          if (++intentos < 3) setTimeout(esperar, 700); // Gemini a veces vacía la caja al terminar de cargar: se comprueba y se reintenta
           return;
         }
-        if (performance.now() - t0 < 8000) setTimeout(esperar, 150);
+        if (performance.now() - t0 < 15000) setTimeout(esperar, 150);
       })();
     }
 
@@ -8575,12 +8594,15 @@ p.gds-body-s.ng-star-inserted {
       const padre = h1.closest('.top-section-container') || h1.closest('.zero-state-container');
       if (!padre) return;
       if (!c) { c = document.createElement('div'); c.id = 'tg-borradores'; }
-      const firma = JSON.stringify(a.map((x) => x.url + x.texto));
+      const firma = JSON.stringify(a.map((x) => x.url + x.titulo + x.texto));
       if (c._f !== firma) {
         c._f = firma; c.textContent = '';
-        const t = document.createElement('div'); t.className = 'tg-bor-tit'; t.textContent = 'Borradores'; c.appendChild(t);
+        const t = document.createElement('div'); t.className = 'tg-bor-tit'; t.textContent = 'Continúa donde lo dejaste'; c.appendChild(t);
         a.forEach((x) => {
-          const b = document.createElement('button'); b.type = 'button'; b.textContent = x.texto.replace(/\s+/g, ' ');
+          const b = document.createElement('button'); b.type = 'button';
+          const n1 = document.createElement('span'); n1.className = 'tg-bor-chat'; n1.textContent = x.titulo || 'Chat nuevo';
+          const n2 = document.createElement('span'); n2.className = 'tg-bor-txt'; n2.textContent = x.texto.replace(/\s+/g, ' ');
+          b.appendChild(n1); b.appendChild(n2);
           b.addEventListener('click', () => abrirBorrador(x));
           c.appendChild(b);
         });
