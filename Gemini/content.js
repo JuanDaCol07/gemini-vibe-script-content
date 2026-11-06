@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 7; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 8; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -3101,8 +3101,8 @@ logo.animate([
 
       /* BLUR DE BURBUJAS SOLO EN PANTALLA: nacen SIN blur; el observador de visibilidad les pone data-tg-blur al aparecer en pantalla y se lo quita al salir.
          (:not([data-tg-blur]) suma especificidad: gana al backdrop-filter !important de la burbuja sin tocar nada más) */
-      .user-query-bubble-with-background:not([data-tg-blur]),
-      .response-container:not([data-tg-blur]) {
+      html.tg-movil .user-query-bubble-with-background:not([data-tg-blur]),
+      html.tg-movil .response-container:not([data-tg-blur]) {
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
       }
@@ -4687,7 +4687,6 @@ p.gds-body-s.ng-star-inserted {
       }
       if (entrada.isIntersecting) {
         el._visto = true;
-        el.setAttribute('data-tg-blur', ''); // apareció en pantalla: se le pone el blur
         if (el._vuelo) return; // está volando desde la caja de escribir: el clon se encarga de mostrarla
         if (temporizadores.has(el) || el.getAttribute('data-anim') === 'in') return;
         temporizadores.set(el, setTimeout(() => {
@@ -4714,7 +4713,6 @@ p.gds-body-s.ng-star-inserted {
 
         }, ESPERA_VISIBLE_MS));
       } else {
-        el.removeAttribute('data-tg-blur'); // salió de la pantalla: se le quita el blur
         if (temporizadores.has(el)) {
           clearTimeout(temporizadores.get(el));
           temporizadores.delete(el);
@@ -4729,6 +4727,15 @@ p.gds-body-s.ng-star-inserted {
     });
   };
   const observadorVisibilidad = new IntersectionObserver(alCambiarVisibilidad, { threshold: 0 });
+  // BLUR SOLO EN PANTALLA (solo móvil): observador propio con margen de 200 px arriba y abajo. El blur se pone un poco ANTES de que la burbuja
+  // entre y se quita un poco DESPUÉS de que salga: sin saltos visibles al hacer scroll y menos activaciones/desactivaciones por segundo.
+  const observadorBlur = ES_APP_FLUTTER ? new IntersectionObserver((es) => {
+    es.forEach((e) => {
+      if (!e.target.isConnected) { observadorBlur.unobserve(e.target); return; }
+      if (e.isIntersecting) { if (!e.target.hasAttribute('data-tg-blur')) e.target.setAttribute('data-tg-blur', ''); }
+      else if (e.target.hasAttribute('data-tg-blur')) e.target.removeAttribute('data-tg-blur');
+    });
+  }, { rootMargin: '200px 0px 200px 0px', threshold: 0 }) : null;
   document.addEventListener('tg-bloqueo-cambio', () => { if (!pantallaBloqueada && entradasVisPendientes.length) alCambiarVisibilidad([]); });
 
   function registrarBurbujas(raiz) {
@@ -4740,6 +4747,7 @@ p.gds-body-s.ng-star-inserted {
       if (el.hasAttribute('data-anim')) return;
       el.setAttribute('data-anim', 'wait');
       observadorVisibilidad.observe(el);
+      if (observadorBlur) observadorBlur.observe(el);
       // mensaje recién enviado: sale desde el input de inmediato, sin esperar los 150 ms del observador
       if (ultimoEnvio && !ultimoEnvio.usado && el.matches('.user-query-bubble-with-background')) {
         prepararSalidaDesdeInput(el);
@@ -8486,8 +8494,12 @@ p.gds-body-s.ng-star-inserted {
       '.zero-state-container h1[data-test-id="message"]{white-space:nowrap !important;font-size:min(34px,7.4vw) !important;text-align:center;max-width:100vw;}' +
       '#tg-saludo{display:inline-block;white-space:nowrap;text-shadow:0 2px 12px rgba(0,0,0,0.55),0 0 2px rgba(0,0,0,0.35);}' +
       '#tg-saludo span{display:inline-block;will-change:transform,opacity;}' +
-      '#tg-borradores{align-self:center;flex:none;width:min(420px,calc(100vw - 40px));margin:14px auto 0;padding:10px;border-radius:22px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;' +
-      'background:rgba(8,12,24,0.86);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 8px 30px rgba(0,0,0,0.45);color:#fff;font-family:"Google Sans",system-ui,sans-serif;}' +
+      '#tg-borradores{position:relative;isolation:isolate;align-self:center;flex:none;width:min(420px,calc(100vw - 40px));margin:14px auto 0;padding:10px;border-radius:22px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;' +
+      'box-shadow:0 8px 30px rgba(0,0,0,0.45);color:#fff;font-family:"Google Sans",system-ui,sans-serif;}' +
+      // el fondo vive en un ::before para que la tarjeta no sea "raíz de backdrop" y los botones puedan desenfocar de verdad lo de atrás
+      '#tg-borradores::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:rgba(8,12,24,0.86);-webkit-backdrop-filter:blur(var(--tg-bf14,14px));backdrop-filter:blur(var(--tg-bf14,14px));}' +
+      'html.tg-blur-baja #tg-borradores::before{background:rgba(8,12,24,0.94);-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      'html:not(.tg-blur-baja):not(.tg-blur-media) #tg-borradores button{-webkit-backdrop-filter:blur(calc(var(--tg-bf14,14px) * 1.8));backdrop-filter:blur(calc(var(--tg-bf14,14px) * 1.8));}' +
       '#tg-borradores .tg-bor-tit{font-size:12px;font-weight:600;opacity:0.8;padding:0 6px 2px;}' +
       '#tg-borradores button{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;padding:10px 14px;border-radius:14px;background:rgba(0,0,0,0.38);' +
       'font-size:14px;line-height:1.3;-webkit-tap-highlight-color:transparent;}' +
