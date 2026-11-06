@@ -492,6 +492,7 @@
       '[data-tg-creando-caja]:not([data-tg-creando-unica])',
       'input-area-v2 .text-input-field',
       'input-area-v2 .input-area-fieldset > .text-input-field',
+      'immersive-panel button.option',
     ].join(', ');
     const est = document.createElement('style');
     est.id = 'tg-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
@@ -846,6 +847,8 @@
         .tg-edm-linea { position: absolute; left: 0; top: 0; bottom: 0; width: 44px; margin-left: -22px; z-index: 2; cursor: ew-resize; touch-action: none; will-change: translate; }
         .tg-edm-linea::after { content: ''; position: absolute; left: 50%; top: 16px; bottom: 0; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--edm-ac); }
         .tg-edm-linea::before { content: ''; position: absolute; left: 50%; top: 4px; margin-left: -7px; border: 7px solid transparent; border-top: 11px solid var(--edm-ac); border-bottom: 0; }
+        .tg-edm-seek { position: absolute; left: 0; top: 0; bottom: 0; width: 40px; margin-left: -20px; z-index: 3; display: none; cursor: ew-resize; touch-action: none; will-change: translate; background: transparent; }
+        .tg-edm-seek.on { display: block; }
         .tg-edm-lfin { z-index: 1; }
         .tg-edm-lfin::after { background: rgba(255,255,255,0.85); }
         .tg-edm-lfin::before { border-top-color: rgba(255,255,255,0.85); }
@@ -855,7 +858,7 @@
         .tg-edm-aj label em { font-style: normal; font-size: 13px; opacity: 0.75; text-align: right; }
         .tg-edm-aj input[type=range] { width: 100%; accent-color: var(--edm-ac); margin: 0; }
         .tg-edm-msg { min-height: 18px; margin-top: 10px; font-size: 12.5px; opacity: 0.7; text-align: center; }
-        @media (prefers-reduced-motion: reduce) { .tg-edm-b { transition: none; } }`;
+      @media (prefers-reduced-motion: reduce) { .tg-edm-b { transition: none; } }`;
       (document.head || document.documentElement).appendChild(st);
     }
     // ---------- estado ----------
@@ -868,8 +871,11 @@
     let infoOrig = { orig: 'propia' };   // de dónde sale el original (ver obtenerAudioParaEditar)
     let reproPos = null;      // segundos reproducidos desde el inicio del corte (null = nada que mostrar). Se queda al pausar como referencia.
     let o0 = 0, t0r = 0, seguir = true;
+    let marcaAbs = null;      // posición (s, sobre la canción completa) donde quedó el marcador al pausar: se conserva mientras mueves el inicio o el final
+    let inicioMovido = false; // true si moviste la rayita de inicio: el siguiente play arranca desde el inicio; si no, solo reanuda
     let ctx = null, fuente = null, gan = null, raf = 0, sonando = false, guardando = false, cw = 0, crudo = null;
-    const durEf = () => durFija == null ? Math.max(1, total - ini) : Math.max(1, Math.min(durFija, total - ini));
+    const EDM_MAX_DUR = 90;   // duración máxima del corte: 1:30 (evita que la app se caiga con canciones largas)
+    const durEf = () => Math.max(1, Math.min(durFija == null ? Infinity : durFija, total - ini, EDM_MAX_DUR));
     const fadeEf = () => Math.min(fade, durEf() / 2);
     const vistaPos = () => reproPos == null ? ini : Math.min(total, ini + reproPos);
 
@@ -894,7 +900,8 @@
     const msg = h('div', { class: 'tg-edm-msg' }, '');
     const pool = [];
     for (let k = 0; k < EDM_N; k++) { const b = h('span', { class: 'tg-edm-b' }); b._j = null; b._f = -1; pool.push(b); onda.appendChild(b); }
-    onda.appendChild(lineaFin); onda.appendChild(linea);
+    const seek = h('span', { class: 'tg-edm-seek', 'aria-label': 'Mover la reproducción' });
+    onda.appendChild(lineaFin); onda.appendChild(linea); onda.appendChild(seek);
     const velo = h('div', { id: 'tg-edm' },
       h('div', { class: 'tg-edm-card', role: 'dialog', 'aria-label': 'Editar música de bienvenida' },
         h('div', { class: 'tg-edm-top' }, h('div', { class: 'tg-edm-tit' }, h('b', null, 'Editar música'), tSub), bX, bOk),
@@ -940,6 +947,12 @@
         if (xPlay !== null && !fuera && !cortada) fr = Math.round(Math.max(0, Math.min(1, (xPlay - x) / EDM_BAR)) * 100);
         if (el._f !== fr) { el._f = fr; el.style.setProperty('--f', String(fr)); }
       }
+      if (xPlay === null) seek.classList.remove('on');
+      else {
+        seek.classList.add('on'); seek.style.translate = xPlay + 'px 0';
+        const xi = cx + (piIni - pi) * EDM_STEP, xf = cx + (piFin - pi) * EDM_STEP;
+        seek.style.pointerEvents = (Math.abs(xPlay - xi) < 14 || Math.abs(xPlay - xf) < 14) ? 'none' : 'auto';   // junto a las rayitas de corte mandan ellas
+      }
       linea.style.translate = (cx + (piIni - pi) * EDM_STEP) + 'px 0';
       lineaFin.style.translate = (cx + (piFin - pi) * EDM_STEP) + 'px 0';
     }
@@ -951,10 +964,10 @@
       fin.style.left = (fe * 100) + '%';
     }
     function pintarAjustes() {
-      const maxD = Math.max(1, Math.floor(total - ini)), minD = Math.min(3, maxD);
+      const maxD = Math.max(1, Math.min(EDM_MAX_DUR, Math.floor(total - ini))), minD = Math.min(3, maxD);
       rDur.min = String(minD); rDur.max = String(maxD);
-      rDur.value = String(durFija == null ? maxD : Math.min(durFija, maxD));
-      vDur.textContent = (durFija == null || durFija >= maxD) ? 'Hasta el final' : fmtTiempo(durFija);
+      rDur.value = String(durFija == null ? maxD : Math.min(Math.round(durFija), maxD));
+      vDur.textContent = (durFija == null && total - ini <= EDM_MAX_DUR + 0.05) ? 'Hasta el final' : fmtTiempo(durEf());
       rFade.max = String(Math.max(0, Math.min(8, Math.floor(durEf() / 2 * 2) / 2)));
       rFade.value = String(Math.min(fade, parseFloat(rFade.max)));
       vFade.textContent = fade > 0 ? fade.toFixed(1).replace('.0', '') + ' s' : 'Sin fade';
@@ -968,24 +981,25 @@
       if (fuente) { try { fuente.onended = null; fuente.stop(); } catch (e) { /* ya parado */ } fuente = null; }
       if (gan) { try { gan.disconnect(); } catch (e) { /* nada */ } gan = null; }
       sonando = false;
-      if (borrar) reproPos = null;
+      if (borrar) { reproPos = null; marcaAbs = null; }
       iconoPlay(); pintarPista(); pintarOnda();
     }
     function pausar() {
       if (sonando && ctx) reproPos = Math.max(0, Math.min(durEf(), o0 + ctx.currentTime - t0r));
+      marcaAbs = null;
       parar(false);
     }
-    function reproducir() {
+    function reproducir(desde, sinCentrar) {
       if (!buf) return;
       parar(false);
       try {
         if (!ctx) { const AC = window.AudioContext || window.webkitAudioContext; ctx = new AC(); }
         if (ctx.state === 'suspended') ctx.resume();
         const dur = durEf(), f = fadeEf();
-        const o = (reproPos == null || reproPos >= dur - 0.05) ? 0 : reproPos;   // reanuda donde se pausó; si ya terminó, desde el inicio
+        const o = acotar(desde || 0, 0, Math.max(0, dur - 0.1));   // el botón de reproducir SIEMPRE empieza desde el inicio del corte (solo el arrastre de la barrita usa otra posición)
         const t0 = ctx.currentTime + 0.05;
-        o0 = o; t0r = t0; reproPos = o; seguir = true;
-        if (cw && (cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP < 8 || cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP > cw * 0.6)) centro = ini + o;
+        o0 = o; t0r = t0; reproPos = o; seguir = true; marcaAbs = null; inicioMovido = false;
+        if (!sinCentrar && cw && (cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP < 8 || cw / 2 + (ini / EDM_SEG - centro / EDM_SEG) * EDM_STEP > cw * 0.6)) centro = ini + o;
         gan = ctx.createGain(); fuente = ctx.createBufferSource(); fuente.buffer = buf;
         fuente.connect(gan); gan.connect(ctx.destination);
         const g = gan.gain, env = (x) => f > 0 ? Math.max(0, Math.min(1, x / f, (dur - x) / f)) : 1;
@@ -1015,14 +1029,25 @@
 
     // ---------- gestos ----------
     const acotar = (v, a, b) => Math.max(a, Math.min(b, v));
-    function moverInicio(s) { ini = acotar(s, 0, Math.max(0, total - 1)); parar(true); pintarTodo(); }
+    function moverInicio(s) {
+      // el marcador (donde se pausó) NO se borra: se queda en su sitio y solo desaparece si el inicio lo pasa por encima
+      if (sonando) pausar();
+      if (marcaAbs == null && reproPos != null) marcaAbs = ini + reproPos;
+      ini = acotar(s, 0, Math.max(0, total - 1)); inicioMovido = true;
+      parar(false);
+      reproPos = (marcaAbs != null && marcaAbs >= ini && marcaAbs <= ini + durEf()) ? marcaAbs - ini : null;
+      pintarTodo();
+    }
     function moverFin(t) {
-      const maxD = Math.max(1, total - ini), minD = Math.min(3, maxD), d = acotar(t - ini, minD, maxD);
-      durFija = d >= maxD - 0.05 ? null : d; parar(true); pintarTodo();
+      const maxD = Math.max(1, Math.min(total - ini, EDM_MAX_DUR)), minD = Math.min(3, maxD), d = acotar(t - ini, minD, maxD);
+      durFija = d >= total - ini - 0.05 ? null : d;
+      if (sonando) pausar(); else parar(false);
+      if (reproPos != null && reproPos > durEf()) { reproPos = null; marcaAbs = null; }
+      pintarTodo();
     }
     // las ondas SOLO desplazan la vista (no tocan el punto de corte)
     onda.addEventListener('pointerdown', (ev) => {
-      if (!buf || (ev.target.closest && ev.target.closest('.tg-edm-linea'))) return;
+      if (!buf || (ev.target.closest && ev.target.closest('.tg-edm-linea, .tg-edm-seek'))) return;
       seguir = false;
       const x0 = ev.clientX, c0 = centro;
       try { onda.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
@@ -1042,6 +1067,20 @@
         el.addEventListener('pointermove', mover); el.addEventListener('pointerup', soltar); el.addEventListener('pointercancel', soltar);
       });
     }
+    // arrastrar la última barrita rellenada (div invisible): adelanta y retrocede la canción como en un reproductor
+    seek.addEventListener('pointerdown', (ev) => {
+      if (!buf || reproPos == null) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const estaba = sonando; if (sonando) pausar();
+      const x0 = ev.clientX, p0 = reproPos || 0; seguir = false;
+      try { seek.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
+      const mover = (e) => { reproPos = acotar(p0 + ((e.clientX - x0) / EDM_STEP) * EDM_SEG, 0, durEf()); marcaAbs = null; pintarPista(); pintarOnda(); };
+      const soltar = () => {
+        seek.removeEventListener('pointermove', mover); seek.removeEventListener('pointerup', soltar); seek.removeEventListener('pointercancel', soltar);
+        if (estaba) reproducir(reproPos, true);
+      };
+      seek.addEventListener('pointermove', mover); seek.addEventListener('pointerup', soltar); seek.addEventListener('pointercancel', soltar);
+    });
     engarzarMarca(linea, () => ini, moverInicio);
     engarzarMarca(lineaFin, () => ini + durEf(), moverFin);
     pista.addEventListener('pointerdown', (ev) => {
@@ -1055,9 +1094,13 @@
     rFade.addEventListener('input', () => { fade = parseFloat(rFade.value) || 0; parar(true); pintarAjustes(); });
     rDur.addEventListener('input', () => {
       const v = parseInt(rDur.value, 10), maxD = parseInt(rDur.max, 10);
-      durFija = v >= maxD ? null : v; parar(true); pintarAjustes(); pintarPista(); pintarOnda();
+      durFija = (v >= maxD && total - ini <= EDM_MAX_DUR + 0.05) ? null : v; parar(true); pintarAjustes(); pintarPista(); pintarOnda();
     });
-    bPlay.addEventListener('click', () => { if (sonando) pausar(); else reproducir(); });
+    bPlay.addEventListener('click', () => {
+      if (sonando) { pausar(); return; }
+      // si moviste la rayita de inicio (o ya terminó o no hay marcador): desde el inicio; si no, solo reanuda donde se pausó
+      if (inicioMovido || reproPos == null || reproPos >= durEf() - 0.1) reproducir(0); else reproducir(reproPos);
+    });
 
     // ---------- cerrar / guardar ----------
     function cerrar() {
@@ -1086,7 +1129,7 @@
         const ed = { ini, dur: durFija, fade, orig: infoOrig.orig };
         const datos = { geminiAudioBienvenida: url, geminiAudioBienvenidaNombre: nuevo, geminiAudioBienvenidaEdicion: JSON.stringify(ed) };
         // la canción propia original se guarda aparte la primera vez que se edita; la de la extensión se vuelve a leer del archivo
-        if (infoOrig.orig === 'propia' && infoOrig.origUrl && !infoOrig.guardado) { datos.geminiAudioBienvenidaOriginal = infoOrig.origUrl; datos.geminiAudioBienvenidaOriginalNombre = nombre; }
+        if (infoOrig.orig === 'propia' && infoOrig.origUrl) { datos.geminiAudioBienvenidaOriginal = infoOrig.origUrl; datos.geminiAudioBienvenidaOriginalNombre = nombre.replace(/ \(editada\)(?=\.[^.]+$)/, ''); }   // SIEMPRE se guarda el original completo junto a la copia editada
         musicaCache = url;
         musicaOrig = { url: infoOrig.orig === 'propia' ? (infoOrig.origUrl || '') : '', nombre, edicion: ed };
         try { PREFS_INICIALES.geminiAudioBienvenidaNombre = nuevo; } catch (e) { /* solo lectura */ }
@@ -8018,6 +8061,8 @@ p.gds-body-s.ng-star-inserted {
         padding-top: var(--tg-panel-top, 120px) !important; box-sizing: border-box !important; background-color: var(--tg-panel-gris) !important;
       }
       ${OCULTAR_CSS}
+      /* indicador de carga ("pensando"): no se muestra */
+      html:root:root:root thinking-dots-animation, html:root:root:root [data-tg-puntos] { display: none !important; }
       /* el brillo de fondo (.lm-glow) no se ve: se quita del todo con el panel abierto */
       html.tg-panel-seguro chat-window .lm-glow, html.tg-panel-seguro chat-window .lm-glow *, chat-window.immersives-mode .lm-glow, chat-window.immersives-mode .lm-glow * {
         display: none !important; background: transparent !important; box-shadow: none !important; filter: none !important; opacity: 0 !important;
@@ -8050,11 +8095,10 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur] { isolation: isolate !important; }
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur]::before {
         content: '' !important; position: fixed !important; inset: 0 0 0 calc(var(--tg-panel-l, 0px) - var(--tg-fade-out, 0px)) !important; z-index: -1 !important; pointer-events: none !important;
-        -webkit-mask-image: none; mask-image: none;
-        -webkit-backdrop-filter: blur(12px) brightness(0.85) !important; backdrop-filter: blur(24px) brightness(0.7) !important;
+        -webkit-backdrop-filter: blur(5px) brightness(0.85) !important; backdrop-filter: blur(5px) brightness(0.7) !important;
       }
       html.tg-panel-seguro.tg-ancho:not(.tg-blur-baja):not(.tg-blur-media) [data-tg-panel-blur]::before {
-        -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-pfade, 0px)) !important; mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-pfade, 0px)) !important;
+        -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-fade, 0px)) !important; mask-image: linear-gradient(to right, transparent 0, #000 var(--tg-fade, 0px)) !important;
       }
       /* botones del panel (opciones, Pista, Atrás, Siguiente, iconos): fondo con blur, solo en nivel ALTA */
       html.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel button { -webkit-backdrop-filter: blur(10px) !important; backdrop-filter: blur(10px) !important; }
@@ -8068,7 +8112,7 @@ p.gds-body-s.ng-star-inserted {
         background: transparent !important; background-color: transparent !important; box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
       }
       /* entrada: desde la izquierda con opacidad, uno por uno (solo transform + opacity) */
-      @keyframes tgQEntra { from { opacity: 0; transform: translate3d(-48px, 0, 0); } to { opacity: 1; transform: none; } }
+      @keyframes tgQEntra { from { opacity: 0; transform: translate3d(48px, 0, 0); } to { opacity: 1; transform: none; } }
       html.tg-panel-seguro immersive-panel .option-container,
       html.tg-panel-seguro immersive-panel .hint-button-container gem-button,
       html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button { animation: tgQEntra 560ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
@@ -8079,6 +8123,7 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro immersive-panel .hint-button-container gem-button { animation-delay: 280ms; }
       html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button:nth-child(1) { animation-delay: 350ms; }
       html.tg-panel-seguro immersive-panel .navigation-buttons-container gem-button:nth-child(2) { animation-delay: 420ms; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation: none !important; }
       @media (prefers-reduced-motion: reduce) { html.tg-panel-seguro immersive-panel :is(.option-container, gem-button) { animation: none !important; } }
       /* botones: mismo fondo que las burbujas de Gemini */
       html.tg-panel-seguro immersive-panel button.option,
@@ -8156,32 +8201,127 @@ p.gds-body-s.ng-star-inserted {
       html.tg-panel-seguro.tg-panel-seguro immersive-panel * { text-shadow: none; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel :is(.question-text-container, .question-number, .progress-status) { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
       html[data-tema="claro"].tg-panel-seguro.tg-panel-seguro immersive-panel :is(.question-text-container, .question-number, .progress-status) { text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7); }
-      @keyframes tgQEntraA { from { opacity: 0; transform: translate3d(-48px, 0, 0); } to { opacity: 1; transform: none; } }
-      @keyframes tgQEntraB { from { opacity: 0; transform: translate3d(-48px, 0, 0); } to { opacity: 1; transform: none; } }
+      @keyframes tgQEntraA { from { opacity: 0; transform: translate3d(48px, 0, 0); } to { opacity: 1; transform: none; } }
+      @keyframes tgQEntraB { from { opacity: 0; transform: translate3d(48px, 0, 0); } to { opacity: 1; transform: none; } }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-q-run="a"] :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation-name: tgQEntraA !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-q-run="b"] :is(.option-container, .hint-button-container gem-button, .navigation-buttons-container gem-button) { animation-name: tgQEntraB !important; }
-      html.tg-panel-seguro.tg-panel-seguro immersive-panel .outer-container { position: relative !important; padding-top: calc(var(--tg-panel-top, 64px) + 96px) !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .outer-container { position: relative !important; padding-top: calc(var(--tg-panel-top, 64px) + 110px) !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar [data-tg-tit] { visibility: hidden !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar {
-        position: absolute !important; top: var(--tg-panel-top, 64px) !important; left: 0 !important; right: 0 !important; height: 44px !important;
+        position: absolute !important; top: calc(var(--tg-panel-top, 64px) + 14px) !important; left: 0 !important; right: 0 !important; height: 44px !important;
         display: block !important; z-index: 6 !important; visibility: visible !important; opacity: 1 !important; pointer-events: none !important;
       }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar .toolbar { display: flex !important; justify-content: space-between !important; align-items: center !important; height: 44px !important; padding: 0 10px !important; box-sizing: border-box !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel toolbar :is(.left-panel, .action-buttons) { display: flex !important; align-items: center !important; pointer-events: auto !important; visibility: visible !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar {
-        position: fixed !important; top: var(--tg-bar-t, 64px) !important; left: var(--tg-bar-l, 60px) !important; right: var(--tg-bar-r, 60px) !important; width: auto !important; height: 44px !important;
+        position: fixed !important; top: calc(var(--tg-bar-t, 64px) + 14px) !important; left: var(--tg-bar-l, 60px) !important; right: var(--tg-bar-r, 60px) !important; width: auto !important; height: 44px !important;
         display: flex !important; align-items: center !important; z-index: 5 !important; margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;
       }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar .progress-bar-container { display: flex !important; flex-direction: row !important; align-items: center !important; height: 44px !important; width: 100% !important; margin: 0 !important; padding: 0 !important; gap: 10px !important; box-sizing: border-box !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar .progress-bar-track { flex: 1 1 auto !important; position: relative !important; margin: 0 !important; align-self: center !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar .progress-bar-indicator-container { order: 2 !important; margin: 0 !important; padding: 0 !important; height: auto !important; display: flex !important; align-items: center !important; align-self: center !important; flex: none !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar :is(progress-step-indicator, .progress-steps-container) { margin: 0 !important; padding: 0 !important; line-height: 1 !important; display: flex !important; align-items: center !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar .progress-status { margin: 0 !important; padding: 0 !important; line-height: 1 !important; display: inline-block !important; white-space: pre !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar .progress-bar-step-container { height: 44px !important; align-items: center !important; flex-wrap: nowrap !important; gap: 10px !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar .progress-bar-step-list { align-items: center !important; height: 44px !important; margin: 0 !important; padding: 0 !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar .progress-bar-step-list-item { position: relative !important; display: flex !important; align-items: center !important; height: 44px !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar .progress-bar-step-list-item > :not(.progress-bar-step-unit-container) { position: absolute !important; top: 2px !important; left: 50% !important; transform: translateX(-50%) !important; margin: 0 !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel progress-bar .progress-bar-step-unit-container { padding: 0 !important; margin: 0 !important; display: flex !important; align-items: center !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-bar-step-container { display: flex !important; flex-wrap: nowrap !important; align-items: center !important; gap: 8px !important; width: 100% !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-bar-step-list { flex: 1 1 0 !important; min-width: 0 !important; order: 1 !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-bar-step-indicator-container { order: 0 !important; flex: none !important; margin: 0 !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .progress-status { font-size: 12px !important; white-space: nowrap !important; }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .score-container {
-        position: fixed !important; left: var(--tg-panel-l, 0px) !important; right: 0 !important; top: calc(var(--tg-bar-t, 64px) + 46px) !important;
+        position: fixed !important; left: var(--tg-panel-l, 0px) !important; right: 0 !important; top: calc(var(--tg-bar-t, 64px) + 60px) !important;
         justify-content: center !important; z-index: 3 !important; pointer-events: none !important;
       }
       html.tg-panel-seguro.tg-panel-seguro immersive-panel .question-number { text-align: center !important; display: block !important; width: 100% !important; }
-      html.tg-panel-seguro.tg-panel-seguro immersive-panel .action-buttons-container { padding-bottom: calc(44px + env(safe-area-inset-bottom, 0px)) !important; box-sizing: border-box !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .action-buttons-container {
+        position: absolute !important; left: 0 !important; right: 0 !important; bottom: calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+        height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; background: transparent !important; z-index: 4 !important; pointer-events: none !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .action-buttons-container :is(.right-buttons, .navigation-buttons-container) { height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .action-buttons-container button { pointer-events: auto !important; }
+      /* el scroll ocupa TODO el ancho del panel (así la animación horizontal no se recorta); el margen lateral pasa a ser padding interno */
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel activity-set > .container { padding-left: 0 !important; padding-right: 0 !important; margin-left: 0 !important; margin-right: 0 !important; width: 100% !important; max-width: none !important; box-sizing: border-box !important; }
+      /* tarjetas y botones del resumen: mismo blur y fondo que las opciones (alta 16px, media 8px) */
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary :is(.card, .footer-actions button) {
+        background: rgba(0, 0, 0, 0.55) !important; background-color: rgba(0, 0, 0, 0.55) !important; transform: translateZ(0); touch-action: manipulation !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro:not(.tg-blur-baja) immersive-panel activity-summary :is(.card, .footer-actions button) { -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel activity-summary :is(.card, .footer-actions button) { -webkit-backdrop-filter: blur(16px) !important; backdrop-filter: blur(16px) !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .more-questions-button button { background: var(--tg-q-acento, #0059ff) !important; background-color: var(--tg-q-acento, #0059ff) !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .more-questions-button button * { color: var(--tg-q-acento-texto, #fff) !important; text-shadow: none !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .divider { display: none !important; }
+      /* botones del final del resumen: cápsula flotante abajo (como la de navegación), botones en horizontal */
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .footer-actions {
+        position: absolute !important; left: 0 !important; right: 0 !important; bottom: calc(14px + env(safe-area-inset-bottom, 0px)) !important; margin: 0 auto !important; width: calc(100% - 24px) !important; max-width: 460px !important;
+        display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; justify-content: center !important; gap: 8px !important; padding: 6px 8px !important; box-sizing: border-box !important;
+        border-radius: 9999px !important; background: rgba(0, 0, 0, 0.55) !important; background-color: rgba(0, 0, 0, 0.55) !important; z-index: 4 !important; transform-origin: 50% 100% !important;
+        transition: opacity 0.25s ease, transform 0.25s ease !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro:not(.tg-blur-baja) immersive-panel activity-summary .footer-actions { -webkit-backdrop-filter: blur(12px) !important; backdrop-filter: blur(12px) !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .footer-actions gem-button { width: auto !important; margin: 0 !important; flex: 1 1 auto !important; min-width: 0 !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .footer-actions button { width: 100% !important; min-width: 0 !important; margin: 0 !important; white-space: normal !important; text-align: center !important; line-height: 1.15 !important; min-height: 44px !important; height: auto !important; border-radius: 9999px !important; padding: 6px 12px !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .footer-actions .review-button button { background: #000 !important; background-color: #000 !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .footer-actions .review-button button * { color: #fff !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-nav="off"] activity-summary .footer-actions { opacity: 0 !important; transform: scale(0.8) !important; pointer-events: none !important; }
+      /* RESUMEN de la actividad: sin barra de progreso, el contenido sube hasta justo debajo del toolbar y se ve completo */
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .outer-container:has(activity-summary) { padding-top: calc(var(--tg-panel-top, 64px) + 48px) !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary, html.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary :is(.activity-summary, .activity-summary-content) { height: 100% !important; max-height: 100% !important; min-height: 0 !important; margin-top: 0 !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .scroll-container { padding-top: 0 !important; padding-bottom: 96px !important; overflow-y: auto !important; max-height: 100% !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel activity-summary .score-section { margin-top: 0 !important; padding-top: 8px !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .scroll-container { width: 100% !important; max-width: none !important; margin-left: 0 !important; margin-right: 0 !important; padding-left: 20px !important; padding-right: 20px !important; box-sizing: border-box !important; overflow-x: clip !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel :is(.scroll-container, .container, learning-immersive-panel, .outer-container, activity-set) { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .scroll-container { padding-bottom: 84px !important; box-sizing: border-box !important; }
+      /* ===== BAJA y MEDIA: fondo del menú negro semitransparente 0.5, SIN blur ===== */
+      html.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) chat-window.immersives-mode, html.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) chat-window.lm-canvas-styling { background: transparent !important; background-color: transparent !important; }
+      html.tg-panel-seguro.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) :is(learning-immersive-panel, .outer-container, [data-tg-panel-fondo]) { background: transparent !important; background-color: transparent !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+      html.tg-panel-seguro.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) immersive-panel { background: transparent !important; background-color: transparent !important; isolation: isolate !important; }
+      html.tg-panel-seguro.tg-panel-seguro:is(.tg-blur-baja, .tg-blur-media) immersive-panel::before {
+        content: '' !important; position: fixed !important; inset: 0 0 0 var(--tg-panel-l, 0px) !important; z-index: -1 !important; pointer-events: none !important;
+        background: rgba(0, 0, 0, 0.5) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+      }
+      /* MEDIA: blur SOLO en las opciones de respuesta (capa propia, sin transición de blur, toque inmediato) */
+      html.tg-panel-seguro.tg-panel-seguro.tg-blur-media immersive-panel button.option {
+        -webkit-backdrop-filter: blur(8px) !important; backdrop-filter: blur(8px) !important; background: rgba(0, 0, 0, 0.55) !important; background-color: rgba(0, 0, 0, 0.55) !important;
+        transform: translateZ(0); contain: layout paint style !important; touch-action: manipulation !important; transition: transform 0.1s ease !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro.tg-blur-media immersive-panel button.option[data-tg-q=\"ok\"] { background: var(--tg-q-acento, #0059ff) !important; background-color: var(--tg-q-acento, #0059ff) !important; }
+      /* ALTA: opciones con el mismo blur que MEDIA */
+      html.tg-panel-seguro.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel button.option {
+        -webkit-backdrop-filter: blur(16px) !important; backdrop-filter: blur(16px) !important; background: rgba(0, 0, 0, 0.55) !important; background-color: rgba(0, 0, 0, 0.55) !important;
+        transform: translateZ(0); contain: layout paint style !important; touch-action: manipulation !important; transition: transform 0.1s ease !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro:not(.tg-blur-baja):not(.tg-blur-media) immersive-panel button.option[data-tg-q=\"ok\"] { background: var(--tg-q-acento, #0059ff) !important; background-color: var(--tg-q-acento, #0059ff) !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel .navigation-buttons-container :is(gem-button, button, .mdc-button, .mat-mdc-button-persistent-ripple, .mat-focus-indicator, .mat-ripple) { border-radius: 9999px !important; animation: none !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel .navigation-buttons-container :is(button.mat-tonal-button, button.mdc-button) { overflow: hidden !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .action-buttons-container:has(.back-to-summary-link) { bottom: calc(68px + env(safe-area-inset-bottom, 0px)) !important; }
+      /* al bajar el scroll, los botones flotantes se ocultan (fade + escala); vuelven al subir o al parar */
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .action-buttons-container { transition: opacity 0.25s ease, transform 0.25s ease !important; transform-origin: 50% 100% !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-nav="off"] .action-buttons-container { opacity: 0 !important; transform: scale(0.8) !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel[data-tg-nav="off"] .action-buttons-container * { pointer-events: none !important; }
+      /* cápsula negra translúcida SOLO para Atrás + Siguiente (pseudo-elemento detrás de ellos); "Volver al resumen" va en otra cápsula aparte */
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .action-buttons-container .navigation-buttons-container {
+        display: grid !important; grid-template-columns: auto auto !important; justify-content: center !important; justify-items: center !important; align-items: center !important;
+        column-gap: 8px !important; row-gap: 8px !important; width: fit-content !important; margin: 0 auto !important; padding: 0 !important; background: transparent !important;
+        -webkit-backdrop-filter: none !important; backdrop-filter: none !important; border-radius: 0 !important; pointer-events: none !important; position: relative !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .navigation-buttons-container::before {
+        content: '' !important; grid-row: 1 !important; grid-column: 1 / 3 !important; justify-self: stretch !important; align-self: stretch !important; border-radius: 9999px !important;
+        background: rgba(0, 0, 0, 0.55) !important; pointer-events: none !important; z-index: 0 !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro:not(.tg-blur-baja) immersive-panel .navigation-buttons-container::before { -webkit-backdrop-filter: blur(12px) !important; backdrop-filter: blur(12px) !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .navigation-buttons-container :is(.previous-button, .next-button, .finish-button) { grid-row: 1 !important; position: relative !important; z-index: 1 !important; pointer-events: auto !important; margin-top: 6px !important; margin-bottom: 6px !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .navigation-buttons-container .previous-button { grid-column: 1 !important; margin-left: 8px !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .navigation-buttons-container :is(.next-button, .finish-button) { grid-column: 2 !important; margin-right: 8px !important; }
+      html.tg-panel-seguro.tg-panel-seguro immersive-panel .navigation-buttons-container .back-to-summary-link {
+        position: absolute !important; top: calc(100% + 8px) !important; left: 50% !important; transform: translateX(-50%) !important; white-space: nowrap !important; width: max-content !important; z-index: 1 !important; pointer-events: auto !important; border-radius: 9999px !important; margin: 0 !important;
+        background: rgba(0, 0, 0, 0.55) !important; padding: 0 6px !important;
+      }
+      html.tg-panel-seguro.tg-panel-seguro:not(.tg-blur-baja) immersive-panel .navigation-buttons-container .back-to-summary-link { -webkit-backdrop-filter: blur(12px) !important; backdrop-filter: blur(12px) !important; }
+      html.tg-panel-seguro.tg-panel-seguro.tg-panel-seguro immersive-panel .back-to-summary-link :is(button, .mdc-button, .mat-mdc-button-persistent-ripple, .mat-focus-indicator) { background: transparent !important; background-color: transparent !important; border-radius: 9999px !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; box-shadow: none !important; }
     `;
     (document.head || document.documentElement).appendChild(st);
     let activo = false, ultTop = -1, ultMarcado = 0;
@@ -8195,9 +8335,36 @@ p.gds-body-s.ng-star-inserted {
       });
       const nq = panel.querySelector('.question-number'), tq = nq ? nq.textContent : '';
       if (tq !== panel._tgQN) {
-        const primera = panel._tgQN === undefined; panel._tgQN = tq;
-        if (!primera) panel.setAttribute('data-tg-q-run', panel.getAttribute('data-tg-q-run') === 'a' ? 'b' : 'a');
+        panel._tgQN = tq;
       }
+      entradaOpciones(panel, tq);
+    }
+    // entrada: desde la derecha, uno por uno, con fade (Web Animations). Cada <li.option-container> nuevo se anima UNA vez (WeakSet):
+    // así funciona aunque Angular reponga los <li> o el número de pregunta no cambie; un MutationObserver lo dispara al instante
+    function entradaOpciones(panel, tq) {
+      if (tq === undefined) { const nq = panel.querySelector('.question-number'); tq = nq ? nq.textContent : ''; }
+      if (!panel._tgVistos || panel._tgTQ !== tq) { panel._tgVistos = new WeakSet(); panel._tgTQ = tq; }
+      const vistos = panel._tgVistos, nuevos = [];
+      panel.querySelectorAll('.option-container, .hint-button-container gem-button').forEach((el) => { if (!vistos.has(el)) { vistos.add(el); nuevos.push(el); } });
+      nuevos.forEach((li, i) => {
+        const el = (li.matches('.option-container') && li.querySelector('button.option')) || li;
+        try { el.animate([{ opacity: 0, transform: 'translate3d(70px,0,0)' }, { opacity: 1, transform: 'translate3d(0,0,0)' }], { duration: 520, delay: i * 90, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'backwards' }); } catch (e) { console.warn('[tg] animar opción:', e); }
+      });
+      const alto = !document.documentElement.classList.contains('tg-blur-baja') && !document.documentElement.classList.contains('tg-blur-media');
+      ['.question-number', '.question-text-container'].forEach((sel, i) => {
+        const qe = panel.querySelector(sel);
+        if (!qe || vistos.has(qe)) return;
+        vistos.add(qe);
+        const de = { opacity: 0, transform: 'translate3d(0,14px,0)' }, a = { opacity: 1, transform: 'translate3d(0,0,0)' };
+        if (alto) { de.filter = 'blur(10px)'; a.filter = 'blur(0px)'; }
+        try { qe.animate([de, a], { duration: 700, delay: i * 220, easing: 'ease', fill: 'backwards' }); } catch (e) {}
+      });
+      const cap = panel.querySelector('.action-buttons-container .navigation-buttons-container, activity-summary .footer-actions');
+      if (cap && !vistos.has(cap)) {
+        vistos.add(cap);
+        try { cap.animate([{ opacity: 0, transform: 'translate3d(0,70px,0)' }, { opacity: 1, transform: 'translate3d(0,-3px,0)', offset: 0.7 }, { opacity: 1, transform: 'translate3d(0,0,0)' }], { duration: 800, delay: 150, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'backwards' }); } catch (e) {}
+      }
+      if (nuevos.length) panel.setAttribute('data-tg-anim', String(nuevos.length));
     }
     function marcarOpcionesViejo(panel) {
       panel.querySelectorAll('button.option').forEach((b) => {
@@ -8260,7 +8427,7 @@ p.gds-body-s.ng-star-inserted {
         const pr = panel.getBoundingClientRect(), ancho = window.innerWidth / Math.max(1, window.innerHeight) > 1.3 && pr.left > 100;
         const pl = ancho ? Math.round(pr.left) : 0, fd = ancho ? '220px' : '0px';
         raiz.classList.toggle('tg-ancho', !!ancho);
-        if (panel._tgPL !== pl) { panel._tgPL = pl; raiz.style.setProperty('--tg-panel-l', pl + 'px'); raiz.style.setProperty('--tg-pfade', fd); raiz.style.setProperty('--tg-fade-out', ancho ? '110px' : '0px'); }
+        if (panel._tgPL !== pl) { panel._tgPL = pl; raiz.style.setProperty('--tg-panel-l', pl + 'px'); raiz.style.setProperty('--tg-fade', fd); raiz.style.setProperty('--tg-fade-out', ancho ? '110px' : '0px'); }
         const T = panel.querySelector('toolbar');
         const bs = Array.from(panel.querySelectorAll('toolbar button')).map((x) => x.getBoundingClientRect()).filter((r) => r.width > 0);
         if (T && bs.length) {
@@ -8277,6 +8444,23 @@ p.gds-body-s.ng-star-inserted {
         const ac = burbujaCSS(burbuja, false);
         if (ac !== ultAcento) { ultAcento = ac; raiz.style.setProperty('--tg-q-acento', ac); raiz.style.setProperty('--tg-q-acento-texto', burbujaTexto(burbuja)); }
         marcarOpciones(panel);
+        if (!panel._tgSc) {
+          panel._tgSc = true;
+          let ult = new WeakMap(), tm = 0;
+          panel.addEventListener('scroll', (ev) => {
+            const t = ev.target; if (!t || t.scrollTop === undefined) return;
+            const antes = ult.get(t) || 0, ahora = t.scrollTop; ult.set(t, ahora);
+            const d = ahora - antes;
+            if (d > 3) { if (panel.getAttribute('data-tg-nav') !== 'off') panel.setAttribute('data-tg-nav', 'off'); }
+            else if (d < -3) { if (panel.hasAttribute('data-tg-nav')) panel.removeAttribute('data-tg-nav'); }
+            clearTimeout(tm); tm = setTimeout(() => panel.removeAttribute('data-tg-nav'), 300);
+          }, { capture: true, passive: true });
+        }
+        if (!panel._tgMO && window.MutationObserver) {
+          let pend = false;
+          panel._tgMO = new MutationObserver(() => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; try { entradaOpciones(panel); } catch (e) {} }); });
+          panel._tgMO.observe(panel, { childList: true, subtree: true });
+        }
       } catch (e) { /* sin burbuja aún */ }
       const ahora = performance.now();
       if (ahora - ultMarcado > 3000) { ultMarcado = ahora; marcar(panel); } // el contenido cambia (siguiente pregunta, respuestas): se revisa cada segundo
