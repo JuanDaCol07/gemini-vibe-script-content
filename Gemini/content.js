@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 4; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 5; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -41,6 +41,7 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
+• Nueva tarjeta «Borradores» en «¿Por dónde empezamos?»: accesos directos a los últimos 3 chats con texto sin enviar. El título ahora se anima letra por letra en una sola línea y con sombra.
 • Menús interactivos (cuestionarios): botones con fondo blur estilo burbuja que entran uno a uno desde la izquierda, la opción correcta se ilumina con el color de tu burbuja, textos sin halo, botones del toolbar redondos y pequeños y nueva barra de progreso translúcida.
 • Nueva última pantalla de la bienvenida: «Todo listo.» con animación letra por letra; las letras llevan blur solo en nivel Alta.
 • Rendimiento en móvil: nivel Medio solo desenfoca burbujas y caja de escribir; los mensajes fuera de pantalla se omiten del render.
@@ -8466,6 +8467,105 @@ p.gds-body-s.ng-star-inserted {
       if (ahora - ultMarcado > 3000) { ultMarcado = ahora; marcar(panel); } // el contenido cambia (siguiente pregunta, respuestas): se revisa cada segundo
     }
     cada(ajustar, 250);
+  })();
+
+  // ============================================================================================
+  // BORRADORES: tarjeta de acceso directo a los últimos 3 chats con texto sin enviar (pantalla "¿Por dónde empezamos?")
+  // - Guarda (con debounce) lo escrito en la caja + la URL del chat. Máximo 3. Vacío o enviado => se borra. Sin borradores => no hay tarjeta.
+  // - También anima el título letra por letra (una sola línea) con sombra, como "Gemini Vibes".
+  // ============================================================================================
+  (function () {
+    const CLAVE = 'tgBorradores', MAX = 3;
+    const leer = () => { try { const a = JSON.parse(localStorage.getItem(CLAVE) || '[]'); return Array.isArray(a) ? a.filter((x) => x && x.url && x.texto) : []; } catch (e) { return []; } };
+    const guardar = (a) => { try { localStorage.setItem(CLAVE, JSON.stringify(a)); } catch (e) { /* sin storage */ } };
+    const urlActual = () => location.href.split('#')[0];
+    const editorDe = (el) => (el && el.closest) ? el.closest('input-area-v2 .ql-editor, rich-textarea .ql-editor') : null;
+
+    const est = document.createElement('style');
+    est.textContent =
+      '.zero-state-container h1[data-test-id="message"]{white-space:nowrap !important;font-size:min(34px,7.4vw) !important;text-align:center;}' +
+      '#tg-saludo{display:inline-block;white-space:nowrap;text-shadow:0 2px 12px rgba(0,0,0,0.55),0 0 2px rgba(0,0,0,0.35);}' +
+      '#tg-saludo span{display:inline-block;will-change:transform,opacity;}' +
+      '#tg-borradores{width:min(420px,calc(100vw - 40px));margin:14px auto 0;padding:10px;border-radius:22px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;' +
+      'background:rgba(18,18,20,0.45);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 8px 30px rgba(0,0,0,0.3);color:#fff;font-family:"Google Sans",system-ui,sans-serif;}' +
+      '#tg-borradores .tg-bor-tit{font-size:12px;font-weight:600;opacity:0.8;padding:0 6px 2px;}' +
+      '#tg-borradores button{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;padding:10px 14px;border-radius:14px;background:rgba(255,255,255,0.12);' +
+      'font-size:14px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;-webkit-tap-highlight-color:transparent;}' +
+      '#tg-borradores button:active{transform:scale(0.98);background:rgba(255,255,255,0.2);}';
+    (document.head || document.documentElement).appendChild(est);
+
+    // ---- captura optimizada: un guardado por pausa de 300 ms, y solo si el texto cambió ----
+    let timer = 0, ultimoTexto = null;
+    function volcar(ed) {
+      const texto = (ed.innerText || '').replace(/\u200b/g, '').trim();
+      const url = urlActual();
+      if (texto === ultimoTexto + '|' + url) return;
+      ultimoTexto = texto + '|' + url;
+      const a = leer().filter((x) => x.url !== url);
+      if (texto) a.unshift({ url: url, texto: texto.slice(0, 200), t: Date.now() });
+      guardar(a.slice(0, MAX));
+    }
+    function descartar() { // prompt enviado: ese borrador ya no existe
+      clearTimeout(timer); ultimoTexto = null;
+      const url = urlActual();
+      guardar(leer().filter((x) => x.url !== url));
+    }
+    document.addEventListener('input', (e) => { const ed = editorDe(e.target); if (!ed) return; clearTimeout(timer); timer = setTimeout(() => volcar(ed), 300); }, true);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && editorDe(e.target)) descartar(); }, true);
+    document.addEventListener('click', (e) => {
+      const b = e.target && e.target.closest && e.target.closest('button.send-button, button[aria-label*="Enviar"], button[aria-label*="Send"]');
+      if (b && b.closest('input-area-v2')) descartar();
+    }, true);
+
+    // ---- título: letra por letra, una sola línea, con sombra ----
+    function animarTitulo(h1) {
+      const orig = h1.querySelector('.message-text');
+      if (!orig) return;
+      const txt = (orig.textContent || '').trim();
+      if (!txt || h1._tgTxt === txt) return;
+      h1._tgTxt = txt;
+      const viejo = h1.querySelector('#tg-saludo'); if (viejo) viejo.remove();
+      orig.style.display = 'none'; // el nodo de Angular queda intacto, solo oculto
+      const cont = document.createElement('span'); cont.id = 'tg-saludo'; cont.setAttribute('aria-label', txt);
+      const bl = nivelBlur === 'alta';
+      Array.from(txt).forEach((c, i) => {
+        const l = document.createElement('span'); l.setAttribute('aria-hidden', 'true'); l.style.opacity = '0';
+        l.textContent = c === ' ' ? '\u00a0' : c; cont.appendChild(l);
+        l.animate([
+          Object.assign({ opacity: 0, transform: 'translateY(0.9em)', easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }, bl ? { filter: 'blur(10px)' } : {}),
+          Object.assign({ opacity: 1, transform: 'translateY(-0.14em)', offset: 0.55, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, bl ? { filter: 'blur(0px)' } : {}),
+          Object.assign({ opacity: 1, transform: 'translateY(0.04em)', offset: 0.8, easing: 'cubic-bezier(0.45, 0, 0.55, 1)' }, bl ? { filter: 'blur(0px)' } : {}),
+          Object.assign({ opacity: 1, transform: 'translateY(0)' }, bl ? { filter: 'blur(0px)' } : {})
+        ], { duration: 950, delay: 60 + i * 45, fill: 'both' });
+      });
+      h1.appendChild(cont);
+    }
+
+    // ---- tarjeta ----
+    function pintar() {
+      let c = document.getElementById('tg-borradores');
+      const h1 = document.querySelector('.zero-state-container h1[data-test-id="message"]');
+      if (h1) animarTitulo(h1);
+      const a = leer();
+      if (!a.length || !h1 || !enEstadoCero()) { if (c) c.remove(); return; }
+      const ancla = h1.closest('.lm-mobile-sparkle-and-text') || h1.parentElement;
+      if (!c) { c = document.createElement('div'); c.id = 'tg-borradores'; }
+      const firma = JSON.stringify(a.map((x) => x.url + x.texto));
+      if (c._f !== firma) {
+        c._f = firma; c.textContent = '';
+        const t = document.createElement('div'); t.className = 'tg-bor-tit'; t.textContent = 'Borradores'; c.appendChild(t);
+        a.forEach((x) => {
+          const b = document.createElement('button'); b.type = 'button'; b.textContent = x.texto.replace(/\s+/g, ' ');
+          b.addEventListener('click', () => { location.assign(x.url); });
+          c.appendChild(b);
+        });
+      }
+      if (c.previousElementSibling !== ancla || !c.isConnected) {
+        ancla.insertAdjacentElement('afterend', c);
+        c.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 500, easing: 'ease-out', fill: 'both' });
+      }
+    }
+    setInterval(pintar, 600);
   })();
 
   revisarTemaBody();
