@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 8; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 15; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -41,7 +41,7 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
-• Nueva tarjeta «Borradores» en «¿Por dónde empezamos?»: accesos directos a los últimos 3 chats con texto sin enviar. El título ahora se anima letra por letra en una sola línea y con sombra.
+• Nueva tarjeta «Borradores» en «¿Por dónde empezamos?»: accesos directos a los chats con texto sin enviar (se ven 3 y puedes deslizar para ver más; se guardan hasta 20). El borrador se guarda al salir de la caja de escribir. Al abrir uno, la caja se bloquea en gris oscuro («Esperando a que la página responda…») hasta que el chat carga y el texto queda puesto. Los borradores también guardan los archivos adjuntos (hasta 15 MB cada uno y 60 MB en total) y los vuelven a adjuntar al abrirlos. El título ahora se anima letra por letra en una sola línea y con sombra.
 • Menús interactivos (cuestionarios): botones con fondo blur estilo burbuja que entran uno a uno desde la izquierda, la opción correcta se ilumina con el color de tu burbuja, textos sin halo, botones del toolbar redondos y pequeños y nueva barra de progreso translúcida.
 • Nueva última pantalla de la bienvenida: «Todo listo.» con animación letra por letra; las letras llevan blur solo en nivel Alta.
 • Rendimiento en móvil: nivel Medio solo desenfoca burbujas y caja de escribir; los mensajes fuera de pantalla se omiten del render.
@@ -2915,6 +2915,24 @@ logo.animate([
   }
   document.addEventListener('touchstart', () => { if (colaDiferida.length && !colaPlanificada) { colaPlanificada = true; requestAnimationFrame(() => vaciarColaDiferida(false)); } }, { once: true, capture: true, passive: true });
   document.addEventListener('tg-bloqueo-cambio', (e) => { if (e.detail && e.detail.bloqueado === false) vaciarColaDiferida(true); });
+  // App móvil: cuando el usuario ya pasó la bienvenida / el bloqueo y está en la interfaz de Gemini, se le avisa a Dart (handler 'tgPaginaLista')
+  // para que descargue y guarde la página en segundo plano (la usará la próxima vez que se abra la app). Una sola vez por carga.
+  (function avisarPaginaLista() {
+    if (!ES_APP_FLUTTER) return;
+    let enviado = false;
+    const enviar = () => {
+      if (enviado) return;
+      enviado = true;
+      setTimeout(() => { // un respiro para que la interfaz y la música no compitan con la descarga
+        try {
+          const fl = window.flutter_inappwebview;
+          if (fl && typeof fl.callHandler === 'function') { const r = fl.callHandler('tgPaginaLista'); if (r && r.catch) r.catch(() => {}); }
+        } catch (e) { /* sin puente */ }
+      }, 2500);
+    };
+    if (!pantallaBloqueada) { enviar(); return; }
+    document.addEventListener('tg-bloqueo-cambio', (e) => { if (e.detail && e.detail.bloqueado === false) enviar(); });
+  })();
   despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-burbuja-style';
@@ -8479,21 +8497,192 @@ p.gds-body-s.ng-star-inserted {
 
   // ============================================================================================
   // BORRADORES: tarjeta de acceso directo a los últimos 3 chats con texto sin enviar (pantalla "¿Por dónde empezamos?")
-  // - Guarda (con debounce) lo escrito en la caja + la URL del chat. Máximo 3. Vacío o enviado => se borra. Sin borradores => no hay tarjeta.
+  // - Guarda lo escrito en la caja + la URL del chat SOLO cuando la caja pierde el foco (o la página se oculta). Máximo 20 guardados, se ven 3 y se desliza. Vacío o enviado => se borra. Sin borradores => no hay tarjeta.
   // - También anima el título letra por letra (una sola línea) con sombra, como "Gemini Vibes".
   // ============================================================================================
   (function () {
-    const CLAVE = 'tgBorradores', MAX = 3;
-    const leer = () => { try { const a = JSON.parse(localStorage.getItem(CLAVE) || '[]'); return Array.isArray(a) ? a.filter((x) => x && x.url && x.texto) : []; } catch (e) { return []; } };
+    const MAX_ARCHIVO = 15 * 1024 * 1024, MAX_TOTAL = 60 * 1024 * 1024; // tope por archivo y en total (se borran primero los borradores más viejos)
+    const CLAVE = 'tgBorradores', MAX = 20, VISIBLES = 3; // MAX = cuántos se guardan; VISIBLES = cuántos se ven a la vez (el resto con scroll)
+    const ALTO_ITEM = 56, GAP_ITEM = 6; // alto fijo de cada botón y separación: de ahí sale el alto de la lista (3 elementos)
+    const leer = () => { try { const a = JSON.parse(localStorage.getItem(CLAVE) || '[]'); return Array.isArray(a) ? a.filter((x) => x && x.url && (x.texto || (x.archivos && x.archivos.length))) : []; } catch (e) { return []; } };
     const guardar = (a) => { try { localStorage.setItem(CLAVE, JSON.stringify(a)); } catch (e) { /* sin storage */ } };
     const urlActual = () => location.href.split('#')[0];
     const editorDe = (el) => (el && el.closest) ? el.closest('input-area-v2 .ql-editor, rich-textarea .ql-editor') : null;
 
+    let pendiente = null; // { ed, url }: caja donde se escribió (o se cambió un adjunto) desde el último guardado; la URL se anota entonces, por si cambia antes del blur
+
+    // ============ ARCHIVOS ADJUNTOS DEL BORRADOR ============
+    // 1) CAPTURA global (en fase de captura y SIN preventDefault, para no estorbar a Gemini): soltar, pegar, <input type=file> (también los ocultos).
+    //    Se copian los File al instante: una FileList se vacía en cuanto la página limpia el input.
+    // 2) Los bytes se guardan en IndexedDB solo al guardar el borrador; en localStorage solo queda la ficha (nombre, tipo, tamaño).
+    // 3) Al abrir el borrador se reconstruye el File idéntico y se le entrega a Gemini (input -> pegar -> soltar, el primero que funcione).
+    const activos = []; // { clave, file }: archivos capturados que quizá sigan adjuntos (se cruzan con los chips visibles al guardar)
+    const claveDe = (f) => f.name + '|' + f.size + '|' + f.lastModified;
+    const baseNombre = (n) => String(n || '').replace(/\.[^.]*$/, '').trim().toLowerCase();
+    const contarChips = () => document.querySelectorAll('uploader-file-preview-container uploader-file-preview').length;
+    let tGuardaArch = 0;
+    function programarGuardadoArchivos() { // cambió lo adjuntado: si la caja no tiene el foco (si lo tiene, se guarda al perderlo) se guarda en un momento
+      const ed = document.querySelector('input-area-v2 .ql-editor, rich-textarea .ql-editor');
+      if (ed) pendiente = { ed: ed, url: urlActual() };
+      clearTimeout(tGuardaArch);
+      tGuardaArch = setTimeout(() => { if (!editorDe(document.activeElement)) guardarPendiente(); }, 1500);
+    }
+    function anotarArchivos(lista, via) {
+      let hay = false;
+      try {
+        Array.from(lista || []).forEach((f) => { // Array.from copia ya: no se depende de la FileList
+          if (!f || typeof f.name !== 'string' || typeof f.size !== 'number') return;
+          const c = claveDe(f);
+          if (activos.some((a) => a.clave === c)) return;
+          activos.push({ clave: c, file: f }); hay = true;
+        });
+        while (activos.length > 40) activos.shift();
+      } catch (e) { /* sin captura */ }
+      if (hay) programarGuardadoArchivos();
+    }
+    window.addEventListener('drop', (e) => anotarArchivos(e.dataTransfer && e.dataTransfer.files, 'soltar'), true);
+    window.addEventListener('paste', (e) => anotarArchivos(e.clipboardData && e.clipboardData.files, 'pegar'), true);
+    document.addEventListener('change', (e) => { const t = e.target; if (t && t.tagName === 'INPUT' && t.type === 'file') anotarArchivos(t.files, 'input'); }, true);
+    // red de seguridad para inputs que no están en el DOM (los crea y los borra la página): se anota cada vez que la página lee .files
+    try {
+      const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files');
+      if (d && d.get && d.configurable) {
+        Object.defineProperty(HTMLInputElement.prototype, 'files', { configurable: true, enumerable: d.enumerable, set: d.set, get: function () {
+          const fl = d.get.call(this);
+          try { if (fl && fl.length && this.type === 'file') anotarArchivos(fl, 'input'); } catch (e) { /* nada */ }
+          return fl;
+        } });
+      }
+    } catch (e) { /* sin red de seguridad */ }
+    document.addEventListener('click', (e) => { // quitar un adjunto con su X: se actualiza el borrador
+      const b = e.target && e.target.closest && e.target.closest('uploader-file-preview button, .gem-attachment-close-button');
+      if (b) setTimeout(programarGuardadoArchivos, 300);
+    }, true);
+
+    // qué archivos siguen realmente adjuntos: se cruzan los chips que se ven en la caja con lo capturado
+    function adjuntosVigentes() {
+      const chips = Array.from(document.querySelectorAll('uploader-file-preview-container uploader-file-preview'));
+      if (!chips.length) return [];
+      const nombres = chips.map((c) => { const t = c.querySelector('.gem-attachment-text'); return t ? (t.textContent || '').trim().toLowerCase() : ''; });
+      const usados = new Set(), res = [];
+      const recientes = activos.slice().reverse();
+      const coincide = (a, nm) => {
+        const base = baseNombre(a.file.name), n = nm.replace(/(…|\.\.\.)$/, '');
+        return base === nm || a.file.name.toLowerCase() === nm || (n !== nm && base.startsWith(n));
+      };
+      const sobran = [];
+      nombres.forEach((nm, i) => {
+        const f = nm ? recientes.find((a) => !usados.has(a.clave) && coincide(a, nm)) : null;
+        if (f) { usados.add(f.clave); res.push(f); } else sobran.push(i);
+      });
+      sobran.forEach(() => { // chip sin nombre legible (p. ej. una imagen) o con otro nombre: se le asigna lo último capturado que quede libre
+        const f = recientes.find((a) => !usados.has(a.clave));
+        if (f) { usados.add(f.clave); res.push(f); }
+      });
+      return res;
+    }
+
+    // IndexedDB: { blob, name, type, lastModified } por clave
+    let dbP = null;
+    const abrirDb = () => dbP || (dbP = new Promise((ok) => {
+      try {
+        const r = indexedDB.open('tgBorradoresArchivos', 1);
+        r.onupgradeneeded = () => { r.result.createObjectStore('f'); };
+        r.onsuccess = () => ok(r.result);
+        r.onerror = () => ok(null);
+      } catch (e) { ok(null); }
+    }));
+    const idb = (modo, fn) => abrirDb().then((db) => !db ? null : new Promise((ok) => {
+      try {
+        const tx = db.transaction('f', modo), st = tx.objectStore('f'), rq = fn(st);
+        tx.oncomplete = () => ok(rq && 'result' in rq ? rq.result : true);
+        tx.onerror = tx.onabort = () => ok(null);
+      } catch (e) { ok(null); }
+    }));
+    const yaEnDb = new Set();
+    function guardarBlob(a) {
+      if (yaEnDb.has(a.clave)) return;
+      idb('readwrite', (st) => st.put({ blob: a.file, name: a.file.name, type: a.file.type, lastModified: a.file.lastModified }, a.clave)).then((r) => { if (r) yaEnDb.add(a.clave); });
+    }
+    function limpiarHuerfanos(lista) { // borra de IndexedDB lo que ningún borrador usa
+      const ids = new Set(); lista.forEach((x) => (x.archivos || []).forEach((f) => ids.add(f.id)));
+      idb('readonly', (st) => st.getAllKeys()).then((keys) => {
+        (Array.isArray(keys) ? keys : []).forEach((k) => { if (!ids.has(k)) { yaEnDb.delete(k); idb('readwrite', (st) => st.delete(k)); } });
+      });
+    }
+    function aplicarTope() { // tope total: si se pasa, se le quitan los archivos a los borradores más viejos
+      let a = leer();
+      const total = () => { const m = {}; a.forEach((x) => (x.archivos || []).forEach((f) => { m[f.id] = f.size || 0; })); return Object.keys(m).reduce((p, k) => p + m[k], 0); };
+      for (let i = a.length - 1; i >= 0 && total() > MAX_TOTAL; i--) a[i].archivos = [];
+      a = a.filter((x) => x.texto || (x.archivos && x.archivos.length));
+      guardar(a);
+      limpiarHuerfanos(a);
+    }
+
+    // restaurar: se reconstruye cada File idéntico (mismos bytes, nombre, tipo y fecha) y se prueba cada vía hasta que aparezcan los chips
+    const esperarChips = (min, ms) => new Promise((ok) => {
+      const t0 = performance.now();
+      (function r() { if (contarChips() >= min) return ok(true); if (performance.now() - t0 > ms) return ok(false); setTimeout(r, 150); })();
+    });
+    const nuevoDt = (files) => { const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); return dt; };
+    const viaInput = (files) => {
+      const inp = Array.from(document.querySelectorAll('input[type="file"]')).find((i) => !i.disabled);
+      if (!inp) return false;
+      inp.files = nuevoDt(files).files;
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    };
+    const viaPegar = (files) => {
+      const ed = document.querySelector('input-area-v2 .ql-editor, rich-textarea .ql-editor');
+      if (!ed) return false;
+      ed.focus();
+      ed.dispatchEvent(new ClipboardEvent('paste', { clipboardData: nuevoDt(files), bubbles: true, cancelable: true }));
+      return true;
+    };
+    const viaSoltar = (files) => {
+      const dest = document.querySelector('input-container') || document.querySelector('chat-window') || document.body;
+      const dt = nuevoDt(files);
+      ['dragenter', 'dragover', 'drop'].forEach((t) => dest.dispatchEvent(new DragEvent(t, { dataTransfer: dt, bubbles: true, cancelable: true })));
+      return true;
+    };
+    async function restaurarArchivos(x) {
+      const files = [];
+      for (const m of (x.archivos || [])) {
+        const r = await idb('readonly', (st) => st.get(m.id));
+        if (r && r.blob) files.push(new File([r.blob], r.name || m.name, { type: r.type || m.type || '', lastModified: r.lastModified || m.lastModified || Date.now() }));
+      }
+      if (!files.length) return false;
+      const antes = contarChips();
+      const vias = [['input', viaInput], ['pegar', viaPegar], ['soltar', viaSoltar]];
+      for (let i = 0; i < vias.length; i++) {
+        let lanzado = false;
+        try { lanzado = vias[i][1](files); } catch (e) { console.warn('[TG] adjuntos: falló la vía', vias[i][0], e); }
+        if (!lanzado) continue;
+        if (await esperarChips(antes + files.length, 3000)) { console.log('[TG] adjuntos restaurados por la vía:', vias[i][0]); return true; }
+        if (contarChips() > antes) { console.log('[TG] adjuntos restaurados (parcial) por la vía:', vias[i][0]); return true; }
+      }
+      console.warn('[TG] adjuntos: ninguna vía funcionó');
+      return false;
+    }
+
     const est = document.createElement('style');
     est.textContent =
+      // móvil / común
       '.zero-state-container h1[data-test-id="message"]{white-space:nowrap !important;font-size:min(34px,7.4vw) !important;text-align:center;max-width:100vw;}' +
       '#tg-saludo{display:inline-block;white-space:nowrap;text-shadow:0 2px 12px rgba(0,0,0,0.55),0 0 2px rgba(0,0,0,0.35);}' +
       '#tg-saludo span{display:inline-block;will-change:transform,opacity;}' +
+      // ESCRITORIO (16:9): pantalla de inicio propia. Lo de Gemini en la pantalla de inicio se oculta y solo se dibuja lo necesario:
+      // logo + título (nuestros), un hueco donde se coloca la caja REAL de escribir, y la tarjeta
+      'html.tg-cero-desk .zero-state-container{visibility:hidden !important;}' +
+      'html.tg-cero-desk input-container .input-area-container{position:fixed !important;left:var(--tg-in-x,0px) !important;top:var(--tg-in-y,0px) !important;right:auto !important;bottom:auto !important;width:var(--tg-in-w,820px) !important;margin:0 !important;transform:none !important;}' +
+      '#tg-cero{position:fixed;z-index:3;display:flex;flex-direction:column;align-items:center;box-sizing:border-box;pointer-events:none;}' +
+      '#tg-cero .tg-c-cab{display:flex;align-items:center;justify-content:center;gap:16px;height:64px;margin-bottom:24px;flex:none;color:#fff;font-family:"Google Sans",system-ui,sans-serif;font-size:40px;font-weight:400;line-height:1.2;white-space:nowrap;}' +
+      '#tg-cero .tg-c-estrella{display:block;width:38px;height:38px;flex:none;object-fit:contain;filter:drop-shadow(0 2px 10px rgba(0,0,0,0.45));}' +
+      '#tg-cero .tg-c-titulo{display:inline-block;white-space:nowrap;text-shadow:0 2px 12px rgba(0,0,0,0.55),0 0 2px rgba(0,0,0,0.35);}' +
+      '#tg-cero .tg-c-titulo span{display:inline-block;will-change:transform,opacity;}' +
+      '#tg-cero .tg-c-hueco{flex:none;pointer-events:none;}' +
+      '#tg-cero #tg-borradores{pointer-events:auto;margin:16px 0 0;width:min(520px,92%);}' +
+      // tarjeta
       '#tg-borradores{position:relative;isolation:isolate;align-self:center;flex:none;width:min(420px,calc(100vw - 40px));margin:14px auto 0;padding:10px;border-radius:22px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;' +
       'box-shadow:0 8px 30px rgba(0,0,0,0.45);color:#fff;font-family:"Google Sans",system-ui,sans-serif;}' +
       // el fondo vive en un ::before para que la tarjeta no sea "raíz de backdrop" y los botones puedan desenfocar de verdad lo de atrás
@@ -8501,15 +8690,22 @@ p.gds-body-s.ng-star-inserted {
       'html.tg-blur-baja #tg-borradores::before{background:rgba(8,12,24,0.94);-webkit-backdrop-filter:none;backdrop-filter:none;}' +
       'html:not(.tg-blur-baja):not(.tg-blur-media) #tg-borradores button{-webkit-backdrop-filter:blur(calc(var(--tg-bf14,14px) * 1.8));backdrop-filter:blur(calc(var(--tg-bf14,14px) * 1.8));}' +
       '#tg-borradores .tg-bor-tit{font-size:12px;font-weight:600;opacity:0.8;padding:0 6px 2px;}' +
-      '#tg-borradores button{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;padding:10px 14px;border-radius:14px;background:rgba(0,0,0,0.38);' +
+      // capa que bloquea la caja de escribir mientras carga el chat de un borrador
+      '#tg-bor-espera{position:fixed;z-index:50;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:0 16px;background:rgba(38,40,43,0.55);-webkit-backdrop-filter:blur(var(--tg-bf14,14px));backdrop-filter:blur(var(--tg-bf14,14px));color:#b4b8be;font:500 14px \"Google Sans\",system-ui,sans-serif;text-align:center;pointer-events:auto;cursor:not-allowed;touch-action:none;user-select:none;-webkit-user-select:none;transition:opacity 0.2s;}' +
+      'html.tg-blur-baja #tg-bor-espera{background:#26282b;-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      // lista con scroll: se ven VISIBLES elementos y el resto se desliza (data-lenis-prevent evita que Lenis robe el gesto)
+      '#tg-borradores .tg-bor-lista{display:flex;flex-direction:column;gap:' + GAP_ITEM + 'px;max-height:' + (VISIBLES * ALTO_ITEM + (VISIBLES - 1) * GAP_ITEM) + 'px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.3) transparent;}' +
+      '#tg-borradores .tg-bor-lista::-webkit-scrollbar{width:4px;}' +
+      '#tg-borradores .tg-bor-lista::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.3);border-radius:2px;}' +
+      '#tg-borradores button{all:unset;box-sizing:border-box;cursor:pointer;display:block;flex:none;width:100%;height:' + ALTO_ITEM + 'px;padding:10px 14px;border-radius:14px;background:rgba(0,0,0,0.38);' +
       'font-size:14px;line-height:1.3;-webkit-tap-highlight-color:transparent;}' +
       '#tg-borradores .tg-bor-chat{display:block;font-size:12px;font-weight:600;opacity:0.7;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
       '#tg-borradores .tg-bor-txt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
       '#tg-borradores button:active{transform:scale(0.98);background:rgba(0,0,0,0.55);}';
     (document.head || document.documentElement).appendChild(est);
 
-    // ---- captura optimizada: un guardado por pausa de 300 ms, y solo si el texto cambió ----
-    let timer = 0, ultimoTexto = null;
+    // ---- captura: SOLO cuando la caja pierde el foco (focusout) o la página se oculta; mientras escribes no se guarda nada ----
+    let ultimoTexto = null;
     function tituloChat() { // nombre del chat: el de la barra lateral; si no está en el DOM, el inicio de la primera pregunta
       const m = location.pathname.match(/\/app\/([^/?]+)/);
       if (!m) return '';
@@ -8518,38 +8714,51 @@ p.gds-body-s.ng-star-inserted {
       if (!t) { const q = document.querySelector('#chat-history user-query'); if (q) t = (q.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40); }
       return t;
     }
-    function volcar(ed) {
+    function volcar(ed, urlDe) {
       const texto = (ed.innerText || '').replace(/\u200b/g, '').trim();
-      const url = urlActual();
-      if (texto === ultimoTexto + '|' + url) return;
-      ultimoTexto = texto + '|' + url;
+      const url = urlDe || urlActual();
+      const vig = adjuntosVigentes();
+      const aptos = vig.filter((a) => a.file.size <= MAX_ARCHIVO);
+      if (aptos.length < vig.length) console.warn('[TG] borrador: archivos de más de 15 MB no se guardan');
+      const sig = texto + '|' + url + '|' + aptos.map((a) => a.clave).join(',');
+      if (sig === ultimoTexto) return;
+      ultimoTexto = sig;
       const previo = leer().find((x) => x.url === url);
       const a = leer().filter((x) => x.url !== url);
-      if (texto) a.unshift({ url: url, texto: texto, titulo: tituloChat() || (previo && previo.titulo) || '', t: Date.now() });
+      if (texto || aptos.length) {
+        a.unshift({
+          url: url, texto: texto, titulo: tituloChat() || (previo && previo.titulo) || '', t: Date.now(),
+          archivos: aptos.map((f) => ({ id: f.clave, name: f.file.name, type: f.file.type, size: f.file.size, lastModified: f.file.lastModified }))
+        });
+        aptos.forEach(guardarBlob);
+      }
       guardar(a.slice(0, MAX));
+      aplicarTope();
+    }
+    function guardarPendiente() {
+      if (espera) return; // mientras se abre un borrador (caja bloqueada) no se guarda nada: aún se están poniendo el texto y los archivos
+      const p = pendiente; pendiente = null;
+      if (p && p.ed && p.ed.isConnected) volcar(p.ed, p.url);
     }
     function descartar() { // prompt enviado: ese borrador ya no existe
-      clearTimeout(timer); ultimoTexto = null;
+      pendiente = null; ultimoTexto = null;
       const url = urlActual();
       guardar(leer().filter((x) => x.url !== url));
+      activos.length = 0; aplicarTope(); // enviado: los archivos de ese borrador ya no se necesitan
     }
-    document.addEventListener('input', (e) => { const ed = editorDe(e.target); if (!ed) return; clearTimeout(timer); timer = setTimeout(() => volcar(ed), 300); }, true);
+    document.addEventListener('input', (e) => { const ed = editorDe(e.target); if (ed) pendiente = { ed: ed, url: urlActual() }; }, true); // solo anota; no guarda
+    document.addEventListener('focusout', (e) => { if (editorDe(e.target)) guardarPendiente(); }, true);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) guardarPendiente(); }); // app a segundo plano con la caja aún enfocada
+    window.addEventListener('pagehide', guardarPendiente);
     document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && editorDe(e.target)) descartar(); }, true);
     document.addEventListener('click', (e) => {
       const b = e.target && e.target.closest && e.target.closest('button.send-button, button[aria-label*="Enviar"], button[aria-label*="Send"]');
       if (b && b.closest('input-area-v2')) descartar();
     }, true);
 
-    // ---- título: letra por letra, una sola línea, con sombra ----
-    function animarTitulo(h1) {
-      const orig = h1.querySelector('.message-text');
-      if (!orig) return;
-      const txt = (orig.textContent || '').trim();
-      if (!txt || h1._tgTxt === txt) return;
-      h1._tgTxt = txt;
-      const viejo = h1.querySelector('#tg-saludo'); if (viejo) viejo.remove();
-      orig.style.display = 'none'; // el nodo de Angular queda intacto, solo oculto
-      const cont = document.createElement('span'); cont.id = 'tg-saludo'; cont.setAttribute('aria-label', txt);
+    // ---- letras animadas: una sola línea, letra por letra, como el título de "Gemini Vibes" ----
+    function animarLetras(cont, txt) {
+      cont.textContent = ''; cont.setAttribute('aria-label', txt);
       const bl = nivelBlur === 'alta';
       Array.from(txt).forEach((c, i) => {
         const l = document.createElement('span'); l.setAttribute('aria-hidden', 'true'); l.style.opacity = '0';
@@ -8561,13 +8770,104 @@ p.gds-body-s.ng-star-inserted {
           Object.assign({ opacity: 1, transform: 'translateY(0)' }, bl ? { filter: 'blur(0px)' } : {})
         ], { duration: 950, delay: 60 + i * 45, fill: 'both' });
       });
+    }
+    // móvil: el título de Gemini se oculta y se pone el animado en su lugar (el nodo de Angular queda intacto)
+    function animarTitulo(h1) {
+      const orig = h1.querySelector('.message-text');
+      if (!orig) return;
+      const txt = (orig.textContent || '').trim();
+      if (!txt || h1._tgTxt === txt) return;
+      h1._tgTxt = txt;
+      const viejo = h1.querySelector('#tg-saludo'); if (viejo) viejo.remove();
+      orig.style.display = 'none';
+      const cont = document.createElement('span'); cont.id = 'tg-saludo';
+      animarLetras(cont, txt);
       h1.appendChild(cont);
+    }
+
+    // ---- ESCRITORIO: pantalla de inicio propia (logo + título + hueco para la caja real + tarjeta) ----
+    const esEscritorio = () => window.matchMedia('(min-width: 960px)').matches;
+    const urlLogoPagina = () => { const pg = document.querySelector('img.sparkle-image'); return (pg && pg.src) || 'https://www.gstatic.com/lamda/images/gemini_sparkle_aurora_33f86dc0c0257da337c63.svg'; }; // el logo que usa la página
+    const SALIDA_MS = 800, SALIDA_CAJA_RETRASO = 300, SALIDA_TARJETA_RETRASO = SALIDA_CAJA_RETRASO + SALIDA_MS; // la tarjeta entra cuando termina la caja
+    let cero = null;
+    function montarCero() {
+      const w = document.createElement('div'); w.id = 'tg-cero';
+      const cab = document.createElement('div'); cab.className = 'tg-c-cab';
+      const logo = document.createElement('img'); logo.className = 'tg-c-estrella'; logo.alt = ''; logo.draggable = false; logo.src = urlLogoPagina();
+      const tit = document.createElement('div'); tit.className = 'tg-c-titulo';
+      cab.appendChild(logo); cab.appendChild(tit);
+      const hueco = document.createElement('div'); hueco.className = 'tg-c-hueco';
+      w.appendChild(cab); w.appendChild(hueco);
+      document.body.appendChild(w);
+      logo.animate([{ opacity: 0, transform: 'scale(0.3) rotate(-90deg)' }, { opacity: 1, transform: 'scale(1) rotate(0)' }], { duration: 700, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' });
+      cero = { w: w, tit: tit, hueco: hueco, txt: '', sx: null, sy: null, t0: performance.now(), inAnim: false };
+    }
+    function desmontarCero() {
+      if (!cero) return;
+      cero.w.remove(); cero = null;
+      const r = document.documentElement.style; r.removeProperty('--tg-in-x'); r.removeProperty('--tg-in-y'); r.removeProperty('--tg-in-w');
+    }
+    // coloca el marco sobre el área del chat y la caja REAL de escribir encima del hueco (se corrige solo si algún ancestro la desplaza)
+    function sincronizarCero() {
+      if (!cero) return;
+      const area = document.querySelector('chat-window');
+      const ar = area && area.getBoundingClientRect();
+      if (!ar || ar.width < 50 || ar.height < 50) return;
+      const w = cero.w;
+      w.style.left = Math.round(ar.left) + 'px'; w.style.top = Math.round(ar.top) + 'px';
+      w.style.width = Math.round(ar.width) + 'px'; w.style.height = Math.round(ar.height) + 'px';
+      w.style.paddingTop = Math.max(24, Math.round(ar.height / 2 - 120)) + 'px'; // la caja queda centrada en vertical
+      const ancho = Math.min(820, Math.round(ar.width * 0.9));
+      cero.hueco.style.width = ancho + 'px';
+      const ic = document.querySelector('input-container .input-area-container');
+      if (!ic) return;
+      if (!cero.inAnim && ic.animate) { // 1.º: la caja de escribir sube desde abajo (0,5 s, con fundido)
+        cero.inAnim = true;
+        if (!sinMovimiento()) ic.animate([{ opacity: 0, translate: '0 30px' }, { opacity: 1, translate: '0 0' }], { duration: SALIDA_MS, delay: SALIDA_CAJA_RETRASO, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'backwards' });
+      }
+      cero.hueco.style.height = Math.max(64, ic.offsetHeight) + 'px'; // si la caja crece al escribir, la tarjeta baja con ella
+      const hr = cero.hueco.getBoundingClientRect(), r = ic.getBoundingClientRect();
+      const offX = cero.sx === null ? 0 : r.left - cero.sx, offY = cero.sy === null ? 0 : r.top - cero.sy;
+      cero.sx = Math.round(hr.left + (r.width > 40 ? (hr.width - r.width) / 2 : 0) - offX); cero.sy = Math.round(hr.top - offY); // centrada aunque la página limite su ancho
+      const st = document.documentElement.style;
+      st.setProperty('--tg-in-x', cero.sx + 'px'); st.setProperty('--tg-in-y', cero.sy + 'px'); st.setProperty('--tg-in-w', ancho + 'px');
+    }
+    window.addEventListener('resize', sincronizarCero);
+    setInterval(sincronizarCero, 120);
+
+    // ---- caja bloqueada mientras carga el chat del borrador: capa gris oscuro encima de la caja real (no se puede tocar ni escribir) ----
+    let espera = null;
+    function ponerEspera() {
+      quitarEspera(true);
+      const ed0 = document.querySelector('input-area-v2 .ql-editor, rich-textarea .ql-editor');
+      if (ed0) ed0.blur();
+      const o = document.createElement('div'); o.id = 'tg-bor-espera'; o.setAttribute('role', 'status');
+      o.textContent = 'Esperando a que la página responda…';
+      document.body.appendChild(o);
+      const ajustar = () => { // sigue a la caja real (sube con el teclado, cambia de tamaño, etc.)
+        const ic = document.querySelector('input-container .input-area-container');
+        const r = ic && ic.getBoundingClientRect();
+        if (!r || r.width < 40) { o.style.display = 'none'; return; }
+        o.style.display = 'flex';
+        o.style.left = r.left + 'px'; o.style.top = r.top + 'px'; o.style.width = r.width + 'px'; o.style.height = r.height + 'px';
+        o.style.borderRadius = Math.min(r.height / 2, 28) + 'px'; // bien redondeada (píldora en una línea, 28 px si la caja es alta)
+      };
+      ajustar();
+      espera = { o: o, t: setInterval(ajustar, 100) };
+    }
+    function quitarEspera(ya) {
+      if (!espera) return;
+      clearInterval(espera.t);
+      const o = espera.o; espera = null;
+      if (ya || sinMovimiento()) { o.remove(); return; }
+      o.style.opacity = '0'; setTimeout(() => o.remove(), 220);
     }
 
     // ---- abrir un borrador sin recargar: navegación SPA (pushState + popstate) y se rellena la caja ----
     function abrirBorrador(x) {
       let u; try { u = new URL(x.url); } catch (e) { return; }
       if (u.origin !== location.origin) { location.assign(x.url); return; }
+      ponerEspera(); // la caja queda bloqueada hasta que el chat cargue y el texto esté puesto
       const destino = u.pathname + u.search;
       if (destino !== location.pathname + location.search) {
         history.pushState(history.state, '', destino);
@@ -8576,6 +8876,7 @@ p.gds-body-s.ng-star-inserted {
       }
       const t0 = performance.now();
       const conId = /\/app\/[^/]+/.test(destino);
+      let archivos = (x.archivos && x.archivos.length) ? 'pendiente' : 'ok'; // adjuntos: pendiente -> curso -> ok
       let cuenta = -1, desde = performance.now(), intentos = 0;
       (function esperar() {
         const ed = document.querySelector('input-area-v2 .ql-editor, rich-textarea .ql-editor');
@@ -8589,43 +8890,70 @@ p.gds-body-s.ng-star-inserted {
             document.execCommand('selectAll', false, null);
             document.execCommand('insertText', false, x.texto);
           }
+          if (archivos === 'pendiente') { archivos = 'curso'; restaurarArchivos(x).catch(() => false).then(() => { archivos = 'ok'; }); }
+          if (archivos === 'curso') { // la caja sigue bloqueada mientras se vuelven a adjuntar los archivos
+            if (performance.now() - t0 < 40000) setTimeout(esperar, 200); else quitarEspera();
+            return;
+          }
           if (++intentos < 3) setTimeout(esperar, 700); // Gemini a veces vacía la caja al terminar de cargar: se comprueba y se reintenta
+          else quitarEspera(); // texto puesto y comprobado: la caja vuelve a la normalidad
           return;
         }
         if (performance.now() - t0 < 15000) setTimeout(esperar, 150);
+        else quitarEspera(); // tope de seguridad: si no cargó en 15 s, no se deja la caja bloqueada
       })();
     }
 
-    // ---- tarjeta ----
+    // ---- tarjeta + pantalla de inicio ----
     function pintar() {
+      if (pantallaBloqueada) return; // durante la bienvenida / pantalla de bloqueo no se monta ni se anima nada (arranca al desbloquear)
       let c = document.getElementById('tg-borradores');
       const h1 = document.querySelector('.zero-state-container h1[data-test-id="message"]');
-      if (h1) animarTitulo(h1);
+      const cero0 = !!h1 && enEstadoCero();
+      const desk = cero0 && esEscritorio();
+      document.documentElement.classList.toggle('tg-cero-desk', desk);
+      if (desk) {
+        if (!cero || !cero.w.isConnected) montarCero();
+        const o = h1.querySelector('.message-text'), txt = o ? (o.textContent || '').trim() : '';
+        if (txt && cero.txt !== txt) { cero.txt = txt; animarLetras(cero.tit, txt); }
+        sincronizarCero();
+      } else {
+        desmontarCero();
+        if (h1) animarTitulo(h1);
+      }
       const a = leer();
-      if (!a.length || !h1 || !enEstadoCero()) { if (c) c.remove(); return; }
-      const padre = h1.closest('.top-section-container') || h1.closest('.zero-state-container');
+      if (!a.length || !cero0) { if (c) c.remove(); return; }
+      const padre = desk ? cero.w : (h1.closest('.top-section-container') || h1.closest('.zero-state-container'));
       if (!padre) return;
       if (!c) { c = document.createElement('div'); c.id = 'tg-borradores'; }
-      const firma = JSON.stringify(a.map((x) => x.url + x.titulo + x.texto));
+      const firma = JSON.stringify(a.map((x) => x.url + x.titulo + x.texto + (x.archivos || []).map((f) => f.id).join(',')));
       if (c._f !== firma) {
         c._f = firma; c.textContent = '';
         const t = document.createElement('div'); t.className = 'tg-bor-tit'; t.textContent = 'Continúa donde lo dejaste'; c.appendChild(t);
+        const lista = document.createElement('div'); lista.className = 'tg-bor-lista'; lista.setAttribute('data-lenis-prevent', '');
+        c.appendChild(lista);
         a.forEach((x) => {
           const b = document.createElement('button'); b.type = 'button';
           const n1 = document.createElement('span'); n1.className = 'tg-bor-chat'; n1.textContent = x.titulo || 'Chat nuevo';
-          const n2 = document.createElement('span'); n2.className = 'tg-bor-txt'; n2.textContent = x.texto.replace(/\s+/g, ' ');
+          const n2 = document.createElement('span'); n2.className = 'tg-bor-txt'; const ar = x.archivos || [], ico = ar.length ? '📎 ' + (ar.length > 1 ? ar.length + ' archivos' : ar[0].name) + (x.texto ? ' · ' : '') : '';
+          n2.textContent = ico + (x.texto || '').replace(/\s+/g, ' ');
           b.appendChild(n1); b.appendChild(n2);
           b.addEventListener('click', () => abrirBorrador(x));
-          c.appendChild(b);
+          lista.appendChild(b);
         });
       }
-      if (c.parentElement !== padre || padre.lastElementChild !== c) {
+      if (c.parentElement !== padre || (!desk && padre.lastElementChild !== c)) {
         padre.appendChild(c);
-        c.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 500, easing: 'ease-out', fill: 'both' });
+        if (!sinMovimiento()) {
+          const recien = desk && cero && performance.now() - cero.t0 < 2000; // al montar la pantalla espera su turno (después de la caja)
+          c.animate([{ opacity: 0, translate: '0 30px' }, { opacity: 1, translate: '0 0' }], { duration: SALIDA_MS, delay: recien ? Math.max(0, SALIDA_TARJETA_RETRASO - (performance.now() - cero.t0)) : 0, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'backwards' });
+        }
       }
     }
-    setInterval(pintar, 600);
+    setInterval(pintar, 200);
+    document.addEventListener('tg-bloqueo-cambio', () => { if (!pantallaBloqueada) pintar(); });
   })();
+
 
   revisarTemaBody();
   try { actualizarVarSafeTop(); } catch (e) { /* sin área segura */ }
