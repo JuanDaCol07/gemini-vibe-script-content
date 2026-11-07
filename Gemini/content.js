@@ -6279,6 +6279,123 @@ p.gds-body-s.ng-star-inserted {
   let ultimoClic = { el: null, x: 0, y: 0, t: 0 };     // último clic/toque: de ahí nace el zoom
   function sinMovimiento() { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
 
+  // ============================================================================================
+  // NOTIFICACIONES estilo iOS: un banner que baja desde arriba y se ve en la parte superior de la pantalla, en cualquier lugar de Gemini.
+  //   notificar('texto')  |  notificar('Título', 'texto')  |  notificar({ titulo, texto, icono, duracion, hora, id, onClick })
+  //   - icono: URL de imagen (por defecto el de Gemini de esta extensión). duracion: ms (por defecto 4000; 0 = no se cierra sola).
+  //   - hora: texto de la derecha (por defecto "ahora"). id: si se repite, reemplaza la notificación anterior con ese id.
+  //   - onClick: se ejecuta al tocarla. Se descarta deslizando hacia arriba. Máximo 3 a la vez, una debajo de otra.
+  //   - Sigue el tema claro/oscuro (html[data-tema]) y el nivel de blur: con blur media y alta es translúcida con desenfoque; en baja es sólida.
+  //   - Si la pantalla de bloqueo / bienvenida está activa, queda en cola y sale al desbloquear. También disponible como window.tgNotificar.
+  // ============================================================================================
+  const NOTI_MAX = 3;
+  let notiCont = null;
+  const notiCola = [];
+  function notiEstilos() {
+    if (document.getElementById('tg-notis-estilos')) return;
+    const e = document.createElement('style'); e.id = 'tg-notis-estilos';
+    e.textContent =
+      '#tg-notis{position:fixed;left:0;right:0;top:calc(max(env(safe-area-inset-top,0px),var(--tg-safe-top,0px)) + 8px);z-index:2147483000;display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 8px;box-sizing:border-box;pointer-events:none;}' +
+      '.tg-noti{--n-bg:rgba(246,246,248,0.72);--n-t1:#000;--n-t2:rgba(60,60,67,0.62);--n-ic:#fff;--n-sh:0 8px 28px rgba(0,0,0,0.18);--n-bd:rgba(255,255,255,0.55);' +
+      'pointer-events:auto;width:min(100%,400px);box-sizing:border-box;display:flex;gap:11px;align-items:flex-start;padding:11px 14px 12px 12px;border-radius:24px;' +
+      'background:var(--n-bg);-webkit-backdrop-filter:blur(var(--tg-bf14,14px)) saturate(1.8);backdrop-filter:blur(var(--tg-bf14,14px)) saturate(1.8);' +
+      'box-shadow:var(--n-sh),inset 0 0 0 0.5px var(--n-bd);color:var(--n-t1);font-family:"Google Sans",system-ui,-apple-system,sans-serif;' +
+      'touch-action:none;user-select:none;-webkit-user-select:none;cursor:default;will-change:transform;transition:transform 0.25s cubic-bezier(0.2,0.9,0.3,1);-webkit-tap-highlight-color:transparent;}' +
+      'html[data-tema="oscuro"] .tg-noti{--n-bg:rgba(44,44,46,0.7);--n-t1:#fff;--n-t2:rgba(235,235,245,0.62);--n-ic:#1c1c1e;--n-sh:0 8px 30px rgba(0,0,0,0.5);--n-bd:rgba(255,255,255,0.12);}' +
+      // nivel de blur BAJA: sin transparencia ni desenfoque
+      'html.tg-blur-baja .tg-noti{--n-bg:#f2f2f7;-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      'html.tg-blur-baja[data-tema="oscuro"] .tg-noti{--n-bg:#2c2c2e;}' +
+      '.tg-noti-ic{flex:none;width:38px;height:38px;border-radius:9px;background:var(--n-ic);display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 0 0 0.5px rgba(0,0,0,0.1);}' +
+      '.tg-noti-ic img,.tg-noti-ic svg{display:block;width:80%;height:80%;object-fit:contain;}' +
+      '.tg-noti-tx{flex:1;min-width:0;}' +
+      '.tg-noti-fila{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}' +
+      '.tg-noti-tit{font-size:15px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+      '.tg-noti-hora{flex:none;font-size:13px;line-height:1.25;color:var(--n-t2);}' +
+      '.tg-noti-msg{margin-top:1px;font-size:15px;line-height:1.28;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}';
+    (document.head || document.documentElement).appendChild(e);
+  }
+  function notiIcono(src) {
+    const ic = document.createElement('div'); ic.className = 'tg-noti-ic';
+    if (src) {
+      const im = document.createElement('img'); im.alt = ''; im.draggable = false; im.src = src;
+      im.addEventListener('error', () => { im.remove(); ic.appendChild(notiEstrella()); });
+      ic.appendChild(im);
+    } else ic.appendChild(notiEstrella());
+    return ic;
+  }
+  function notiEstrella() { // respaldo si no llega Gemini.png: la estrella de Gemini dibujada
+    const ns = 'http://www.w3.org/2000/svg';
+    const sv = document.createElementNS(ns, 'svg'); sv.setAttribute('viewBox', '0 0 24 24'); sv.setAttribute('aria-hidden', 'true');
+    const df = document.createElementNS(ns, 'defs'), g = document.createElementNS(ns, 'linearGradient');
+    g.setAttribute('id', 'tg-noti-g'); g.setAttribute('x1', '0'); g.setAttribute('y1', '0'); g.setAttribute('x2', '1'); g.setAttribute('y2', '1');
+    [['0', '#4285f4'], ['0.55', '#9b72cb'], ['1', '#d96570']].forEach((c) => { const st = document.createElementNS(ns, 'stop'); st.setAttribute('offset', c[0]); st.setAttribute('stop-color', c[1]); g.appendChild(st); });
+    df.appendChild(g); sv.appendChild(df);
+    const pa = document.createElementNS(ns, 'path'); pa.setAttribute('d', 'M12 2c.6 5.2 4.8 9.4 10 10-5.2.6-9.4 4.8-10 10-.6-5.2-4.8-9.4-10-10 5.2-.6 9.4-4.8 10-10z'); pa.setAttribute('fill', 'url(#tg-noti-g)');
+    sv.appendChild(pa);
+    return sv;
+  }
+  function notiMostrar(o) {
+    notiEstilos();
+    if (!notiCont || !notiCont.isConnected) {
+      notiCont = document.createElement('div'); notiCont.id = 'tg-notis'; notiCont.setAttribute('aria-live', 'polite');
+      document.body.appendChild(notiCont);
+    }
+    if (o.id) Array.from(notiCont.children).forEach((v) => { if (v.dataset.id === String(o.id) && v._cerrar) v._cerrar(true); });
+    while (notiCont.children.length >= NOTI_MAX) { const v = notiCont.firstElementChild; if (v._cerrar) v._cerrar(true); else v.remove(); }
+
+    const b = document.createElement('div'); b.className = 'tg-noti'; b.setAttribute('role', 'status');
+    if (o.id) b.dataset.id = String(o.id);
+    const tx = document.createElement('div'); tx.className = 'tg-noti-tx';
+    const fila = document.createElement('div'); fila.className = 'tg-noti-fila';
+    const tit = document.createElement('span'); tit.className = 'tg-noti-tit'; tit.textContent = o.titulo || 'Gemini Vibes';
+    const hora = document.createElement('span'); hora.className = 'tg-noti-hora'; hora.textContent = o.hora || 'ahora';
+    fila.appendChild(tit); fila.appendChild(hora);
+    const msg = document.createElement('div'); msg.className = 'tg-noti-msg'; msg.textContent = o.texto || '';
+    tx.appendChild(fila); if (o.texto) tx.appendChild(msg);
+    b.appendChild(notiIcono(o.icono || window.__tgIconoCache || urlLogoGemini())); b.appendChild(tx);
+
+    let cerrado = false, timer = 0, y0 = null, dy = 0;
+    const total = (o.duracion === undefined || o.duracion === null) ? 4000 : Number(o.duracion);
+    const programar = () => { clearTimeout(timer); if (total > 0) timer = setTimeout(() => cerrar(), total); };
+    const cerrar = (ya) => {
+      if (cerrado) return;
+      cerrado = true; clearTimeout(timer);
+      if (ya || sinMovimiento() || !b.animate) { b.remove(); return; }
+      const an = b.animate({ transform: 'translateY(-140%)', opacity: 0 }, { duration: 300, easing: 'cubic-bezier(0.4,0,1,1)', fill: 'forwards' }); // desde donde esté (también tras deslizarla)
+      an.onfinish = () => b.remove();
+    };
+    b._cerrar = cerrar;
+    // deslizar hacia arriba la descarta; un toque ejecuta onClick
+    b.addEventListener('pointerdown', (e) => { y0 = e.clientY; dy = 0; clearTimeout(timer); b.style.transition = 'none'; try { b.setPointerCapture(e.pointerId); } catch (x) { /* nada */ } });
+    b.addEventListener('pointermove', (e) => { if (y0 === null) return; dy = Math.min(0, e.clientY - y0); b.style.transform = 'translateY(' + dy + 'px)'; });
+    const soltar = (e) => {
+      if (y0 === null) return;
+      const toque = Math.abs(e.clientY - y0) < 6; y0 = null; b.style.transition = '';
+      if (dy < -24) { cerrar(); return; }
+      b.style.transform = '';
+      if (toque && typeof o.onClick === 'function') { try { o.onClick(); } catch (x) { /* nada */ } cerrar(); return; }
+      programar();
+    };
+    b.addEventListener('pointerup', soltar); b.addEventListener('pointercancel', soltar);
+
+    notiCont.appendChild(b);
+    if (!sinMovimiento() && b.animate) b.animate([{ transform: 'translateY(-130%) scale(0.96)', opacity: 0 }, { transform: 'translateY(0) scale(1)', opacity: 1 }], { duration: 520, easing: 'cubic-bezier(0.22,1.15,0.36,1)', fill: 'backwards' });
+    programar();
+  }
+  function notificar(a, b, c) {
+    let o;
+    if (a && typeof a === 'object') o = a;
+    else if (typeof b === 'string') o = Object.assign({}, c, { titulo: a, texto: b });
+    else o = { texto: String(a === undefined || a === null ? '' : a) };
+    if (pantallaBloqueada) { notiCola.push(o); return; } // bienvenida / bloqueo: espera a que se desbloquee
+    notiMostrar(o);
+  }
+  window.tgNotificar = notificar;
+  document.addEventListener('tg-bloqueo-cambio', () => {
+    if (pantallaBloqueada || !notiCola.length) return;
+    setTimeout(() => { while (notiCola.length && !pantallaBloqueada) notiMostrar(notiCola.shift()); }, 600);
+  });
+
   function origenDelMenu() {
     const expandidos = [...document.querySelectorAll('[aria-expanded="true"][aria-haspopup]')]
       .filter((e) => e.tagName !== 'GEM-MENU' && e.getBoundingClientRect().width > 0);
@@ -8651,17 +8768,26 @@ p.gds-body-s.ng-star-inserted {
         const r = await idb('readonly', (st) => st.get(m.id));
         if (r && r.blob) files.push(new File([r.blob], r.name || m.name, { type: r.type || m.type || '', lastModified: r.lastModified || m.lastModified || Date.now() }));
       }
-      if (!files.length) return false;
+      if (!files.length) { notificar({ titulo: 'Adjuntos no restaurados', texto: 'No se encontraron los archivos guardados de este borrador.', duracion: 5000 }); return false; }
       const antes = contarChips();
       const vias = [['input', viaInput], ['pegar', viaPegar], ['soltar', viaSoltar]];
       for (let i = 0; i < vias.length; i++) {
         let lanzado = false;
         try { lanzado = vias[i][1](files); } catch (e) { console.warn('[TG] adjuntos: falló la vía', vias[i][0], e); }
         if (!lanzado) continue;
-        if (await esperarChips(antes + files.length, 3000)) { console.log('[TG] adjuntos restaurados por la vía:', vias[i][0]); return true; }
-        if (contarChips() > antes) { console.log('[TG] adjuntos restaurados (parcial) por la vía:', vias[i][0]); return true; }
+        if (await esperarChips(antes + files.length, 3000)) {
+          console.log('[TG] adjuntos restaurados por la vía:', vias[i][0]);
+          notificar({ titulo: 'Adjuntos restaurados', texto: 'Adjuntos restaurados por la vía: ' + vias[i][0], duracion: 5000 });
+          return true;
+        }
+        if (contarChips() > antes) {
+          console.log('[TG] adjuntos restaurados (parcial) por la vía:', vias[i][0]);
+          notificar({ titulo: 'Adjuntos restaurados (parcial)', texto: 'Adjuntos restaurados por la vía: ' + vias[i][0] + ' (llegaron ' + (contarChips() - antes) + ' de ' + files.length + ')', duracion: 5000 });
+          return true;
+        }
       }
       console.warn('[TG] adjuntos: ninguna vía funcionó');
+      notificar({ titulo: 'Adjuntos no restaurados', texto: 'Ninguna vía funcionó (input, pegar y soltar).', duracion: 6000 });
       return false;
     }
 
