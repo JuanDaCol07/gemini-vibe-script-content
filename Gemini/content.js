@@ -41,7 +41,7 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
-• Nueva tarjeta «Borradores» en «¿Por dónde empezamos?»: accesos directos a los chats con texto sin enviar (se ven 3 y puedes deslizar para ver más; se guardan hasta 20). El borrador se guarda al salir de la caja de escribir. Al abrir uno, la caja se bloquea en gris oscuro («Esperando a que la página responda…») hasta que el chat carga y el texto queda puesto. Los borradores también guardan los archivos adjuntos (hasta 15 MB cada uno y 60 MB en total) y los vuelven a adjuntar al abrirlos. El título ahora se anima letra por letra en una sola línea y con sombra.
+• Nueva tarjeta «Borradores» en «¿Por dónde empezamos?»: accesos directos a los chats con texto sin enviar (se ven 3 y puedes deslizar para ver más; se guardan hasta 20). El borrador se guarda al salir de la caja de escribir. Al abrir uno, la caja se bloquea en gris oscuro («Esperando a que la página responda…») hasta que el chat carga y el texto queda puesto. Los borradores también guardan los archivos adjuntos (sin límite de peso) y los vuelven a adjuntar al abrirlos. El título ahora se anima letra por letra en una sola línea y con sombra.
 • Menús interactivos (cuestionarios): botones con fondo blur estilo burbuja que entran uno a uno desde la izquierda, la opción correcta se ilumina con el color de tu burbuja, textos sin halo, botones del toolbar redondos y pequeños y nueva barra de progreso translúcida.
 • Nueva última pantalla de la bienvenida: «Todo listo.» con animación letra por letra; las letras llevan blur solo en nivel Alta.
 • Rendimiento en móvil: nivel Medio solo desenfoca burbujas y caja de escribir; los mensajes fuera de pantalla se omiten del render.
@@ -658,7 +658,9 @@
   const BLOQUEO_OPACIDAD_INICIAL = 0;   // opacidad del body al empezar la transición (termina en 1)
   const BLOQUEO_ESCALA_INICIAL = 1.3;   // escala del body al empezar la transición (termina en 1)
   const BLOQUEO_DURACION_MS = 300;     // duración de la subida de la pantalla y de la entrada del body
-  const BLOQUEO_DURACION_BODY_MS = BLOQUEO_DURACION_MS * 2.5; // duración de la animación del body (zoom)
+  const BLOQUEO_DURACION_BODY_MS = BLOQUEO_DURACION_MS * 2.5; // duración de la animación del body (zoom) al BLOQUEAR
+  const BLOQUEO_ENTRADA_MS = 750;      // duración de la transición de ESCALA al desbloquear con fondo de VIDEO (zoom del body + ajuste del fondo de la bienvenida); con fotos sigue BLOQUEO_DURACION_BODY_MS
+  const BLOQUEO_ENTRADA_CURVA = 'cubic-bezier(0.3, 0, 0.15, 1)'; // arranque suave y asentamiento largo (antes: una curva que gastaba casi todo el movimiento al principio)
   const BLOQUEO_FONDO_ARCHIVO = "img/8e2b943a517014c877bc7f688c5bdad9.jpg"; // fondo detrás del body (archivo dentro de la extensión)
   // AUDIO DE FONDO DE LA BIENVENIDA: suena en bucle mientras está la pantalla de bienvenida y se apaga (fade) al entrar.
   // Archivo en la RAÍZ de la extensión (junto a manifest.json); debe estar en web_accessible_resources. En la app Flutter se puede
@@ -669,6 +671,35 @@
   const BIENVENIDA_SUB_CAMBIO_MS = 4000; // cada cuánto alterna el subtítulo de la bienvenida
   const BIENVENIDA_MARCA_RETRASO_MS = 800; // la animación del logo empieza este tiempo DESPUÉS de que arranca la canción
   const BIENVENIDA_BLUR_MS = Math.round(BIENVENIDA_MARCA_RETRASO_MS * 0.6); // el desenfoque 28→5px dura menos que el retraso: termina ANTES de que empiece el logo
+
+  // ---- PC (extensión de Chrome): CORTINA NEGRA desde el primer instante ----
+  // En la app móvil la tapa la pantalla de carga negra de Flutter; en la extensión no había nada y se veían cortes (la página oscura de Gemini,
+  // el fondo apareciendo...). La cortina cubre TODA la pantalla desde que arranca el script. Cuando la página termina de cargar se funde a
+  // transparente en BIENVENIDA_NEGRO_FUNDIDO_MS; en ese mismo instante empieza a sonar la canción y el logo arranca 1 s después de que empieza el fundido.
+  // Solo existe si va a salir la bienvenida y no es la app móvil.
+  const BIENVENIDA_NEGRO_FUNDIDO_MS = 1000;
+  const NEGRO_BV = (function () {
+    if (ES_APP_FLUTTER || !(BIENVENIDA_PENDIENTE || MOSTRAR_BIENVENIDA)) return null;
+    const el = document.createElement('div');
+    el.id = 'tg-bv-negro';
+    el.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#000;pointer-events:none;';
+    (document.documentElement || document).appendChild(el);
+    let t0 = 0, fundiendo = false;
+    const api = {
+      inicio() { return t0; }, // instante (performance.now) en que empezó el fundido; 0 si aún no
+      alFrente() { try { const r = document.documentElement; if (el.isConnected && r.lastElementChild !== el) r.appendChild(el); } catch (e) { /* nada */ } }, // la pantalla de la bienvenida se añade después: la cortina vuelve a quedar encima
+      fundir() {
+        if (fundiendo) return;
+        fundiendo = true; t0 = performance.now();
+        const quitar = () => el.remove();
+        if (!el.animate || sinMovimiento()) { quitar(); return; }
+        const an = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: BIENVENIDA_NEGRO_FUNDIDO_MS, easing: 'linear', fill: 'forwards' });
+        an.onfinish = quitar; an.oncancel = quitar;
+      }
+    };
+    setTimeout(() => api.fundir(), 20000); // seguro: pase lo que pase, la cortina no se queda para siempre
+    return api;
+  })();
   function urlAudioBienvenida() {
     try { if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) return chrome.runtime.getURL(encodeURI(BIENVENIDA_AUDIO_ARCHIVO)); } catch (e) { /* no es una extensión */ }
     return typeof PREFS_INICIALES.geminiAudioBienvenida === 'string' ? PREFS_INICIALES.geminiAudioBienvenida : '';
@@ -687,7 +718,7 @@
   }
   function elegirMusicaBienvenida(alTerminar) {
     const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = 'audio/*,.mp3,.m4a,.aac,.ogg,.wav,.flac'; inp.style.display = 'none';
+    inp.type = 'file'; inp.accept = 'audio/*,.mp3,.m4a,.aac,.ogg,.wav,.flac'; inp.setAttribute('data-tg', ''); inp.style.display = 'none';
     document.documentElement.appendChild(inp);
     inp.addEventListener('change', () => {
       const f = inp.files && inp.files[0];
@@ -1337,6 +1368,28 @@
   document.addEventListener('visibilitychange', sincronizarVideos);
   document.addEventListener('tg-bloqueo-cambio', sincronizarVideos);
 
+  // El video de fondo de la bienvenida / bloqueo / PIN y el video de fondo de Gemini son elementos DISTINTOS con el mismo archivo. Mientras
+  // la pantalla está bloqueada el de Gemini está en pausa (en el segundo donde se quedó, normalmente el 0) y al desbloquear arrancaba de ahí,
+  // mientras el de la bienvenida seguía por su segundo N: se veía el reinicio. Aquí, justo antes de reanudarlo, el de Gemini se pone en el
+  // MISMO instante que el de la bienvenida (así el cambio de uno a otro no se nota).
+  function alinearVideoFondoGemini() {
+    try {
+      const main = document.querySelector('#tg-fondo-video video.tg-medio-video');
+      if (!main) return;
+      const src = main.currentSrc || main.src;
+      const cands = Array.from(document.querySelectorAll('#tg-bloqueo video.tg-medio-video, #tg-bloqueo-fondo video.tg-medio-video, #tg-pin video.tg-medio-video'))
+        .filter((v) => v.readyState >= 2 && isFinite(v.currentTime));
+      // el mismo archivo (misma url) o, si la url cambió de forma, uno de la misma duración
+      const orig = cands.find((v) => (v.currentSrc || v.src) === src) ||
+        cands.find((v) => isFinite(v.duration) && isFinite(main.duration) && Math.abs(v.duration - main.duration) < 0.05);
+      if (!orig) return;
+      let t = orig.currentTime;
+      const dur = isFinite(main.duration) && main.duration > 0 ? main.duration : orig.duration;
+      if (isFinite(dur) && dur > 0) t = t % dur;
+      if (Math.abs(main.currentTime - t) > 0.05) main.currentTime = t;
+    } catch (e) { /* sin alinear: queda como antes */ }
+  }
+
   // pone en un contenedor una imagen (background-image) o un video (<video> de relleno); sin url lo deja como estaba por CSS
   function ponerMedio(el, url, tipo) {
     if (!el) return;
@@ -1353,8 +1406,12 @@
       v.muted = true; v.defaultMuted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
       v.disablePictureInPicture = true;
       v.setAttribute('aria-hidden', 'true');
-      v.autoplay = !sinMovimiento(); // con "reducir movimiento" solo se ve el primer fotograma
-      v._tgQuiere = v.autoplay;      // "debería reproducirse" (sincronizarVideos lo pausa/reanuda según foco y bloqueo)
+      // OPTIMIZACIÓN: un video que no es del bloqueo (el fondo de Gemini) y nace con la pantalla bloqueada (bienvenida) ni siquiera arranca: se queda
+      // cargado en su primer fotograma y sincronizarVideos lo reproduce al desbloquear (justo antes de la transición de escala del fondo).
+      const quiere = !sinMovimiento(); // con "reducir movimiento" solo se ve el primer fotograma
+      const sePausa = document.hidden || (pantallaBloqueada && !(el.closest && el.closest('#tg-bloqueo, #tg-bloqueo-fondo, #tg-pin')));
+      v.autoplay = quiere && !sePausa;
+      v._tgQuiere = quiere;          // "debería reproducirse" (sincronizarVideos lo pausa/reanuda según foco y bloqueo)
       v.addEventListener('error', () => avisarTg('No se pudo reproducir el video de fondo (formato no compatible o bloqueado por la página).'));
       v.src = url;
       el.insertBefore(v, el.firstChild);
@@ -1683,11 +1740,44 @@
         b.style.removeProperty('min-height');
       }
       const f = document.getElementById('tg-bloqueo-fondo');
-      if (f) f.remove();
+      if (f) {
+        const an = f.getAnimations ? f.getAnimations() : [];
+        if (f._tgTrans && an.length) Promise.all(an.map((x) => x.finished.catch(() => {}))).then(() => f.remove()); // video: que termine su ajuste / desvanecimiento
+        else f.remove();
+      }
       fondoBienvenidaActivo = false;
       // el body ya está en escala 1: se vuelve a medir TODO al instante (header, burbujas, multimedia, fade...)
       cuerpoEscalado = false;
       try { firmaHeader = null; Tareas.ahora(); ajustarCarruseles(document.body); } catch (e) { /* aún no está todo creado */ }
+    }
+    // al desbloquear: el fondo de la BIENVENIDA (agrandado 60 px por cada lado para que el desenfoque no deje bordes) se va AJUSTANDO a la pantalla,
+    // pierde el desenfoque (hasta 0px) y se desvanece (opacidad), dejando ver debajo el fondo real de Gemini. Si el fondo de Gemini es un video, la
+    // transición empieza cuando ese video ya se está reproduciendo (por el mismo segundo que el de la bienvenida: ver alinearVideoFondoGemini).
+    // SOLO con fondos de VIDEO: con fotos todo queda como antes (el fondo se quita al terminar el zoom).
+    const fondoBienvenidaEsVideo = () => { const f = document.getElementById('tg-bloqueo-fondo'); return !!(f && fondoBienvenidaActivo && f.classList.contains('tg-bv-fondo') && f.querySelector('video.tg-medio-video')); };
+    function transicionFondoBienvenida() {
+      const f = document.getElementById('tg-bloqueo-fondo');
+      if (!f || !fondoBienvenidaEsVideo() || sinMovimiento() || !f.animate) return;
+      const empezar = () => {
+        if (!f.isConnected) return;
+        f._tgTrans = true; // marca: quitarBodyInicial espera a que termine esta transición antes de quitar el fondo
+        f.style.setProperty('animation', 'none'); // si la animación 56→5px aún corre, ganaría a todo lo demás
+        f.style.setProperty('transition', 'none');
+        const filtroAct = getComputedStyle(f).filter;
+        const desde = { top: '-60px', right: '-60px', bottom: '-60px', left: '-60px' };
+        const hasta = { top: '0px', right: '0px', bottom: '0px', left: '0px' };
+        if (nivelBlur !== 'baja') { desde.filter = filtroAct && filtroAct !== 'none' ? filtroAct : 'blur(5px)'; hasta.filter = 'blur(0px)'; } // en nivel Baja no se anima el desenfoque
+        f.animate([desde, hasta], { duration: BLOQUEO_ENTRADA_MS, easing: BLOQUEO_ENTRADA_CURVA, fill: 'forwards' }); // ajuste a la pantalla + desenfoque a 0
+        f.animate([{ opacity: 1 }, { opacity: 0 }], { duration: BLOQUEO_ENTRADA_MS, easing: 'cubic-bezier(0.4, 0, 0.6, 1)', fill: 'forwards' }); // el desvanecimiento, aparte y simétrico
+      };
+      const main = videoFondoGemini();
+      if (main && (main.paused || main.seeking || main.readyState < 2)) {
+        let hecho = false;
+        const ir = () => { if (hecho) return; hecho = true; empezar(); };
+        main.addEventListener('playing', ir, { once: true });
+        main.addEventListener('seeked', ir, { once: true });
+        setTimeout(ir, 250); // tope: sin esperar más de un cuarto de segundo
+      } else empezar();
     }
     // al desbloquear: mide y coloca todo con el body en escala 1 (sin pintar), ANTES de empezar el zoom, para que los
     // elementos salgan ya bien colocados desde el primer frame de la animación
@@ -1702,7 +1792,7 @@
       cuerpoEscalado = true;
       if (tAnt) b.style.setProperty('transform', tAnt); else b.style.removeProperty('transform');
     }
-    function animarBody(desde, hasta, opDesde, opHasta, alTerminar) {
+    function animarBody(desde, hasta, opDesde, opHasta, alTerminar, suave) { // suave = fondo de video: 1 s y curva suave; con fotos queda como antes (0,75 s)
       const b = document.body;
       if (!b) { if (alTerminar) alTerminar(); return; }
       if (animBody) animBody.cancel();
@@ -1711,7 +1801,7 @@
           { opacity: opDesde, transform: 'scale(' + desde + ')' },
           { opacity: opHasta, transform: 'scale(' + hasta + ')' }
         ],
-        { duration: BLOQUEO_DURACION_BODY_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' }
+        { duration: suave ? BLOQUEO_ENTRADA_MS : BLOQUEO_DURACION_BODY_MS, easing: suave ? BLOQUEO_ENTRADA_CURVA : 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' }
       );
       animBody = anim;
       anim.onfinish = () => {
@@ -2074,10 +2164,10 @@
     // suena la canción, la bienvenida también espera ese momento. Si se desliza antes de que cargue, simplemente no llega a sonar.
     function audioBienvenidaAlCargar(alEmpezar) {
       let interno = null, parado = false;
-      const arrancar = () => { if (!parado && !interno) interno = audioBienvenida(alEmpezar); };
+      const arrancar = () => { if (!parado && !interno) { if (NEGRO_BV) NEGRO_BV.fundir(); interno = audioBienvenida(alEmpezar); } }; // fundido de la cortina y canción, en el mismo instante
       if (document.readyState === 'complete') arrancar();
       else window.addEventListener('load', arrancar, { once: true });
-      return { detener() { parado = true; window.removeEventListener('load', arrancar); if (interno) interno.detener(); } };
+      return { detener() { parado = true; window.removeEventListener('load', arrancar); if (NEGRO_BV) NEGRO_BV.fundir(); if (interno) interno.detener(); } };
     }
 
     // logo de la bienvenida: SIEMPRE Gemini.png (la estrella dibujada solo sale si el archivo no llegó)
@@ -2117,7 +2207,10 @@
         // app móvil: Dart devuelve false si el teléfono no cumple (página 100 % + música cargada + >= 20 FPS): sin cinemática ni música
         if (RETORNO_LOGIN && bienvenida === 'actualizacion') { saltarALogin(); return; } // vuelve de iniciar sesión: sin cinemática, directo a la tarjeta (la música sigue)
         if (ok === false && ES_APP_FLUTTER) { mostrarPin(); return; } // mostrarPin respeta PIN / novedades / entrada directa
-        enfocarFondoBv(); setTimeout(iniciarMarca, BIENVENIDA_MARCA_RETRASO_MS);
+        enfocarFondoBv();
+        // PC: el logo empieza 1 s después de que EMPIEZA el fundido de la cortina (y de la canción); si la canción tardó en sonar, sin espera extra
+        const espera = NEGRO_BV ? Math.max(0, BIENVENIDA_NEGRO_FUNDIDO_MS - (performance.now() - NEGRO_BV.inicio())) : BIENVENIDA_MARCA_RETRASO_MS;
+        setTimeout(iniciarMarca, espera);
       }) : null; // música de fondo solo en la bienvenida
       fijarPantallaBloqueada(true); // desde ya, nada más de la extensión trabaja
       let desbloqueado = false;
@@ -2145,6 +2238,7 @@
       if (animado) pantalla.classList.add('tg-subiendo'); // empieza arriba y baja
       raiz.appendChild(pantalla);
       raiz.classList.add('tg-bloqueado');
+      if (NEGRO_BV) NEGRO_BV.alFrente();
 
       const elHora = pantalla.querySelector('.tg-b-hora');
       const elFecha = pantalla.querySelector('.tg-b-fecha');
@@ -2478,7 +2572,7 @@ logo.animate([
       }
       function elegirArchivoFondo(destino) {
         const inp = document.createElement('input');
-        inp.type = 'file'; inp.accept = 'image/*,video/*,.gif'; inp.style.display = 'none';
+        inp.type = 'file'; inp.accept = 'image/*,video/*,.gif'; inp.setAttribute('data-tg', ''); inp.style.display = 'none';
         raiz.appendChild(inp); // fuera del body: el body está inert mientras dura la bienvenida
         inp.addEventListener('change', () => {
           const f = inp.files && inp.files[0];
@@ -2722,6 +2816,7 @@ logo.animate([
       function desbloquear() {
         if (desbloqueado) return;
         desbloqueado = true;
+        alinearVideoFondoGemini(); // el video de fondo de Gemini sigue por donde va el de la bienvenida (no se reinicia)
         if (audio) audio.detener();
         if (PRIMERA_VEZ) guardarOnboardingVisto();
         if (esActualizacion) guardarFixVisto(TG_FIX); // ya la viste: se actualiza el fix visto (la bienvenida no vuelve a salir)
@@ -2736,7 +2831,9 @@ logo.animate([
         ponerInert(false);
         if (pinUI) { pinUI.cerrar(true); pinUI = null; }
         alinearAlInstante();
-        animarBody(BLOQUEO_ESCALA_INICIAL, 1, BLOQUEO_OPACIDAD_INICIAL, 1, quitarBodyInicial);
+        const conVideo = fondoBienvenidaEsVideo(); // el fondo de la bienvenida es un video: transición suave de 1 s; con fotos, como antes
+        animarBody(BLOQUEO_ESCALA_INICIAL, 1, BLOQUEO_OPACIDAD_INICIAL, 1, quitarBodyInicial, conVideo);
+        if (conVideo) transicionFondoBienvenida(); // el fondo de la bienvenida se ajusta a la pantalla, pierde el desenfoque y se desvanece
         // (el estilo inicial sigue puesto hasta que termina la animación; la animación lo tapa sin saltos)
         pantalla.classList.add('tg-subiendo');
         els.forEach((nv, i) => {
@@ -2861,12 +2958,14 @@ logo.animate([
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.accept = 'image/*,video/*,.gif';
+  fileInput.setAttribute('data-tg', ''); // input de la extensión: los borradores NUNCA lo usan
   fileInput.style.display = 'none';
   document.body.appendChild(fileInput);
 
   const bloqueoFileInput = document.createElement('input');
   bloqueoFileInput.type = 'file';
   bloqueoFileInput.accept = 'image/*,video/*,.gif';
+  bloqueoFileInput.setAttribute('data-tg', '');
   bloqueoFileInput.style.display = 'none';
   document.body.appendChild(bloqueoFileInput);
 
@@ -2915,24 +3014,6 @@ logo.animate([
   }
   document.addEventListener('touchstart', () => { if (colaDiferida.length && !colaPlanificada) { colaPlanificada = true; requestAnimationFrame(() => vaciarColaDiferida(false)); } }, { once: true, capture: true, passive: true });
   document.addEventListener('tg-bloqueo-cambio', (e) => { if (e.detail && e.detail.bloqueado === false) vaciarColaDiferida(true); });
-  // App móvil: cuando el usuario ya pasó la bienvenida / el bloqueo y está en la interfaz de Gemini, se le avisa a Dart (handler 'tgPaginaLista')
-  // para que descargue y guarde la página en segundo plano (la usará la próxima vez que se abra la app). Una sola vez por carga.
-  (function avisarPaginaLista() {
-    if (!ES_APP_FLUTTER) return;
-    let enviado = false;
-    const enviar = () => {
-      if (enviado) return;
-      enviado = true;
-      setTimeout(() => { // un respiro para que la interfaz y la música no compitan con la descarga
-        try {
-          const fl = window.flutter_inappwebview;
-          if (fl && typeof fl.callHandler === 'function') { const r = fl.callHandler('tgPaginaLista'); if (r && r.catch) r.catch(() => {}); }
-        } catch (e) { /* sin puente */ }
-      }, 2500);
-    };
-    if (!pantallaBloqueada) { enviar(); return; }
-    document.addEventListener('tg-bloqueo-cambio', (e) => { if (e.detail && e.detail.bloqueado === false) enviar(); });
-  })();
   despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-burbuja-style';
@@ -6280,38 +6361,86 @@ p.gds-body-s.ng-star-inserted {
   function sinMovimiento() { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
 
   // ============================================================================================
-  // NOTIFICACIONES estilo iOS: un banner que baja desde arriba y se ve en la parte superior de la pantalla, en cualquier lugar de Gemini.
-  //   notificar('texto')  |  notificar('Título', 'texto')  |  notificar({ titulo, texto, icono, duracion, hora, id, onClick })
+  // NOTIFICACIONES estilo iOS: banners que bajan desde arriba y se ven en la parte superior de la pantalla, en cualquier lugar de Gemini.
+  //   notificar('texto')  |  notificar('Título', 'texto')  |  notificar({ titulo, texto, icono, duracion, hora, id, onClick, acciones })
   //   - icono: URL de imagen (por defecto el de Gemini de esta extensión). duracion: ms (por defecto 4000; 0 = no se cierra sola).
   //   - hora: texto de la derecha (por defecto "ahora"). id: si se repite, reemplaza la notificación anterior con ese id.
-  //   - onClick: se ejecuta al tocarla. Se descarta deslizando hacia arriba. Máximo 3 a la vez, una debajo de otra.
+  //   - onClick: se ejecuta al tocarla. acciones: [{ texto, onClick, destructiva, cerrar }] (máx. 4; cerrar:false = no se cierra al tocar ese botón).
+  //   - PILA: si llega otra y la anterior sigue ahí, la nueva va al frente y las anteriores quedan detrás, un poco más abajo y más pequeñas (se ven 3 capas).
+  //   - Tocar la pila la EXPANDE: se ven todas en lista (con scroll si no caben), sin temporizador, y arriba a la derecha sale un botón redondo "X" que las quita todas.
+  //     Para volver a plegarla: tocar fuera de ellas (o Esc). Al plegarla, los temporizadores vuelven a correr.
+  //   - Pila plegada: deslizar hacia arriba descarta la de enfrente. Expandida: deslizar hacia un lado descarta esa.
+  //   - Las que tienen acciones: estando expandidas (o si es la única) hay que MANTENER el toque y se abren mostrando los botones. Tocarla de nuevo cierra los botones.
   //   - Sigue el tema claro/oscuro (html[data-tema]) y el nivel de blur: con blur media y alta es translúcida con desenfoque; en baja es sólida.
-  //   - Si la pantalla de bloqueo / bienvenida está activa, queda en cola y sale al desbloquear. También disponible como window.tgNotificar.
+  //   - Si la pantalla de bloqueo / bienvenida está activa, queda en cola y sale al desbloquear. También disponible como window.tgNotificar (y window.tgNotificarLimpiar para quitar todas).
   // ============================================================================================
-  const NOTI_MAX = 3;
-  let notiCont = null;
+  const NOTI_MAX = 30;    // máximo guardado: si se pasa, se descartan las más antiguas
+  const NOTI_GAP = 8;     // separación entre notificaciones en la lista expandida
+  const NOTI_CAPA = 8;    // cuánto baja cada capa de la pila plegada
+  let notiCont = null, notiScroll = null, notiLista = null;
+  let notiExp = false;    // true = pila expandida (lista completa, sin temporizador)
+  const notiItems = [];   // la más nueva primero: el índice 0 es la de enfrente
   const notiCola = [];
   function notiEstilos() {
     if (document.getElementById('tg-notis-estilos')) return;
     const e = document.createElement('style'); e.id = 'tg-notis-estilos';
+    const curva = 'cubic-bezier(0.22,1,0.36,1)';
     e.textContent =
-      '#tg-notis{position:fixed;left:0;right:0;top:calc(max(env(safe-area-inset-top,0px),var(--tg-safe-top,0px)) + 8px);z-index:2147483000;display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 8px;box-sizing:border-box;pointer-events:none;}' +
-      '.tg-noti{--n-bg:rgba(246,246,248,0.72);--n-t1:#000;--n-t2:rgba(60,60,67,0.62);--n-ic:#fff;--n-sh:0 8px 28px rgba(0,0,0,0.18);--n-bd:rgba(255,255,255,0.55);' +
-      'pointer-events:auto;width:min(100%,400px);box-sizing:border-box;display:flex;gap:11px;align-items:flex-start;padding:11px 14px 12px 12px;border-radius:24px;' +
-      'background:var(--n-bg);-webkit-backdrop-filter:blur(var(--tg-bf14,14px)) saturate(1.8);backdrop-filter:blur(var(--tg-bf14,14px)) saturate(1.8);' +
-      'box-shadow:var(--n-sh),inset 0 0 0 0.5px var(--n-bd);color:var(--n-t1);font-family:"Google Sans",system-ui,-apple-system,sans-serif;' +
-      'touch-action:none;user-select:none;-webkit-user-select:none;cursor:default;will-change:transform;transition:transform 0.25s cubic-bezier(0.2,0.9,0.3,1);-webkit-tap-highlight-color:transparent;}' +
-      'html[data-tema="oscuro"] .tg-noti{--n-bg:rgba(44,44,46,0.7);--n-t1:#fff;--n-t2:rgba(235,235,245,0.62);--n-ic:#1c1c1e;--n-sh:0 8px 30px rgba(0,0,0,0.5);--n-bd:rgba(255,255,255,0.12);}' +
-      // nivel de blur BAJA: sin transparencia ni desenfoque
-      'html.tg-blur-baja .tg-noti{--n-bg:#f2f2f7;-webkit-backdrop-filter:none;backdrop-filter:none;}' +
-      'html.tg-blur-baja[data-tema="oscuro"] .tg-noti{--n-bg:#2c2c2e;}' +
+      '#tg-notis{--n-bg:rgba(0,0,0,0.55);--n-t1:#fff;--n-t2:rgba(235,235,245,0.62);--n-ic:#1c1c1e;--n-sh:0 8px 30px rgba(0,0,0,0.5);--n-bd:rgba(255,255,255,0.14);--n-acc:rgba(235,235,245,0.16);' +
+      '--n-top:calc(max(env(safe-area-inset-top,0px),var(--tg-safe-top,0px)) + 8px);' +
+      'position:fixed;left:0;right:0;top:var(--n-top);z-index:2147483000;display:flex;flex-direction:column;align-items:center;pointer-events:none;' +
+      'max-height:calc(100vh - var(--n-top) - 10px);max-height:calc(100dvh - var(--n-top) - 10px);}' +
+      'html[data-tema="oscuro"] #tg-notis{--n-bg:rgba(0,0,0,0.55);--n-t1:#fff;--n-t2:rgba(235,235,245,0.62);--n-ic:#1c1c1e;--n-sh:0 8px 30px rgba(0,0,0,0.5);--n-bd:rgba(255,255,255,0.12);--n-acc:rgba(235,235,245,0.16);}' +
+      // nivel de blur MEDIA o BAJA: totalmente opacas, sin desenfoque
+      'html.tg-blur-media #tg-notis,html.tg-blur-baja #tg-notis{--n-bg:#000;--n-t1:#fff;--n-t2:rgba(235,235,245,0.62);--n-ic:#1c1c1e;--n-acc:rgba(235,235,245,0.16);--n-bd:rgba(255,255,255,0.14);--n-sh:0 8px 30px rgba(0,0,0,0.5);}' +
+      'html.tg-blur-media[data-tema="oscuro"] #tg-notis,html.tg-blur-baja[data-tema="oscuro"] #tg-notis{--n-bg:#000;}' +
+      'html.tg-blur-media #tg-notis .tg-noti,html.tg-blur-media #tg-notis .tg-notis-x,html.tg-blur-baja #tg-notis .tg-noti,html.tg-blur-baja #tg-notis .tg-notis-x{-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      // fondo de toda la pantalla con la pila expandida: blur 10px en blur ALTA; negro 0.6 en MEDIA o BAJA
+      '#tg-notis::before{content:"";position:fixed;top:0;right:0;bottom:0;left:0;z-index:-1;pointer-events:none;opacity:0;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);transition:opacity 0.3s;}' +
+      '#tg-notis.tg-exp::before{opacity:1;}' +
+      'html.tg-blur-media #tg-notis::before,html.tg-blur-baja #tg-notis::before{background:rgba(0,0,0,0.6);-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      // barra con el botón redondo "X" (solo cuando la pila está expandida)
+      '#tg-notis .tg-notis-barra{position:relative;z-index:2;flex:none;box-sizing:border-box;width:min(calc(100% - 16px),400px);height:0;margin-bottom:0;display:flex;justify-content:flex-end;align-items:center;opacity:0;pointer-events:none;' +
+      'transition:height 0.32s ' + curva + ',margin-bottom 0.32s ' + curva + ',opacity 0.22s;}' +
+      '#tg-notis.tg-exp .tg-notis-barra{height:34px;margin-bottom:8px;opacity:1;}' +
+      '#tg-notis .tg-notis-x{flex:none;width:34px;height:34px;padding:0;border:0;border-radius:50%;background:var(--n-bg);-webkit-backdrop-filter:blur(var(--tg-bf14,14px)) saturate(2.2);backdrop-filter:blur(var(--tg-bf14,14px)) saturate(2.2);' +
+      'box-shadow:var(--n-sh),inset 0 0 0 0.5px var(--n-bd);color:var(--n-t1);display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:none;-webkit-tap-highlight-color:transparent;transition:transform 0.15s;}' +
+      '#tg-notis.tg-exp .tg-notis-x{pointer-events:auto;}' +
+      '#tg-notis .tg-notis-x:active{transform:scale(0.9);}' +
+      '#tg-notis .tg-notis-x svg{width:14px;height:14px;display:block;}' +
+      // zona con scroll (solo expandida) y lista donde se colocan las notificaciones
+      '#tg-notis .tg-notis-scroll{flex:0 1 auto;min-height:0;width:100%;margin:-48px 0;padding:48px 0;box-sizing:border-box;pointer-events:none;overscroll-behavior:contain;}' +
+      '#tg-notis.tg-exp .tg-notis-scroll{overflow-x:hidden;overflow-y:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;}' +
+      '#tg-notis .tg-notis-scroll::-webkit-scrollbar{display:none;}' +
+      '#tg-notis .tg-notis-lista{position:relative;width:100%;transition:height 0.32s ' + curva + ';}' +
+      // envoltorio: lo coloca la lógica de la pila (posición, tamaño); la tarjeta de dentro se encarga del deslizar y de las animaciones
+      '#tg-notis .tg-noti-w{position:absolute;top:0;left:0;right:0;margin:0 auto;width:min(calc(100% - 16px),400px);transform-origin:center bottom;will-change:transform;pointer-events:none;' +
+      'transition:transform 0.42s ' + curva + ',height 0.32s ' + curva + ',opacity 0.3s;}' +
+      '#tg-notis .tg-noti-w.tg-oculta{opacity:0;}' +
+      '#tg-notis .tg-noti{pointer-events:auto;width:100%;height:100%;box-sizing:border-box;padding:11px 14px 12px 12px;border-radius:24px;' +
+      'background:var(--n-bg);-webkit-backdrop-filter:blur(var(--tg-bf14,14px)) saturate(2.2);backdrop-filter:blur(var(--tg-bf14,14px)) saturate(2.2);' +
+      'box-shadow:var(--n-sh),inset 0 0 0 0.5px var(--n-bd);color:var(--n-t1);font-family:"Google Sans",system-ui,-apple-system,sans-serif;overflow:hidden;' +
+      'touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:default;will-change:transform;transition:transform 0.25s cubic-bezier(0.2,0.9,0.3,1);-webkit-tap-highlight-color:transparent;}' +
+      '#tg-notis.tg-exp .tg-noti{touch-action:pan-y;}' +
+      '#tg-notis .tg-oculta .tg-noti{pointer-events:none;}' +
+      // las de atrás: solo se ve la "hoja" asomando, sin contenido
+      '#tg-notis .tg-noti-cab{display:flex;gap:11px;align-items:flex-start;transition:opacity 0.25s;}' +
+      '#tg-notis .tg-fondo .tg-noti-cab{opacity:0;}' +
       '.tg-noti-ic{flex:none;width:38px;height:38px;border-radius:9px;background:var(--n-ic);display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 0 0 0.5px rgba(0,0,0,0.1);}' +
       '.tg-noti-ic img,.tg-noti-ic svg{display:block;width:80%;height:80%;object-fit:contain;}' +
       '.tg-noti-tx{flex:1;min-width:0;}' +
       '.tg-noti-fila{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}' +
       '.tg-noti-tit{font-size:15px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
       '.tg-noti-hora{flex:none;font-size:13px;line-height:1.25;color:var(--n-t2);}' +
-      '.tg-noti-msg{margin-top:1px;font-size:15px;line-height:1.28;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}';
+      '.tg-noti-msg{margin-top:1px;font-size:15px;line-height:1.28;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}' +
+      // botones de acciones (se abren manteniendo el toque)
+      '.tg-noti-acc{display:flex;gap:8px;max-height:0;margin-top:0;opacity:0;overflow:hidden;transition:max-height 0.3s ' + curva + ',margin-top 0.3s ' + curva + ',opacity 0.22s;}' +
+      '.tg-abierta .tg-noti-acc{max-height:64px;margin-top:11px;opacity:1;}' +
+      '.tg-noti-acc button{flex:1 1 0;min-width:0;height:36px;padding:0 10px;border:0;border-radius:14px;background:var(--n-acc);color:var(--n-t1);font:inherit;font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;-webkit-tap-highlight-color:transparent;}' +
+      '.tg-noti-acc button:active{opacity:0.6;}' +
+      '.tg-noti-acc button.tg-dest{color:#ff453a;}' +
+      // para medir la altura final sin animar
+      '#tg-notis .tg-sinanim,#tg-notis .tg-sinanim *{transition:none !important;}';
     (document.head || document.documentElement).appendChild(e);
   }
   function notiIcono(src) {
@@ -6334,17 +6463,136 @@ p.gds-body-s.ng-star-inserted {
     sv.appendChild(pa);
     return sv;
   }
-  function notiMostrar(o) {
+  function notiCrear() {
     notiEstilos();
-    if (!notiCont || !notiCont.isConnected) {
-      notiCont = document.createElement('div'); notiCont.id = 'tg-notis'; notiCont.setAttribute('aria-live', 'polite');
-      document.body.appendChild(notiCont);
+    if (notiCont && notiCont.isConnected) return;
+    notiItems.forEach((it) => { clearTimeout(it.timer); clearTimeout(it.lp); });
+    notiItems.length = 0; notiExp = false; // si la página recreó el body, lo anterior ya no existe
+    const ns = 'http://www.w3.org/2000/svg';
+    notiCont = document.createElement('div'); notiCont.id = 'tg-notis'; notiCont.setAttribute('aria-live', 'polite');
+    const barra = document.createElement('div'); barra.className = 'tg-notis-barra';
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'tg-notis-x'; x.setAttribute('aria-label', 'Borrar todas las notificaciones');
+    const sv = document.createElementNS(ns, 'svg'); sv.setAttribute('viewBox', '0 0 14 14'); sv.setAttribute('aria-hidden', 'true');
+    const pa = document.createElementNS(ns, 'path'); pa.setAttribute('d', 'M2 2l10 10M12 2L2 12'); pa.setAttribute('fill', 'none'); pa.setAttribute('stroke', 'currentColor'); pa.setAttribute('stroke-width', '2'); pa.setAttribute('stroke-linecap', 'round');
+    sv.appendChild(pa); x.appendChild(sv); barra.appendChild(x);
+    x.addEventListener('click', (e) => { e.stopPropagation(); notiLimpiar(); });
+    notiScroll = document.createElement('div'); notiScroll.className = 'tg-notis-scroll';
+    notiLista = document.createElement('div'); notiLista.className = 'tg-notis-lista';
+    notiScroll.appendChild(notiLista); notiCont.appendChild(barra); notiCont.appendChild(notiScroll);
+    document.body.appendChild(notiCont);
+  }
+  // altura natural de la tarjeta (con o sin los botones de acciones abiertos), medida sin animar
+  function notiAlto(it, abierta) {
+    const w = it.w, c = it.card, era = c.classList.contains('tg-abierta'), hAnt = w.style.height;
+    w.classList.add('tg-sinanim');
+    c.classList.toggle('tg-abierta', abierta);
+    w.style.height = 'auto';
+    const h = w.offsetHeight;
+    w.style.height = hAnt;
+    c.classList.toggle('tg-abierta', era);
+    void w.offsetHeight;
+    w.classList.remove('tg-sinanim');
+    return h;
+  }
+  // coloca todas: plegada = pila (la de enfrente arriba y las demás detrás, más abajo y más pequeñas); expandida = lista
+  function notiOrdenar() {
+    if (!notiCont) return;
+    const n = notiItems.length;
+    notiCont.classList.toggle('tg-exp', notiExp);
+    if (notiExp) {
+      let y = 0;
+      notiItems.forEach((it, i) => {
+        const w = it.w;
+        w.classList.remove('tg-fondo', 'tg-oculta');
+        w.style.zIndex = String(1000 - i);
+        w.style.height = it.h + 'px';
+        w.style.transform = 'translate3d(0,' + y + 'px,0)';
+        y += it.h + NOTI_GAP;
+      });
+      notiLista.style.height = Math.max(0, y - NOTI_GAP) + 'px';
+    } else {
+      const H = n ? notiItems[0].h : 0;
+      notiItems.forEach((it, i) => {
+        const w = it.w, k = Math.min(i, 2);
+        w.classList.toggle('tg-fondo', i > 0);
+        w.classList.toggle('tg-oculta', i > 2);
+        w.style.zIndex = String(1000 - i);
+        w.style.height = H + 'px';
+        w.style.transform = 'translate3d(0,' + (k * NOTI_CAPA) + 'px,0) scale(' + (1 - k * 0.05) + ')';
+      });
+      notiLista.style.height = (n ? H + (Math.min(n, 3) - 1) * NOTI_CAPA : 0) + 'px';
     }
-    if (o.id) Array.from(notiCont.children).forEach((v) => { if (v.dataset.id === String(o.id) && v._cerrar) v._cerrar(true); });
-    while (notiCont.children.length >= NOTI_MAX) { const v = notiCont.firstElementChild; if (v._cerrar) v._cerrar(true); else v.remove(); }
-
-    const b = document.createElement('div'); b.className = 'tg-noti'; b.setAttribute('role', 'status');
-    if (o.id) b.dataset.id = String(o.id);
+  }
+  function notiProgramar(it) {
+    clearTimeout(it.timer);
+    if (notiExp || it.abierta || it.p || it.cerrado || !(it.total > 0)) return;
+    it.timer = setTimeout(() => notiQuitar(it), it.total);
+  }
+  // quita una notificación. op: { ya: sin animación, modo: 'lado' | 'limpiar', sinOrden: no recolocar las demás, retardo: ms }
+  function notiQuitar(it, op) {
+    if (!it || it.cerrado) return;
+    op = op || {};
+    it.cerrado = true; clearTimeout(it.timer); clearTimeout(it.lp);
+    const exp = notiExp, i = notiItems.indexOf(it);
+    if (i >= 0) notiItems.splice(i, 1);
+    const w = it.w, c = it.card;
+    c.style.pointerEvents = 'none';
+    if (op.ya || sinMovimiento() || !c.animate) w.remove();
+    else {
+      let kf;
+      if (op.modo === 'lado') kf = { transform: 'translateX(' + (it.dir < 0 ? '-' : '') + '110%)', opacity: 0 };
+      else if (op.modo === 'limpiar') kf = { transform: 'translateY(-18px) scale(0.96)', opacity: 0 };
+      else if (exp) kf = { transform: 'scale(0.94)', opacity: 0 };
+      else if (i > 0) kf = { opacity: 0 }; // una de atrás: se desvanece donde está
+      else kf = { transform: 'translateY(-140%)', opacity: 0 }; // la de enfrente: sube y se va (desde donde esté, también tras deslizarla)
+      const an = c.animate(kf, { duration: op.modo === 'limpiar' ? 240 : 300, delay: op.retardo || 0, easing: 'cubic-bezier(0.4,0,1,1)', fill: 'forwards' });
+      an.onfinish = () => w.remove();
+    }
+    if (op.sinOrden) return;
+    if (!notiItems.length) notiExp = false;
+    notiOrdenar();
+  }
+  function notiLimpiar() {
+    const lista = notiItems.slice();
+    lista.forEach((it, k) => notiQuitar(it, { modo: 'limpiar', sinOrden: true, retardo: k * 30 }));
+    notiExp = false;
+    notiOrdenar();
+  }
+  function notiExpandir() {
+    if (notiExp || notiItems.length < 2) return;
+    notiExp = true;
+    notiItems.forEach((it) => clearTimeout(it.timer));
+    notiOrdenar();
+  }
+  function notiColapsar() {
+    if (!notiExp) return;
+    notiExp = false;
+    notiItems.forEach((it) => notiCerrarAcc(it, true));
+    if (notiScroll) notiScroll.scrollTop = 0;
+    notiOrdenar();
+    notiItems.forEach(notiProgramar);
+  }
+  function notiPuedeAbrir(it) { return !!(it.acc && !it.abierta && !it.cerrado && (notiExp || notiItems.length === 1)); }
+  function notiAbrirAcc(it) {
+    if (!it.acc || it.abierta || it.cerrado) return;
+    notiItems.forEach((o) => { if (o !== it) notiCerrarAcc(o, true); });
+    it.h = notiAlto(it, true); // altura que tendrá con los botones; el cambio se anima por CSS
+    it.abierta = true; clearTimeout(it.timer);
+    it.card.classList.add('tg-abierta'); it.acc.setAttribute('aria-hidden', 'false');
+    notiOrdenar();
+  }
+  function notiCerrarAcc(it, sinOrden) {
+    if (!it.abierta) return;
+    it.h = notiAlto(it, false);
+    it.abierta = false;
+    it.card.classList.remove('tg-abierta'); it.acc.setAttribute('aria-hidden', 'true');
+    if (!sinOrden) notiOrdenar();
+    notiProgramar(it);
+  }
+  function notiTarjeta(o) {
+    const w = document.createElement('div'); w.className = 'tg-noti-w';
+    const c = document.createElement('div'); c.className = 'tg-noti'; c.setAttribute('role', 'status');
+    const cab = document.createElement('div'); cab.className = 'tg-noti-cab';
     const tx = document.createElement('div'); tx.className = 'tg-noti-tx';
     const fila = document.createElement('div'); fila.className = 'tg-noti-fila';
     const tit = document.createElement('span'); tit.className = 'tg-noti-tit'; tit.textContent = o.titulo || 'Gemini Vibes';
@@ -6352,35 +6600,88 @@ p.gds-body-s.ng-star-inserted {
     fila.appendChild(tit); fila.appendChild(hora);
     const msg = document.createElement('div'); msg.className = 'tg-noti-msg'; msg.textContent = o.texto || '';
     tx.appendChild(fila); if (o.texto) tx.appendChild(msg);
-    b.appendChild(notiIcono(o.icono || window.__tgIconoCache || urlLogoGemini())); b.appendChild(tx);
-
-    let cerrado = false, timer = 0, y0 = null, dy = 0;
-    const total = (o.duracion === undefined || o.duracion === null) ? 4000 : Number(o.duracion);
-    const programar = () => { clearTimeout(timer); if (total > 0) timer = setTimeout(() => cerrar(), total); };
-    const cerrar = (ya) => {
-      if (cerrado) return;
-      cerrado = true; clearTimeout(timer);
-      if (ya || sinMovimiento() || !b.animate) { b.remove(); return; }
-      const an = b.animate({ transform: 'translateY(-140%)', opacity: 0 }, { duration: 300, easing: 'cubic-bezier(0.4,0,1,1)', fill: 'forwards' }); // desde donde esté (también tras deslizarla)
-      an.onfinish = () => b.remove();
+    cab.appendChild(notiIcono(o.icono || window.__tgIconoCache || urlLogoGemini())); cab.appendChild(tx);
+    c.appendChild(cab);
+    const acciones = Array.isArray(o.acciones) ? o.acciones.filter((a) => a && typeof a === 'object').slice(0, 4) : [];
+    let acc = null;
+    if (acciones.length) { acc = document.createElement('div'); acc.className = 'tg-noti-acc'; acc.setAttribute('aria-hidden', 'true'); c.appendChild(acc); }
+    w.appendChild(c);
+    const it = {
+      o, w, card: c, acc, id: (o.id !== undefined && o.id !== null) ? String(o.id) : '',
+      total: (o.duracion === undefined || o.duracion === null) ? 4000 : Number(o.duracion),
+      timer: 0, lp: 0, p: null, h: 0, dir: 1, abierta: false, cerrado: false
     };
-    b._cerrar = cerrar;
-    // deslizar hacia arriba la descarta; un toque ejecuta onClick
-    b.addEventListener('pointerdown', (e) => { y0 = e.clientY; dy = 0; clearTimeout(timer); b.style.transition = 'none'; try { b.setPointerCapture(e.pointerId); } catch (x) { /* nada */ } });
-    b.addEventListener('pointermove', (e) => { if (y0 === null) return; dy = Math.min(0, e.clientY - y0); b.style.transform = 'translateY(' + dy + 'px)'; });
-    const soltar = (e) => {
-      if (y0 === null) return;
-      const toque = Math.abs(e.clientY - y0) < 6; y0 = null; b.style.transition = '';
-      if (dy < -24) { cerrar(); return; }
-      b.style.transform = '';
-      if (toque && typeof o.onClick === 'function') { try { o.onClick(); } catch (x) { /* nada */ } cerrar(); return; }
-      programar();
-    };
-    b.addEventListener('pointerup', soltar); b.addEventListener('pointercancel', soltar);
+    acciones.forEach((a) => {
+      const bt = document.createElement('button'); bt.type = 'button'; bt.textContent = String(a.texto || a.titulo || 'Acción');
+      if (a.destructiva) bt.className = 'tg-dest';
+      bt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        try { if (typeof a.onClick === 'function') a.onClick(); } catch (x) { /* nada */ }
+        if (a.cerrar !== false) notiQuitar(it);
+      });
+      acc.appendChild(bt);
+    });
 
-    notiCont.appendChild(b);
-    if (!sinMovimiento() && b.animate) b.animate([{ transform: 'translateY(-130%) scale(0.96)', opacity: 0 }, { transform: 'translateY(0) scale(1)', opacity: 1 }], { duration: 520, easing: 'cubic-bezier(0.22,1.15,0.36,1)', fill: 'backwards' });
-    programar();
+    // gestos: toque (expande la pila / ejecuta onClick), mantener (abre las acciones), deslizar (descartar)
+    const esFrente = () => notiItems[0] === it;
+    const reponer = () => { c.style.transform = ''; c.style.opacity = ''; };
+    c.addEventListener('contextmenu', (e) => e.preventDefault());
+    c.addEventListener('pointerdown', (e) => {
+      if (it.cerrado || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      if (e.target.closest && e.target.closest('.tg-noti-acc button')) return; // los botones de acciones van aparte
+      it.p = { x: e.clientX, y: e.clientY, dx: 0, dy: 0, mov: false, largo: false };
+      clearTimeout(it.timer); clearTimeout(it.lp);
+      c.style.transition = 'none';
+      try { c.setPointerCapture(e.pointerId); } catch (x) { /* nada */ }
+      if (notiPuedeAbrir(it)) it.lp = setTimeout(() => {
+        if (!it.p || it.p.mov || !notiPuedeAbrir(it)) return;
+        it.p.largo = true;
+        try { if (navigator.vibrate) navigator.vibrate(12); } catch (x) { /* nada */ }
+        notiAbrirAcc(it);
+      }, 450);
+    });
+    c.addEventListener('pointermove', (e) => {
+      const p = it.p; if (!p) return;
+      p.dx = e.clientX - p.x; p.dy = e.clientY - p.y;
+      if (!p.mov && Math.hypot(p.dx, p.dy) > 8) { p.mov = true; clearTimeout(it.lp); }
+      if (!p.mov || p.largo) return;
+      if (notiExp) { c.style.transform = 'translateX(' + p.dx + 'px)'; c.style.opacity = String(Math.max(0.25, 1 - Math.abs(p.dx) / 260)); }
+      else if (esFrente()) c.style.transform = 'translateY(' + Math.min(0, p.dy) + 'px)';
+    });
+    const soltar = (cancelado) => {
+      const p = it.p; if (!p) return;
+      it.p = null; clearTimeout(it.lp); c.style.transition = '';
+      if (it.cerrado) return;
+      if (cancelado || p.largo) { reponer(); notiProgramar(it); return; }
+      if (notiExp && Math.abs(p.dx) > 70) { it.dir = p.dx < 0 ? -1 : 1; notiQuitar(it, { modo: 'lado' }); return; }
+      if (!notiExp && esFrente() && p.dy < -24) { notiQuitar(it); return; }
+      reponer();
+      if (!p.mov) {
+        if (!notiExp && notiItems.length > 1) { notiExpandir(); return; }
+        if (it.abierta) { notiCerrarAcc(it); return; }
+        if (typeof o.onClick === 'function') { try { o.onClick(); } catch (x) { /* nada */ } notiQuitar(it); return; }
+      }
+      notiProgramar(it);
+    };
+    c.addEventListener('pointerup', () => soltar(false)); c.addEventListener('pointercancel', () => soltar(true));
+    return it;
+  }
+  function notiMostrar(o) {
+    notiCrear();
+    const id = (o.id !== undefined && o.id !== null) ? String(o.id) : '';
+    if (id) notiItems.slice().forEach((it) => { if (it.id === id) notiQuitar(it, { ya: true, sinOrden: true }); });
+    while (notiItems.length >= NOTI_MAX) notiQuitar(notiItems[notiItems.length - 1], { ya: true, sinOrden: true });
+    if (!notiExp) notiItems.forEach((it) => notiCerrarAcc(it, true)); // con la pila plegada no se queda ninguna abierta detrás
+    const it = notiTarjeta(o);
+    it.w.style.transition = 'none'; // la nueva aparece ya colocada; solo se animan las demás al bajar un puesto
+    notiLista.appendChild(it.w);
+    it.h = notiAlto(it, false);
+    notiItems.unshift(it);
+    notiOrdenar();
+    void it.w.offsetHeight;
+    it.w.style.transition = '';
+    if (!sinMovimiento() && it.card.animate) it.card.animate([{ transform: 'translateY(-130%) scale(0.96)', opacity: 0 }, { transform: 'translateY(0) scale(1)', opacity: 1 }], { duration: 520, easing: 'cubic-bezier(0.22,1.15,0.36,1)', fill: 'backwards' });
+    notiProgramar(it);
   }
   function notificar(a, b, c) {
     let o;
@@ -6391,9 +6692,54 @@ p.gds-body-s.ng-star-inserted {
     notiMostrar(o);
   }
   window.tgNotificar = notificar;
+  window.tgNotificarLimpiar = notiLimpiar;
+  // Reemplaza los avisos (snackbar) de Gemini por notificaciones de la extensión
+  (function () {
+    const css = document.createElement('style');
+    css.textContent = 'mat-snack-bar-container,.cdk-overlay-pane:has(>mat-snack-bar-container){opacity:0!important;pointer-events:none!important;}';
+    (document.head || document.documentElement).appendChild(css);
+    const vistos = new WeakSet();
+    let t = 0;
+    function escanear() {
+      document.querySelectorAll('mat-snack-bar-container').forEach((cont) => {
+        if (vistos.has(cont)) return;
+        const lab = cont.querySelector('[data-test-id="label"]');
+        const texto = lab && lab.textContent.replace(/\s+/g, ' ').trim();
+        if (!texto) return;
+        vistos.add(cont);
+        const a = cont.querySelector('[data-test-id="action"]');
+        const btn = a && (a.tagName === 'BUTTON' ? a : (a.querySelector('button') || a));
+        const nombre = btn && btn.textContent.replace(/\s+/g, ' ').trim();
+        notificar({
+          texto: texto, duracion: 6000,
+          acciones: nombre ? [{ texto: nombre, onClick: () => { try { btn.click(); } catch (x) { /* nada */ } } }] : undefined
+        });
+      });
+    }
+    new MutationObserver((ms) => {
+      for (const m of ms) for (const n of m.addedNodes) {
+        if (n.nodeType === 1 && ((n.closest && n.closest('mat-snack-bar-container')) || (n.querySelector && n.querySelector('mat-snack-bar-container')))) {
+          clearTimeout(t); t = setTimeout(escanear, 60); return;
+        }
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  })();
   document.addEventListener('tg-bloqueo-cambio', () => {
     if (pantallaBloqueada || !notiCola.length) return;
     setTimeout(() => { while (notiCola.length && !pantallaBloqueada) notiMostrar(notiCola.shift()); }, 600);
+  });
+  // pila expandida: tocar fuera de ellas (o Esc) la pliega; al cambiar el tamaño de la ventana se vuelven a medir
+  document.addEventListener('pointerdown', (e) => {
+    if (!notiExp) return;
+    const t = e.target;
+    if (t && t.closest && t.closest('#tg-notis')) return;
+    notiColapsar();
+  }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && notiExp) notiColapsar(); });
+  let notiRz = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(notiRz);
+    notiRz = setTimeout(() => { if (!notiItems.length) return; notiItems.forEach((it) => { it.h = notiAlto(it, it.abierta); }); notiOrdenar(); }, 150);
   });
 
   function origenDelMenu() {
@@ -6662,8 +7008,24 @@ p.gds-body-s.ng-star-inserted {
   // setInterval que no trabaja con la pestaña oculta
   const cada = (fn, ms) => setInterval(() => { if (!document.hidden && !pantallaBloqueada) { try { fn(); } catch (e) { console.warn('[tg] ' + fn.name + ':', e); } } }, ms);
 
+  // ---- NOMBRE "Gemini Vibes" en la barra lateral ----
+  // El texto "Gemini" de .gemini-sidenav-text existe en las dos vistas: la móvil (9:16, dentro del mat-sidenav) y la de escritorio (16:9).
+  // Solo se cambia el nodo de TEXTO (el <span> tiene un comentario de Angular dentro que no se debe tocar) y solo si dice exactamente "Gemini";
+  // con Vibes apagado vuelve a "Gemini". Corre en la tarea 'menuLateral' (se marca al abrir el menú, al cambiar de tamaño y con el latido).
+  function renombrarGeminiLateral() {
+    const quiero = vibesOn ? 'Gemini Vibes' : 'Gemini';
+    document.querySelectorAll('.gemini-sidenav-text').forEach((sp) => {
+      for (let n = sp.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType !== 3 || !n.nodeValue.trim()) continue;
+        const actual = n.nodeValue.trim();
+        if (actual !== quiero && (actual === 'Gemini' || actual === 'Gemini Vibes')) n.nodeValue = ' ' + quiero + ' ';
+        break;
+      }
+    });
+  }
+
   Tareas.registrar('layout', () => { if (tecladoAplicado > 0 || tecladoKbEf > 0) { try { aplicarTeclado(); } catch (e) { /* aún no definido */ } } actualizarVarSafeTop(); limpiarCapasEtiqueta(); alinearHeaderAngosto(); alinearMultimedia(); asegurarFadeChat(); });
-  Tareas.registrar('menuLateral', () => { marcarCapasMenuLateral(); actualizarFondoMenuLateral(); });
+  Tareas.registrar('menuLateral', () => { try { renombrarGeminiLateral(); } catch (e) { /* nada */ } marcarCapasMenuLateral(); actualizarFondoMenuLateral(); });
   Tareas.registrar('cero', () => actualizarFondoCero());
   Tareas.registrar('tema', () => revisarTemaBody());
   Tareas.registrar('colapso', () => gestionarColapsoRespuestas());
@@ -7001,7 +7363,6 @@ p.gds-body-s.ng-star-inserted {
       html body [data-tg-puntos-retraso="oculto"] {
         visibility: hidden !important;
         opacity: 0 !important;
-        filter: blur(30px) !important;
         scale: 0.85 !important;
         pointer-events: none !important;
       }
@@ -7016,6 +7377,7 @@ p.gds-body-s.ng-star-inserted {
   // si mientras piensa Gemini cambia el mensaje ("Pensando…" -> "Creando tu imagen…") y crea otro elemento, ese NO vuelve a esperar:
   // si todavía falta tiempo se oculta hasta la MISMA hora que el primero, y si ya pasó aparece de inmediato.
   let puntosInicio = 0;        // momento en que empezó la espera de este thinking (0 = ninguna en curso)
+  let ultimaAlineacion = 0;    // la alineación a la izquierda (medir + corregir) no se repite en cada pasada
   let puntosSinVerDesde = 0;   // desde cuándo no hay ninguna burbuja de carga en pantalla
   function retrasarPuntos(el) {
     if (!el || el._tgRetraso) return;
@@ -7023,6 +7385,7 @@ p.gds-body-s.ng-star-inserted {
     if (!puntosInicio) puntosInicio = ahora;
     const resta = PUNTOS_RETRASO_MS - (ahora - puntosInicio);
     el._tgRetraso = true;
+    ultimaAlineacion = 0; // burbuja nueva: se alinea enseguida
     puntosRetrasados.add(el);
     if (resta <= 0) { el.setAttribute('data-tg-puntos-retraso', 'visible'); return; } // ya pasó la espera: aparece directo
     el.setAttribute('data-tg-puntos-retraso', 'oculto');
@@ -7083,7 +7446,8 @@ p.gds-body-s.ng-star-inserted {
     envolturas.forEach((el) => { if (!el.hasAttribute('data-tg-burbuja')) el.setAttribute('data-tg-burbuja', ''); });
     // alineación a la izquierda: se mide dónde quedó y se corrige el desfase (cualquier margen/relleno heredado de Gemini)
     const histo = document.querySelector('#chat-history');
-    if (histo) {
+    if (histo && performance.now() - ultimaAlineacion > 500) {
+      ultimaAlineacion = performance.now();
       const objetivo = histo.getBoundingClientRect().left + (window.matchMedia('(max-width: 959.98px)').matches ? 12 : 14);
       envolturas.forEach((el) => {
         el.style.removeProperty('translate');
@@ -7093,20 +7457,26 @@ p.gds-body-s.ng-star-inserted {
     }
     if (!respuestaPendiente()) return;
     if (visibles.length) {
-      // mientras la IA carga: el scroll baja hasta la burbuja de los puntitos
-      const burbuja = visibles[visibles.length - 1];
-      if (burbuja !== mensajeSeguido) seguirSinReactivar(burbuja);
-    } else if (mensajeSeguido && mensajeSeguido.tagName === 'THINKING-DOTS-ANIMATION') {
+      const d = visibles[visibles.length - 1];
+      if (!d._tgBajo) { // una sola vez por burbuja: el historial baja hasta el final
+        d._tgBajo = true;
+        try { const cont = contenedorScroll(d); cont.scrollTo({ top: cont.scrollHeight, behavior: 'smooth' }); } catch (e) { /* sin scroll */ }
+      }
+    }
+    // el scroll NO persigue la burbuja de los puntitos (eso hacía que la página subiera sola): sigue tu mensaje y luego la respuesta
+    if (!visibles.length && mensajeSeguido && mensajeSeguido.tagName === 'THINKING-DOTS-ANIMATION') {
       // terminó de cargar: se sigue la respuesta
       const respuestas = document.querySelectorAll('model-response');
       if (respuestas.length) seguirSinReactivar(respuestas[respuestas.length - 1]);
     }
   }
   let marcadoPendiente = false;
+  let ultimoMarcado = 0;
   function programarMarcado() {
     if (marcadoPendiente || pantallaBloqueada) return;
     marcadoPendiente = true;
-    requestAnimationFrame(() => { marcadoPendiente = false; marcarPuntosCarga(); });
+    const espera = Math.max(0, 200 - (performance.now() - ultimoMarcado)); // como mucho 5 veces por segundo
+    setTimeout(() => requestAnimationFrame(() => { marcadoPendiente = false; ultimoMarcado = performance.now(); marcarPuntosCarga(); }), espera);
   }
   cada(marcarPuntosCarga, 1000); // el observer ya lo dispara al instante cuando aparece algo
   marcarPuntosCarga();
@@ -8041,8 +8411,7 @@ p.gds-body-s.ng-star-inserted {
     const COLOR_CLARO = '#6750A4', COLOR_OSCURO = '#D0BCFF';
     const SELECTORES = [
       'mat-progress-bar', '[role="progressbar"]',
-      '.response-container[data-tg-cargando]',
-      'thinking-dots-animation:not(.response-container-header *)'
+      '.response-container[data-tg-cargando]'
     ].join(',');
     const N = 96, TAU = Math.PI * 2;
     const norm = (f) => { const a = []; let m = 0; for (let i = 0; i < N; i++) { const r = f(i / N * TAU); a.push(r); if (r > m) m = r; } return a.map((r) => r / m); };
@@ -8113,7 +8482,7 @@ p.gds-body-s.ng-star-inserted {
       if (!visible && ahora - ocultoEn > 320) return; // ya terminó el fade de salida
       const paso = (ahora - desde) / PASO_MS, idx = Math.floor(paso);
       const m = Math.min(1, Math.max(0, (paso - idx - PAUSA) / (1 - PAUSA)));
-      poner(camino(idx % FORMAS.length, Math.round(m * PASOS))); // solo toca el DOM cuando la forma cambió de verdad
+      poner(camino(((idx % FORMAS.length) + FORMAS.length) % FORMAS.length, Math.round(m * PASOS))); // solo toca el DOM cuando la forma cambió de verdad
       raf = requestAnimationFrame(cuadro);
     }
     function mostrar() {
@@ -8127,7 +8496,13 @@ p.gds-body-s.ng-star-inserted {
       visible = false; ocultoEn = performance.now();
       if (raiz) raiz.classList.remove('tg-on'); // la animación sigue durante el fade de salida y luego se detiene sola
     }
+    function hayBurbujaPensando() { // la burbuja de los puntitos va sola: el indicador del centro no sale a la vez
+      const ds = document.querySelectorAll('thinking-dots-animation:not(.response-container-header *)');
+      for (let i = 0; i < ds.length; i++) if (ds[i].getClientRects().length) return true;
+      return false;
+    }
     function hayCarga() {
+      if (document.getElementById('tg-doc-velo') || hayBurbujaPensando()) return false; // con el velo de abrir documento, el cargador va dentro del velo
       const lista = document.querySelectorAll(SELECTORES);
       for (let i = 0; i < lista.length; i++) {
         const el = lista[i];
@@ -8175,7 +8550,7 @@ p.gds-body-s.ng-star-inserted {
       const pintar = (ahora) => {
         const paso = (ahora - t0) / PASO_MS, idx = Math.floor(paso);
         const m = Math.min(1, Math.max(0, (paso - idx - PAUSA) / (1 - PAUSA)));
-        const d = camino(idx % FORMAS.length, Math.round(m * PASOS));
+        const d = camino(((idx % FORMAS.length) + FORMAS.length) % FORMAS.length, Math.round(m * PASOS));
         if (tr._d !== d) { tr._d = d; tr.setAttribute('d', d); }
       };
       const bucle = (ahora) => { if (!cont._tgSpin) return; pintar(ahora); cont._tgSpin = requestAnimationFrame(bucle); };
@@ -8205,8 +8580,8 @@ p.gds-body-s.ng-star-inserted {
         padding-top: var(--tg-panel-top, 120px) !important; box-sizing: border-box !important; background-color: var(--tg-panel-gris) !important;
       }
       ${OCULTAR_CSS}
-      /* indicador de carga ("pensando"): no se muestra */
-      html:root:root:root thinking-dots-animation, html:root:root:root [data-tg-puntos] { display: none !important; }
+      /* indicador de carga ("pensando"): no se muestra SOLO mientras el panel está abierto (fuera del panel sí aparece) */
+      html.tg-panel-seguro:root:root:root thinking-dots-animation, html.tg-panel-seguro:root:root:root [data-tg-puntos] { display: none !important; }
       /* el brillo de fondo (.lm-glow) no se ve: se quita del todo con el panel abierto */
       html.tg-panel-seguro chat-window .lm-glow, html.tg-panel-seguro chat-window .lm-glow *, chat-window.immersives-mode .lm-glow, chat-window.immersives-mode .lm-glow * {
         display: none !important; background: transparent !important; box-shadow: none !important; filter: none !important; opacity: 0 !important;
@@ -8618,7 +8993,7 @@ p.gds-body-s.ng-star-inserted {
   // - También anima el título letra por letra (una sola línea) con sombra, como "Gemini Vibes".
   // ============================================================================================
   (function () {
-    const MAX_ARCHIVO = 15 * 1024 * 1024, MAX_TOTAL = 60 * 1024 * 1024; // tope por archivo y en total (se borran primero los borradores más viejos)
+    const DEPURAR_SUBIDA = false; // true = notificaciones de diagnóstico del selector de archivos del menú móvil (ponlo en false cuando ya funcione)
     const CLAVE = 'tgBorradores', MAX = 20, VISIBLES = 3; // MAX = cuántos se guardan; VISIBLES = cuántos se ven a la vez (el resto con scroll)
     const ALTO_ITEM = 56, GAP_ITEM = 6; // alto fijo de cada botón y separación: de ahí sale el alto de la lista (3 elementos)
     const leer = () => { try { const a = JSON.parse(localStorage.getItem(CLAVE) || '[]'); return Array.isArray(a) ? a.filter((x) => x && x.url && (x.texto || (x.archivos && x.archivos.length))) : []; } catch (e) { return []; } };
@@ -8636,7 +9011,13 @@ p.gds-body-s.ng-star-inserted {
     const activos = []; // { clave, file }: archivos capturados que quizá sigan adjuntos (se cruzan con los chips visibles al guardar)
     const claveDe = (f) => f.name + '|' + f.size + '|' + f.lastModified;
     const baseNombre = (n) => String(n || '').replace(/\.[^.]*$/, '').trim().toLowerCase();
-    const contarChips = () => document.querySelectorAll('uploader-file-preview-container uploader-file-preview').length;
+    // chips de adjuntos en la caja de escribir (archivos Y miniaturas de imágenes). Si no hay <uploader-file-preview>, se cuentan los hijos del contenedor.
+    function chipsActuales() {
+      const set = new Set(document.querySelectorAll('input-container uploader-file-preview, uploader-file-preview-container uploader-file-preview'));
+      if (!set.size) document.querySelectorAll('uploader-file-preview-container').forEach((c) => Array.from(c.children).forEach((h) => { if (h.nodeType === 1) set.add(h); }));
+      return Array.from(set);
+    }
+    const contarChips = () => chipsActuales().length;
     let tGuardaArch = 0;
     function programarGuardadoArchivos() { // cambió lo adjuntado: si la caja no tiene el foco (si lo tiene, se guarda al perderlo) se guarda en un momento
       const ed = document.querySelector('input-area-v2 .ql-editor, rich-textarea .ql-editor');
@@ -8652,6 +9033,7 @@ p.gds-body-s.ng-star-inserted {
           const c = claveDe(f);
           if (activos.some((a) => a.clave === c)) return;
           activos.push({ clave: c, file: f }); hay = true;
+          depurarSubida('Archivo detectado (' + via + '): ' + f.name + ' · ' + Math.max(1, Math.round(f.size / 1024)) + ' KB');
         });
         while (activos.length > 40) activos.shift();
       } catch (e) { /* sin captura */ }
@@ -8659,26 +9041,71 @@ p.gds-body-s.ng-star-inserted {
     }
     window.addEventListener('drop', (e) => anotarArchivos(e.dataTransfer && e.dataTransfer.files, 'soltar'), true);
     window.addEventListener('paste', (e) => anotarArchivos(e.clipboardData && e.clipboardData.files, 'pegar'), true);
-    document.addEventListener('change', (e) => { const t = e.target; if (t && t.tagName === 'INPUT' && t.type === 'file') anotarArchivos(t.files, 'input'); }, true);
+    document.addEventListener('change', (e) => { const t = e.target; if (t && t.tagName === 'INPUT' && t.type === 'file' && !t.hasAttribute('data-tg')) anotarArchivos(t.files, 'input'); }, true);
     // red de seguridad para inputs que no están en el DOM (los crea y los borra la página): se anota cada vez que la página lee .files
     try {
       const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files');
       if (d && d.get && d.configurable) {
         Object.defineProperty(HTMLInputElement.prototype, 'files', { configurable: true, enumerable: d.enumerable, set: d.set, get: function () {
           const fl = d.get.call(this);
-          try { if (fl && fl.length && this.type === 'file') anotarArchivos(fl, 'input'); } catch (e) { /* nada */ }
+          try { if (fl && fl.length && this.type === 'file' && !this.hasAttribute('data-tg')) anotarArchivos(fl, 'input'); } catch (e) { /* nada */ }
           return fl;
         } });
       }
     } catch (e) { /* sin red de seguridad */ }
+    // más puntos donde la página toca el File original (solo File reales, nunca Blob): la miniatura de una imagen (createObjectURL) y el FormData de la subida
+    try {
+      const cou = URL.createObjectURL;
+      URL.createObjectURL = function (o) { try { if (typeof File !== 'undefined' && o instanceof File) anotarArchivos([o], 'miniatura'); } catch (e) { /* nada */ } return cou.apply(this, arguments); };
+    } catch (e) { /* sin este punto */ }
+    try {
+      const fda = FormData.prototype.append;
+      FormData.prototype.append = function (n, v) { try { if (typeof File !== 'undefined' && v instanceof File) anotarArchivos([v], 'formulario'); } catch (e) { /* nada */ } return fda.apply(this, arguments); };
+    } catch (e) { /* sin este punto */ }
     document.addEventListener('click', (e) => { // quitar un adjunto con su X: se actualiza el borrador
       const b = e.target && e.target.closest && e.target.closest('uploader-file-preview button, .gem-attachment-close-button');
       if (b) setTimeout(programarGuardadoArchivos, 300);
     }, true);
 
+    // ---- PUENTE DEL MENÚ MÓVIL DE SUBIDA (hoja inferior 9:16) ----
+    // Gemini tiene DOS menús de subida: el de escritorio (16:9, tarjeta flotante) y el móvil (9:16, hoja inferior: Cámara / Fotos / Archivos).
+    // En el móvil el selector de archivos no siempre se abría. Aquí se vigila: tras tocar uno de esos 3 botones, si Gemini NO llamó a
+    // input.click() por su cuenta, se abre el input correspondiente (aún dentro de la activación del usuario). Si Gemini sí lo llamó, no se toca nada.
+    // Los botones se reconocen por el id de su jslog (no cambia con el idioma): 194112 cámara, 194114 galería (Fotos), 255324 Archivos.
+    const depurarSubida = (t, x) => { if (DEPURAR_SUBIDA) { console.log('[TG] subida:', t, x || ''); notificar({ titulo: 'Subida de archivos', texto: t, duracion: 5000 }); } };
+    let ultimoClickInputArchivo = 0;
+    try {
+      const clickOrig = HTMLInputElement.prototype.click;
+      HTMLInputElement.prototype.click = function () {
+        try { if (this.type === 'file' && !this.hasAttribute('data-tg')) ultimoClickInputArchivo = performance.now(); } catch (e) { /* nada */ }
+        return clickOrig.apply(this, arguments);
+      };
+    } catch (e) { /* sin vigilancia */ }
+    const BOTONES_SUBIDA = {
+      '194112': { nombre: 'Cámara', buscar: (up) => up.querySelector('input[type="file"][capture]') },
+      '194114': { nombre: 'Fotos', buscar: (up) => Array.from(up.querySelectorAll('input[type="file"]')).find((i) => i.accept === 'image/*,video/*' && !i.hasAttribute('capture')) },
+      '255324': { nombre: 'Archivos', buscar: (up) => up.querySelector('images-files-uploader input[type="file"]') }
+    };
+    document.addEventListener('click', (e) => {
+      const b = e.target && e.target.closest && e.target.closest('button[jslog^="194112"], button[jslog^="194114"], button[jslog^="255324"]');
+      if (!b || !b.closest('gem-bottom-sheet, mat-bottom-sheet-container')) return; // solo el menú móvil; el de escritorio funciona solo
+      const def = BOTONES_SUBIDA[(b.getAttribute('jslog') || '').slice(0, 6)];
+      const up = b.closest('uploader');
+      if (!def || !up) return;
+      const t0 = performance.now();
+      setTimeout(() => {
+        if (ultimoClickInputArchivo >= t0 - 5) { depurarSubida('Menú móvil · ' + def.nombre + ': Gemini abrió el selector por su cuenta.'); return; }
+        const inp = def.buscar(up);
+        if (!inp) { depurarSubida('Menú móvil · ' + def.nombre + ': Gemini no abrió el selector y no encontré su input.'); return; }
+        if (!inp.isConnected) { depurarSubida('Menú móvil · ' + def.nombre + ': el menú se cerró antes de abrir el selector.'); return; }
+        depurarSubida('Menú móvil · ' + def.nombre + ': Gemini no abrió el selector; lo abrí yo.');
+        try { inp.click(); } catch (err) { console.warn('[TG] subida: falló input.click()', err); }
+      }, 600);
+    }, true);
+
     // qué archivos siguen realmente adjuntos: se cruzan los chips que se ven en la caja con lo capturado
     function adjuntosVigentes() {
-      const chips = Array.from(document.querySelectorAll('uploader-file-preview-container uploader-file-preview'));
+      const chips = chipsActuales();
       if (!chips.length) return [];
       const nombres = chips.map((c) => { const t = c.querySelector('.gem-attachment-text'); return t ? (t.textContent || '').trim().toLowerCase() : ''; });
       const usados = new Set(), res = [];
@@ -8719,7 +9146,13 @@ p.gds-body-s.ng-star-inserted {
     const yaEnDb = new Set();
     function guardarBlob(a) {
       if (yaEnDb.has(a.clave)) return;
-      idb('readwrite', (st) => st.put({ blob: a.file, name: a.file.name, type: a.file.type, lastModified: a.file.lastModified }, a.clave)).then((r) => { if (r) yaEnDb.add(a.clave); });
+      idb('readwrite', (st) => st.put({ blob: a.file, name: a.file.name, type: a.file.type, lastModified: a.file.lastModified }, a.clave)).then((r) => {
+        if (r) { yaEnDb.add(a.clave); return; }
+        // no se pudo guardar (p. ej. el almacenamiento del navegador está lleno): se quita del borrador
+        const lista = leer().map((x) => Object.assign({}, x, { archivos: (x.archivos || []).filter((f) => f.id !== a.clave) })).filter((x) => x.texto || x.archivos.length);
+        guardar(lista);
+        notificar({ titulo: 'Archivo sin guardar', texto: a.file.name + ' no cupo en el almacenamiento y no se guardó en el borrador.', duracion: 6000 });
+      });
     }
     function limpiarHuerfanos(lista) { // borra de IndexedDB lo que ningún borrador usa
       const ids = new Set(); lista.forEach((x) => (x.archivos || []).forEach((f) => ids.add(f.id)));
@@ -8727,11 +9160,8 @@ p.gds-body-s.ng-star-inserted {
         (Array.isArray(keys) ? keys : []).forEach((k) => { if (!ids.has(k)) { yaEnDb.delete(k); idb('readwrite', (st) => st.delete(k)); } });
       });
     }
-    function aplicarTope() { // tope total: si se pasa, se le quitan los archivos a los borradores más viejos
-      let a = leer();
-      const total = () => { const m = {}; a.forEach((x) => (x.archivos || []).forEach((f) => { m[f.id] = f.size || 0; })); return Object.keys(m).reduce((p, k) => p + m[k], 0); };
-      for (let i = a.length - 1; i >= 0 && total() > MAX_TOTAL; i--) a[i].archivos = [];
-      a = a.filter((x) => x.texto || (x.archivos && x.archivos.length));
+    function aplicarTope() { // limpieza: se descartan borradores vacíos y se borran de IndexedDB los archivos que ningún borrador usa (no hay tope de peso)
+      const a = leer();
       guardar(a);
       limpiarHuerfanos(a);
     }
@@ -8743,7 +9173,10 @@ p.gds-body-s.ng-star-inserted {
     });
     const nuevoDt = (files) => { const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); return dt; };
     const viaInput = (files) => {
-      const inp = Array.from(document.querySelectorAll('input[type="file"]')).find((i) => !i.disabled);
+      // OJO: el primer <input type=file> de la página es el del fondo de la extensión (poner el archivo ahí cambiaba el fondo de Gemini).
+      // Solo se usa un input de la propia caja de escribir de Gemini y nunca uno de la extensión (data-tg); si no hay, se pasa a la siguiente vía.
+      const inp = Array.from(document.querySelectorAll('input-container input[type="file"], input-area-v2 input[type="file"], uploader-file-preview-container input[type="file"]'))
+        .find((i) => !i.disabled && !i.hasAttribute('data-tg'));
       if (!inp) return false;
       inp.files = nuevoDt(files).files;
       inp.dispatchEvent(new Event('change', { bubbles: true }));
@@ -8812,10 +9245,11 @@ p.gds-body-s.ng-star-inserted {
       '#tg-borradores{position:relative;isolation:isolate;align-self:center;flex:none;width:min(420px,calc(100vw - 40px));margin:14px auto 0;padding:10px;border-radius:22px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;' +
       'box-shadow:0 8px 30px rgba(0,0,0,0.45);color:#fff;font-family:"Google Sans",system-ui,sans-serif;}' +
       // el fondo vive en un ::before para que la tarjeta no sea "raíz de backdrop" y los botones puedan desenfocar de verdad lo de atrás
-      '#tg-borradores::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:rgba(8,12,24,0.86);-webkit-backdrop-filter:blur(var(--tg-bf14,14px));backdrop-filter:blur(var(--tg-bf14,14px));}' +
-      'html.tg-blur-baja #tg-borradores::before{background:rgba(8,12,24,0.94);-webkit-backdrop-filter:none;backdrop-filter:none;}' +
-      'html:not(.tg-blur-baja):not(.tg-blur-media) #tg-borradores button{-webkit-backdrop-filter:blur(calc(var(--tg-bf14,14px) * 1.8));backdrop-filter:blur(calc(var(--tg-bf14,14px) * 1.8));}' +
-      '#tg-borradores .tg-bor-tit{font-size:12px;font-weight:600;opacity:0.8;padding:0 6px 2px;}' +
+      '#tg-borradores::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:rgba(0,0,0,0.82);-webkit-backdrop-filter:blur(var(--tg-bf14,14px));backdrop-filter:blur(var(--tg-bf14,14px));}' +
+      'html.tg-blur-baja #tg-borradores::before{background:#000;-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      '#tg-borradores .tg-bor-cab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:0 6px 2px;}' +
+      '#tg-borradores .tg-bor-tit{font-size:12px;font-weight:600;opacity:0.8;white-space:nowrap;}' +
+      '#tg-borradores .tg-bor-peso{font-size:12px;font-weight:500;opacity:0.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
       // capa que bloquea la caja de escribir mientras carga el chat de un borrador
       '#tg-bor-espera{position:fixed;z-index:50;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:0 16px;background:rgba(38,40,43,0.55);-webkit-backdrop-filter:blur(var(--tg-bf14,14px));backdrop-filter:blur(var(--tg-bf14,14px));color:#b4b8be;font:500 14px \"Google Sans\",system-ui,sans-serif;text-align:center;pointer-events:auto;cursor:not-allowed;touch-action:none;user-select:none;-webkit-user-select:none;transition:opacity 0.2s;}' +
       'html.tg-blur-baja #tg-bor-espera{background:#26282b;-webkit-backdrop-filter:none;backdrop-filter:none;}' +
@@ -8823,20 +9257,56 @@ p.gds-body-s.ng-star-inserted {
       '#tg-borradores .tg-bor-lista{display:flex;flex-direction:column;gap:' + GAP_ITEM + 'px;max-height:' + (VISIBLES * ALTO_ITEM + (VISIBLES - 1) * GAP_ITEM) + 'px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.3) transparent;}' +
       '#tg-borradores .tg-bor-lista::-webkit-scrollbar{width:4px;}' +
       '#tg-borradores .tg-bor-lista::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.3);border-radius:2px;}' +
-      '#tg-borradores button{all:unset;box-sizing:border-box;cursor:pointer;display:block;flex:none;width:100%;height:' + ALTO_ITEM + 'px;padding:10px 14px;border-radius:14px;background:rgba(0,0,0,0.38);' +
-      'font-size:14px;line-height:1.3;-webkit-tap-highlight-color:transparent;}' +
+      '#tg-borradores .tg-bor-fila{flex:none;display:flex;align-items:stretch;height:' + ALTO_ITEM + 'px;border-radius:14px;background:rgba(255,255,255,0.08);overflow:hidden;}' +
+      '#tg-borradores button{all:unset;box-sizing:border-box;cursor:pointer;-webkit-tap-highlight-color:transparent;}' +
+      '#tg-borradores .tg-bor-main{flex:1;min-width:0;display:block;padding:10px 6px 10px 14px;font-size:14px;line-height:1.3;}' +
+      '#tg-borradores .tg-bor-mas{flex:none;width:44px;display:flex;align-items:center;justify-content:center;opacity:0.75;}' +
       '#tg-borradores .tg-bor-chat{display:block;font-size:12px;font-weight:600;opacity:0.7;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
       '#tg-borradores .tg-bor-txt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
-      '#tg-borradores button:active{transform:scale(0.98);background:rgba(0,0,0,0.55);}';
+      '#tg-borradores .tg-bor-main:active,#tg-borradores .tg-bor-mas:active{background:rgba(255,255,255,0.12);}' +
+      // menú contextual "..." de cada borrador (Abrir / Eliminar)
+      '#tg-bor-menu{position:fixed;z-index:2147482000;min-width:170px;padding:6px;border-radius:16px;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;background:rgba(0,0,0,0.8);-webkit-backdrop-filter:blur(var(--tg-bf14,14px)) saturate(1.4);backdrop-filter:blur(var(--tg-bf14,14px)) saturate(1.4);box-shadow:0 8px 30px rgba(0,0,0,0.5),inset 0 0 0 0.5px rgba(255,255,255,0.12);color:#fff;font-family:inherit;transform-origin:top right;}' +
+      'html.tg-blur-baja #tg-bor-menu{background:#000;-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      '#tg-bor-menu button{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;height:42px;padding:0 14px;border-radius:11px;font-size:14px;-webkit-tap-highlight-color:transparent;}' +
+      '#tg-bor-menu button:active{background:rgba(255,255,255,0.14);}' +
+      '#tg-bor-menu .tg-bor-del{color:#ff6b6b;}' +
+      '#tg-bor-menu .tg-bor-del.tg-conf{background:#d93025;color:#fff;font-weight:600;}';
     (document.head || document.documentElement).appendChild(est);
 
     // ---- captura: SOLO cuando la caja pierde el foco (focusout) o la página se oculta; mientras escribes no se guarda nada ----
     let ultimoTexto = null;
-    function tituloChat() { // nombre del chat: el de la barra lateral; si no está en el DOM, el inicio de la primera pregunta
-      const m = location.pathname.match(/\/app\/([^/?]+)/);
-      if (!m) return '';
-      const a = document.querySelector('gem-nav-list-item[data-test-id="conversation"] a[href*="/app/' + m[1] + '"]');
-      let t = a ? (a.textContent || '').replace(/\s+/g, ' ').trim() : '';
+    // ---- REGISTRO DE NOMBRES DE CHATS (id -> título) ----
+    // Los nombres salen de la lista de chats de la barra lateral: en escritorio (16:9) es la lista fija; en el móvil (9:16) vive dentro del
+    // <mat-sidenav> (el menú que se abre con ☰) y no siempre está dibujada. Por eso se leen los dos sitios (cualquier gem-nav-list-item de
+    // conversación) y se RECUERDAN: cada vez que la lista está en pantalla se anota el nombre de cada chat; después el borrador lo encuentra
+    // aunque el menú esté cerrado. El nombre sale del aria-label del enlace (es exactamente el título).
+    const CLAVE_TIT = 'tgTitulosChats', MAX_TIT = 300;
+    let titulos = {};
+    try { titulos = JSON.parse(localStorage.getItem(CLAVE_TIT) || '{}') || {}; } catch (e) { titulos = {}; }
+    const idDeUrl = (u) => { const m = String(u || '').match(/\/app\/([^/?#]+)/); return m ? m[1] : ''; };
+    function escanearTitulos() {
+      const enlaces = document.querySelectorAll('mat-sidenav gem-nav-list-item[data-test-id="conversation"] a[href*="/app/"], side-navigation-content gem-nav-list-item[data-test-id="conversation"] a[href*="/app/"], gem-nav-list-item[data-test-id="conversation"] a[href*="/app/"]');
+      if (!enlaces.length) return;
+      let cambio = false;
+      enlaces.forEach((a) => {
+        const id = idDeUrl(a.getAttribute('href'));
+        if (!id) return;
+        const t = (a.getAttribute('aria-label') || (a.querySelector('.title-text') || a).textContent || '').replace(/\s+/g, ' ').trim();
+        if (!t || titulos[id] === t) return;
+        delete titulos[id]; titulos[id] = t; cambio = true; // se re-añade al final: los más recientes quedan al final
+      });
+      if (!cambio) return;
+      const claves = Object.keys(titulos);
+      if (claves.length > MAX_TIT) claves.slice(0, claves.length - MAX_TIT).forEach((k) => { delete titulos[k]; });
+      try { localStorage.setItem(CLAVE_TIT, JSON.stringify(titulos)); } catch (e) { /* sin guardar */ }
+    }
+    const tituloMostrado = (x) => titulos[idDeUrl(x.url)] || x.titulo || '';
+    setInterval(() => { if (!document.hidden && !pantallaBloqueada) escanearTitulos(); }, 2000);
+    function tituloChat() { // nombre del chat: el registrado (lista lateral de escritorio o mat-sidenav móvil); si no hay, el inicio de la primera pregunta
+      const id = idDeUrl(location.pathname);
+      if (!id) return '';
+      escanearTitulos();
+      let t = titulos[id] || '';
       if (!t) { const q = document.querySelector('#chat-history user-query'); if (q) t = (q.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40); }
       return t;
     }
@@ -8844,11 +9314,12 @@ p.gds-body-s.ng-star-inserted {
       const texto = (ed.innerText || '').replace(/\u200b/g, '').trim();
       const url = urlDe || urlActual();
       const vig = adjuntosVigentes();
-      const aptos = vig.filter((a) => a.file.size <= MAX_ARCHIVO);
-      if (aptos.length < vig.length) console.warn('[TG] borrador: archivos de más de 15 MB no se guardan');
+      const aptos = vig; // sin límite de peso
       const sig = texto + '|' + url + '|' + aptos.map((a) => a.clave).join(',');
       if (sig === ultimoTexto) return;
       ultimoTexto = sig;
+      const nChips = contarChips();
+      if (nChips || activos.length) depurarSubida('Borrador guardado · adjuntos en pantalla: ' + nChips + ' · capturados: ' + activos.length + ' · guardados: ' + aptos.length + (nChips && !activos.length ? ' (no se capturó ninguno)' : ''));
       const previo = leer().find((x) => x.url === url);
       const a = leer().filter((x) => x.url !== url);
       if (texto || aptos.length) {
@@ -8961,6 +9432,66 @@ p.gds-body-s.ng-star-inserted {
     window.addEventListener('resize', sincronizarCero);
     setInterval(sincronizarCero, 120);
 
+    // ---- pesos: MB y GB ----
+    const sumaArchivos = (ar) => (ar || []).reduce((p, f) => p + (f.size || 0), 0);
+    function pesoTexto(bytes) {
+      if (!bytes) return '0 MB';
+      const mb = bytes / 1048576;
+      if (mb >= 1024) { const g = mb / 1024; return String(g >= 10 ? Math.round(g) : Math.round(g * 10) / 10).replace('.', ',') + ' GB'; }
+      return String(mb >= 10 ? Math.round(mb) : Math.max(0.1, Math.round(mb * 10) / 10)).replace('.', ',') + ' MB';
+    }
+    function puntosSvg() { // los tres puntos "..." del botón de cada borrador
+      const ns = 'http://www.w3.org/2000/svg', sv = document.createElementNS(ns, 'svg');
+      sv.setAttribute('viewBox', '0 0 24 24'); sv.setAttribute('width', '20'); sv.setAttribute('height', '20'); sv.setAttribute('aria-hidden', 'true');
+      [5, 12, 19].forEach((cx) => { const c = document.createElementNS(ns, 'circle'); c.setAttribute('cx', String(cx)); c.setAttribute('cy', '12'); c.setAttribute('r', '1.9'); c.setAttribute('fill', 'currentColor'); sv.appendChild(c); });
+      return sv;
+    }
+
+    // ---- menú contextual de un borrador: Abrir / Eliminar (Eliminar pide pulsar otra vez para confirmar) ----
+    let menuBor = null;
+    function cerrarMenuBor() {
+      if (!menuBor) return;
+      const m = menuBor; menuBor = null;
+      clearTimeout(m.t); m.el.remove();
+      document.removeEventListener('pointerdown', m.fuera, true);
+      document.removeEventListener('keydown', m.tecla, true);
+      if (m.lista) m.lista.removeEventListener('scroll', m.cierra);
+    }
+    function eliminarBorrador(x) {
+      guardar(leer().filter((d) => d.url !== x.url));
+      aplicarTope(); // borra de IndexedDB los archivos que ya nadie usa
+    }
+    function abrirMenuBor(x, boton, lista) {
+      cerrarMenuBor();
+      const el = document.createElement('div'); el.id = 'tg-bor-menu'; el.setAttribute('role', 'menu');
+      const bAbrir = document.createElement('button'); bAbrir.type = 'button'; bAbrir.setAttribute('role', 'menuitem'); bAbrir.textContent = 'Abrir';
+      const bDel = document.createElement('button'); bDel.type = 'button'; bDel.setAttribute('role', 'menuitem'); bDel.className = 'tg-bor-del'; bDel.textContent = 'Eliminar';
+      const m = { el: el, x: x, lista: lista, t: 0 };
+      m.fuera = (e) => { if (!el.contains(e.target) && !boton.contains(e.target)) cerrarMenuBor(); };
+      m.tecla = (e) => { if (e.key === 'Escape') cerrarMenuBor(); };
+      m.cierra = () => cerrarMenuBor();
+      menuBor = m;
+      let confirmando = false;
+      bAbrir.addEventListener('click', () => { cerrarMenuBor(); abrirBorrador(x); });
+      bDel.addEventListener('click', () => {
+        if (!confirmando) { // primera pulsación: pide confirmación (se cancela sola a los 4 s)
+          confirmando = true; bDel.textContent = '¿Eliminar borrador?'; bDel.classList.add('tg-conf');
+          m.t = setTimeout(() => { confirmando = false; bDel.textContent = 'Eliminar'; bDel.classList.remove('tg-conf'); }, 4000);
+          return;
+        }
+        cerrarMenuBor(); eliminarBorrador(x); // segunda pulsación: se elimina
+      });
+      el.appendChild(bAbrir); el.appendChild(bDel); document.body.appendChild(el);
+      const r = boton.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+      const left = Math.min(Math.max(8, r.right - w), Math.max(8, window.innerWidth - w - 8));
+      let top = r.bottom + 6; if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+      el.style.left = left + 'px'; el.style.top = top + 'px';
+      if (!sinMovimiento() && el.animate) el.animate([{ opacity: 0, transform: 'scale(0.92)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 140, easing: 'ease-out' });
+      document.addEventListener('pointerdown', m.fuera, true);
+      document.addEventListener('keydown', m.tecla, true);
+      if (lista) lista.addEventListener('scroll', m.cierra, { passive: true });
+    }
+
     // ---- caja bloqueada mientras carga el chat del borrador: capa gris oscuro encima de la caja real (no se puede tocar ni escribir) ----
     let espera = null;
     function ponerEspera() {
@@ -9052,20 +9583,30 @@ p.gds-body-s.ng-star-inserted {
       const padre = desk ? cero.w : (h1.closest('.top-section-container') || h1.closest('.zero-state-container'));
       if (!padre) return;
       if (!c) { c = document.createElement('div'); c.id = 'tg-borradores'; }
-      const firma = JSON.stringify(a.map((x) => x.url + x.titulo + x.texto + (x.archivos || []).map((f) => f.id).join(',')));
+      const firma = JSON.stringify(a.map((x) => x.url + tituloMostrado(x) + x.texto + (x.archivos || []).map((f) => f.id).join(',')));
       if (c._f !== firma) {
         c._f = firma; c.textContent = '';
-        const t = document.createElement('div'); t.className = 'tg-bor-tit'; t.textContent = 'Continúa donde lo dejaste'; c.appendChild(t);
+        cerrarMenuBor();
+        const cab = document.createElement('div'); cab.className = 'tg-bor-cab';
+        const t = document.createElement('div'); t.className = 'tg-bor-tit'; t.textContent = 'Continúa donde lo dejaste';
+        const unicos = {}; a.forEach((x) => (x.archivos || []).forEach((f) => { unicos[f.id] = f.size || 0; })); // un mismo archivo en varios borradores se cuenta una vez
+        const pesoTotal = Object.keys(unicos).reduce((p, k) => p + unicos[k], 0);
+        const pt = document.createElement('div'); pt.className = 'tg-bor-peso'; pt.textContent = pesoTexto(pesoTotal) + ' de Borradores';
+        cab.appendChild(t); cab.appendChild(pt); c.appendChild(cab);
         const lista = document.createElement('div'); lista.className = 'tg-bor-lista'; lista.setAttribute('data-lenis-prevent', '');
         c.appendChild(lista);
         a.forEach((x) => {
-          const b = document.createElement('button'); b.type = 'button';
-          const n1 = document.createElement('span'); n1.className = 'tg-bor-chat'; n1.textContent = x.titulo || 'Chat nuevo';
-          const n2 = document.createElement('span'); n2.className = 'tg-bor-txt'; const ar = x.archivos || [], ico = ar.length ? '📎 ' + (ar.length > 1 ? ar.length + ' archivos' : ar[0].name) + (x.texto ? ' · ' : '') : '';
-          n2.textContent = ico + (x.texto || '').replace(/\s+/g, ' ');
+          const fila = document.createElement('div'); fila.className = 'tg-bor-fila';
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'tg-bor-main';
+          const n1 = document.createElement('span'); n1.className = 'tg-bor-chat'; n1.textContent = tituloMostrado(x) || 'Chat nuevo';
+          const n2 = document.createElement('span'); n2.className = 'tg-bor-txt'; const ar = x.archivos || [];
+          n2.textContent = (ar.length ? pesoTexto(sumaArchivos(ar)) + (x.texto ? ' · ' : '') : '') + (x.texto || '').replace(/\s+/g, ' ');
           b.appendChild(n1); b.appendChild(n2);
           b.addEventListener('click', () => abrirBorrador(x));
-          lista.appendChild(b);
+          const mas = document.createElement('button'); mas.type = 'button'; mas.className = 'tg-bor-mas';
+          mas.setAttribute('aria-label', 'Más opciones'); mas.setAttribute('aria-haspopup', 'menu'); mas.appendChild(puntosSvg());
+          mas.addEventListener('click', (e) => { e.stopPropagation(); if (menuBor && menuBor.x === x) { cerrarMenuBor(); return; } abrirMenuBor(x, mas, lista); });
+          fila.appendChild(b); fila.appendChild(mas); lista.appendChild(fila);
         });
       }
       if (c.parentElement !== padre || (!desk && padre.lastElementChild !== c)) {
@@ -9080,6 +9621,214 @@ p.gds-body-s.ng-star-inserted {
     document.addEventListener('tg-bloqueo-cambio', () => { if (!pantallaBloqueada) pintar(); });
   })();
 
+
+  // ============================================================================================
+  // TUS DOCUMENTOS: tarjeta de accesos directos a los documentos de la biblioteca de Gemini (pantalla "¿Por dónde empezamos?")
+  // PEGAR justo antes de  revisarTemaBody();  (después del bloque de BORRADORES; queda encima de "Continúa donde lo dejaste").
+  // - Los datos salen de https://gemini.google.com/library/documents: al abrir esa página se leen los enlaces y se guardan en localStorage (máx. 30).
+  // - Ligero: un solo temporizador de 500 ms que no hace nada si la pestaña está oculta, hay un chat abierto o la pantalla está bloqueada;
+  //   en la biblioteca solo vuelve a leer cuando cambia la lista; en el inicio solo reconstruye la tarjeta cuando cambian los datos.
+  // ============================================================================================
+  (function () {
+    const CLAVE = 'tgDocumentos', MAX = 30, MAX_VER = 15, VISIBLES = 3, ALTO = 56, GAP = 6;
+    const ICONOS = {
+      article: 'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z',
+      code: 'M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z',
+      slides: 'M10 8v8l5-4-5-4zm9-5H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z'
+    };
+    const txt = (el) => ((el && el.textContent) || '').replace(/\s+/g, ' ').trim();
+    let datos = [], version = 1, sigRapida = '';
+    try { const a = JSON.parse(localStorage.getItem(CLAVE) || '[]'); if (Array.isArray(a)) datos = a.filter((x) => x && x.t && x.u); } catch (e) { datos = []; }
+
+    // ---- lectura de la biblioteca (solo en /library/documents) ----
+    function escanear() {
+      const as = document.querySelectorAll('ul > li > a[href*="/app/"][aria-label]:not(gem-nav-list-item *)');
+      const n = as.length;
+      if (!n) return;
+      const sr = n + '|' + as[0].getAttribute('href') + '|' + as[n - 1].getAttribute('href');
+      if (sr === sigRapida) return; // misma lista que la última vez: no se vuelve a leer
+      sigRapida = sr;
+      const vistos = new Set(), res = [];
+      for (let k = 0; k < n && res.length < MAX; k++) {
+        const a = as[k], u = a.getAttribute('href');
+        if (!u || vistos.has(u)) continue;
+        const col = a.querySelector('div > div');
+        if (!col || col.children.length < 2) continue; // los enlaces de la barra lateral no traen fecha: se ignoran
+        const t = txt(col.children[0]) || (a.getAttribute('aria-label') || '').replace(/^\S+\s+/, '').trim();
+        if (!t) continue;
+        vistos.add(u);
+        res.push({ t: t, u: u, i: txt(a.querySelector('[aria-hidden="true"]')), f: txt(col.children[1]) });
+      }
+      if (!res.length) return;
+      const j = JSON.stringify(res);
+      if (j === JSON.stringify(datos)) return;
+      datos = res; version++;
+      try { localStorage.setItem(CLAVE, j); } catch (e) { /* sin storage */ }
+    }
+
+    // ---- estilos (mismo aspecto que la tarjeta de Borradores) ----
+    const est = document.createElement('style'); est.id = 'tg-documentos-style';
+    est.textContent =
+      '#tg-documentos{pointer-events:auto;position:relative;isolation:isolate;align-self:center;flex:none;width:min(420px,calc(100vw - 40px));margin:14px auto 0;padding:10px;border-radius:22px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;box-shadow:0 8px 30px rgba(0,0,0,0.45);color:#fff;font-family:"Google Sans",system-ui,sans-serif;}' +
+      '#tg-documentos::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:rgba(0,0,0,0.82);-webkit-backdrop-filter:blur(var(--tg-bf14,14px));backdrop-filter:blur(var(--tg-bf14,14px));}' +
+      'html.tg-blur-baja #tg-documentos::before{background:#000;-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      '#tg-cero #tg-documentos{margin:16px 0 0;width:min(520px,92%);}' + // escritorio: #tg-cero no recibe toques, la tarjeta sí
+      '#tg-documentos .tg-doc-cab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:0 6px 2px;}' +
+      '#tg-documentos .tg-doc-tit{font-size:12px;font-weight:600;opacity:0.8;white-space:nowrap;}' +
+      '#tg-documentos .tg-doc-ver{font-size:12px;font-weight:500;opacity:0.55;white-space:nowrap;color:inherit;text-decoration:none;}' +
+      '#tg-documentos .tg-doc-lista{display:flex;flex-direction:column;gap:' + GAP + 'px;max-height:' + (VISIBLES * ALTO + (VISIBLES - 1) * GAP) + 'px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.3) transparent;}' +
+      '#tg-documentos .tg-doc-lista::-webkit-scrollbar{width:4px;}' +
+      '#tg-documentos .tg-doc-lista::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.3);border-radius:2px;}' +
+      '#tg-documentos .tg-doc-fila{flex:none;display:flex;align-items:center;gap:12px;height:' + ALTO + 'px;padding:0 14px;box-sizing:border-box;border-radius:14px;background:rgba(255,255,255,0.08);color:inherit;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent;}' +
+      '#tg-documentos .tg-doc-fila:active{background:rgba(255,255,255,0.12);}' +
+      '#tg-documentos .tg-doc-ic{flex:none;display:flex;opacity:0.85;}' +
+      '#tg-documentos .tg-doc-tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:14px;line-height:1.3;}' +
+      '#tg-documentos .tg-doc-t,#tg-documentos .tg-doc-f{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+      '#tg-documentos .tg-doc-f{font-size:12px;opacity:0.55;}' +
+      // velo al abrir un documento: blur de 20px en nivel MEDIA y ALTA; en BAJA sin blur (más oscuro)
+      '#tg-doc-velo{position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147481500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);opacity:0;transition:opacity 0.2s;pointer-events:auto;}' +
+      'html.tg-blur-baja #tg-doc-velo{background:rgba(0,0,0,0.75);-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      '#tg-doc-velo .tg-doc-cargador{width:64px;height:64px;}';
+    (document.head || document.documentElement).appendChild(est);
+
+    // ---- navegación dentro de la SPA (igual que los borradores), con respaldo si no navegó ----
+    function ir(href) {
+      let u; try { u = new URL(href, location.origin); } catch (e) { return; }
+      if (u.origin !== location.origin) { location.assign(u.href); return; }
+      history.pushState(history.state, '', u.pathname + u.search + u.hash);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+      setTimeout(() => { if (enEstadoCero()) location.assign(u.href); }, 3500);
+    }
+
+    // ---- abrir el DOCUMENTO (no el chat), sin pasar por la biblioteca ----
+    // 1) se navega al chat del documento dentro de la SPA; 2) cuando el chat ya cargó se pone el #id del documento (así Gemini abre su panel);
+    // 3) si no se abrió, se pulsa el chip del documento dentro de esa respuesta; 4) a los 10 s, respaldo: recarga con el enlace completo (una sola vez).
+    // Un velo oscuro tapa todo el proceso.
+    let abriendo = null;
+    function velo(on) {
+      if (!document.body) return;
+      let v = document.getElementById('tg-doc-velo');
+      if (!on) {
+        if (!v) return;
+        v.style.opacity = '0';
+        setTimeout(() => { try { if (tgForma) tgForma.parar(v.firstChild); } catch (e) { /* nada */ } v.remove(); }, 300);
+        return;
+      }
+      if (v) return;
+      v = document.createElement('div'); v.id = 'tg-doc-velo';
+      const c = document.createElement('div'); c.className = 'tg-doc-cargador';
+      try { c.style.color = burbujaCSS(burbuja, false); } catch (e) { c.style.color = '#D0BCFF'; } // el color de tu burbuja, como el cargador del centro
+      v.appendChild(c); document.body.appendChild(v);
+      try { if (tgForma) tgForma.montar(c); } catch (e) { /* sin cargador */ } // la figura animada de Material 3 Expressive
+      void v.offsetWidth; v.style.opacity = '1';
+    }
+    function finApertura() { abriendo = null; try { sessionStorage.removeItem('tgAbrirDoc'); } catch (e) { /* nada */ } velo(false); }
+    function pasoApertura() {
+      const ab = abriendo; if (!ab) return;
+      const ahora = performance.now(), u = ab.u;
+      if (document.querySelector('immersive-panel')) { // el panel del documento ya está abierto
+        if (!ab.panel) ab.panel = ahora; else if (ahora - ab.panel > 500) { finApertura(); return; }
+      } else if (ahora - ab.t0 > 10000) { // respaldo: ni el #id ni el chip lo abrieron
+        const h = u.href, r = ab.r; finApertura();
+        if (!r) { try { sessionStorage.setItem('tgAbrirDoc', JSON.stringify({ href: h, t: Date.now() })); } catch (e) { /* nada */ } location.assign(h); }
+        return;
+      }
+      if (location.pathname === u.pathname) {
+        const n = document.querySelectorAll('#chat-history model-response').length;
+        if (n !== ab.n) { ab.n = n; ab.desde = ahora; }
+        if (n && !ab.hash && ahora - ab.desde > 700) { ab.hash = ahora; if (u.hash) location.hash = u.hash; }
+        if (ab.hash && !ab.chip && !ab.panel && ahora - ab.hash > 1800) {
+          ab.chip = ahora;
+          const id = u.hash.slice(1);
+          const el = /^[\w-]+$/.test(id) ? document.querySelector('[id*="' + id + '"]') : null;
+          const resp = el && (el.closest('model-response') || el);
+          const chip = resp && resp.querySelector('immersive-entry-chip button, immersive-entry-chip, [class*="entry-chip"] button, [class*="entry-chip"]');
+          if (chip) { try { chip.scrollIntoView({ block: 'center' }); chip.click(); } catch (e) { /* nada */ } }
+        }
+      }
+      setTimeout(pasoApertura, 150);
+    }
+    function abrirDoc(href) {
+      let u; try { u = new URL(href, location.origin); } catch (e) { return; }
+      abriendo = { u: u, t0: performance.now(), n: -1, desde: 0, hash: 0, chip: 0, panel: 0, r: false };
+      velo(true);
+      if (location.pathname !== u.pathname) {
+        history.pushState(history.state, '', u.pathname + u.search); // sin #id: el #id se pone cuando el chat ya cargó
+        window.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+      }
+      setTimeout(pasoApertura, 300);
+    }
+
+    // ---- tarjeta ----
+    function icono(nombre) {
+      const ns = 'http://www.w3.org/2000/svg', sv = document.createElementNS(ns, 'svg'), p = document.createElementNS(ns, 'path');
+      sv.setAttribute('viewBox', '0 0 24 24'); sv.setAttribute('width', '22'); sv.setAttribute('height', '22'); sv.setAttribute('aria-hidden', 'true');
+      p.setAttribute('d', ICONOS[nombre] || ICONOS.article); p.setAttribute('fill', 'currentColor'); sv.appendChild(p);
+      return sv;
+    }
+    function fila(href, titulo, sub, ic, doc) {
+      const a = document.createElement('a'); a.className = 'tg-doc-fila'; a.setAttribute('href', href);
+      if (doc) a.setAttribute('data-doc', '');
+      const i = document.createElement('span'); i.className = 'tg-doc-ic'; i.appendChild(icono(ic));
+      const tx = document.createElement('span'); tx.className = 'tg-doc-tx';
+      const t = document.createElement('span'); t.className = 'tg-doc-t'; t.textContent = titulo; tx.appendChild(t);
+      if (sub) { const f = document.createElement('span'); f.className = 'tg-doc-f'; f.textContent = sub; tx.appendChild(f); }
+      a.appendChild(i); a.appendChild(tx);
+      return a;
+    }
+    let card = null, padreVisto = null, t0 = 0;
+    const quitar = () => { if (card) { card.remove(); card = null; } };
+    function construir() {
+      card._v = version; card.textContent = '';
+      const cab = document.createElement('div'); cab.className = 'tg-doc-cab';
+      const t = document.createElement('div'); t.className = 'tg-doc-tit'; t.textContent = 'Tus documentos';
+      const ver = document.createElement('a'); ver.className = 'tg-doc-ver'; ver.setAttribute('href', '/library/documents'); ver.textContent = 'Ver todos';
+      cab.appendChild(t); cab.appendChild(ver); card.appendChild(cab);
+      const lista = document.createElement('div'); lista.className = 'tg-doc-lista'; lista.setAttribute('data-lenis-prevent', '');
+      if (!datos.length) lista.appendChild(fila('/library/documents', 'Abrir tus documentos', 'Ábrelos una vez para cargarlos aquí', 'article'));
+      else datos.slice(0, MAX_VER).forEach((x) => lista.appendChild(fila(x.u, x.t, x.f, x.i, true)));
+      card.appendChild(lista);
+    }
+    function pintar(padre, desk) {
+      if (!card) {
+        card = document.createElement('div'); card.id = 'tg-documentos'; card._v = 0; card._anim = false;
+        card.addEventListener('click', (e) => { // un solo listener para toda la tarjeta
+          const a = e.target.closest && e.target.closest('a[href]');
+          if (!a || e.button || e.metaKey || e.ctrlKey || e.shiftKey) return;
+          e.preventDefault();
+          if (a.hasAttribute('data-doc')) abrirDoc(a.getAttribute('href')); else ir(a.getAttribute('href'));
+        });
+      }
+      if (card._v !== version) construir();
+      if (padre !== padreVisto) { padreVisto = padre; t0 = performance.now(); card._anim = false; }
+      const borr = document.getElementById('tg-borradores');
+      const conBorr = !!borr && borr.parentElement === padre;
+      const bien = card.parentElement === padre && (conBorr ? card.nextElementSibling === borr : padre.lastElementChild === card);
+      if (bien) return;
+      if (conBorr) padre.insertBefore(card, borr); else padre.appendChild(card); // siempre antes de Borradores: así esa tarjeta no se pelea por ser la última
+      if (!card._anim && !sinMovimiento() && card.animate) {
+        card._anim = true;
+        card.animate([{ opacity: 0, translate: '0 30px' }, { opacity: 1, translate: '0 0' }], { duration: 800, delay: desk ? Math.max(0, 1100 - (performance.now() - t0)) : 0, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'backwards' });
+      }
+    }
+    function tick() {
+      if (pantallaBloqueada || document.hidden) return;
+      const p = location.pathname;
+      if (p.indexOf('/library/documents') >= 0) { escanear(); return; }
+      if (/\/app\/[^/]+/.test(p)) { quitar(); return; } // chat abierto: nada que hacer
+      const h1 = document.querySelector('.zero-state-container h1[data-test-id="message"]');
+      if (!h1 || !enEstadoCero()) { quitar(); return; }
+      const desk = window.matchMedia('(min-width: 960px)').matches;
+      const padre = desk ? document.getElementById('tg-cero') : (h1.closest('.top-section-container') || h1.closest('.zero-state-container'));
+      if (padre) pintar(padre, desk);
+    }
+    try { // si la página se recargó por el respaldo, se retoma (una sola vez)
+      const g = JSON.parse(sessionStorage.getItem('tgAbrirDoc') || 'null');
+      if (g && g.href && Date.now() - g.t < 15000) { abriendo = { u: new URL(g.href, location.origin), t0: performance.now(), n: -1, desde: 0, hash: 0, chip: 0, panel: 0, r: true }; velo(true); setTimeout(pasoApertura, 300); }
+    } catch (e) { /* nada */ }
+    setInterval(tick, 500);
+    document.addEventListener('tg-bloqueo-cambio', () => { if (!pantallaBloqueada) tick(); });
+  })();
 
   revisarTemaBody();
   try { actualizarVarSafeTop(); } catch (e) { /* sin área segura */ }

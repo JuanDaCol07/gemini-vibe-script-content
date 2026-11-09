@@ -290,6 +290,12 @@ class _ContentScreenState extends State<ContentScreen>
   // (así los rebuilds del Scaffold / MediaQuery no lo tocan).
   Widget? _webView;
 
+  // ---- TAMAÑO FIJO DEL WEBVIEW (solo móvil) ----
+  // Se recuerda la altura "completa" de la pantalla; si algo la encoge (teclado, barra de sistema, el propio Android...)
+  // el WebView NO la sigue: conserva su tamaño y lo que sobra queda fuera de la pantalla. Se reinicia al girar o con otro ancho.
+  double _refAncho = 0;
+  double _refAlto = 0;
+
   // ---- TECLADO ----
   // El WebView NUNCA cambia de tamaño cuando aparece el teclado (redimensionarlo lagueaba y, además, Android
   // perdía el foco del input y cerraba el teclado). En su lugar Flutter le avisa a la página la altura del teclado
@@ -1145,7 +1151,8 @@ class _ContentScreenState extends State<ContentScreen>
           fit: StackFit.expand,
           children: [
             // capa 1: el WebView (tamaño fijo, el teclado no lo redimensiona)
-            if (_webView != null) Positioned.fill(child: _webView!),
+            if (_webView != null)
+              Positioned.fill(child: _conTamanoFijo(_webView!)),
 
             // capa 2: fondo negro + logo por encima, con fade out
             if (!_splashQuitado)
@@ -1170,6 +1177,34 @@ class _ContentScreenState extends State<ContentScreen>
           ],
         ),
       ),
+    );
+  }
+
+  // Mantiene el WebView con el tamaño de referencia; el widget del WebView es SIEMPRE la misma instancia, así que no se reconstruye.
+  Widget _conTamanoFijo(Widget web) {
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      return web; // escritorio: se adapta a la ventana normalmente
+    }
+    return LayoutBuilder(
+      builder: (context, c) {
+        final tecladoAbierto = MediaQuery.viewInsetsOf(context).bottom > 0;
+        if (c.maxWidth != _refAncho) {
+          _refAncho = c
+              .maxWidth; // giro de pantalla / otro ancho real: nueva referencia
+          _refAlto = c.maxHeight;
+        } else if (c.maxHeight > _refAlto || !tecladoAbierto) {
+          _refAlto = c
+              .maxHeight; // sin teclado la altura real manda; con teclado solo puede crecer
+        }
+        return OverflowBox(
+          alignment: Alignment.topCenter,
+          minWidth: c.maxWidth,
+          maxWidth: c.maxWidth,
+          minHeight: _refAlto,
+          maxHeight: _refAlto,
+          child: web,
+        );
+      },
     );
   }
 
@@ -1199,6 +1234,13 @@ class _ContentScreenState extends State<ContentScreen>
         preferredContentMode: UserPreferredContentMode.MOBILE,
         hardwareAcceleration: true,
         supportZoom: false,
+        textZoom:
+            100, // Android: el tamaño de letra del sistema NO cambia el tamaño de la página
+        overScrollMode: OverScrollMode
+            .NEVER, // sin el brillo/estiramiento al llegar al final del scroll
+        verticalScrollBarEnabled:
+            false, // sin barras de scroll nativas (menos dibujo)
+        horizontalScrollBarEnabled: false,
         // Login de Google: rechaza WebViews ("disallowed_useragent"), así que se identifica como Chrome móvil (sin "wv")
         userAgent:
             'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
