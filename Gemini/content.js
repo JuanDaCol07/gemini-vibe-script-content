@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 16; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 17; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -41,6 +41,7 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
+• Los botones de arriba conservan siempre su blur (niveles Media y Alta) y ya no cambian de opacidad al hacer scroll.
 • Rendimiento en móvil: el «modo táctil rápido» (toque inmediato, caja de escribir y botones de arriba sin blur mientras escribes o haces scroll, mensajes fuera de pantalla omitidos del render) ahora se activa siempre al abrir la app y no solo al cambiar el nivel de blur. Además, los ajustes de posición de la pantalla «¿Por dónde empezamos?» solo escriben estilos cuando algo cambió y se pausan con la página oculta. No cambia ningún efecto visual.
 • Nueva tarjeta «Borradores» en «¿Por dónde empezamos?»: accesos directos a los chats con texto sin enviar (se ven 3 y puedes deslizar para ver más; se guardan hasta 20). El borrador se guarda al salir de la caja de escribir. Al abrir uno, la caja se bloquea en gris oscuro («Esperando a que la página responda…») hasta que el chat carga y el texto queda puesto. Los borradores también guardan los archivos adjuntos (sin límite de peso) y los vuelven a adjuntar al abrirlos. El título ahora se anima letra por letra en una sola línea y con sombra.
 • Menús interactivos (cuestionarios): botones con fondo blur estilo burbuja que entran uno a uno desde la izquierda, la opción correcta se ilumina con el color de tu burbuja, textos sin halo, botones del toolbar redondos y pequeños y nueva barra de progreso translúcida.
@@ -412,7 +413,6 @@
   // 3) los botones de arriba pierden el blur mientras se hace scroll (se re-desenfocaban en cada fotograma) · 4) radio de 14px -> 9px.
   // Todo cuelga de html.tg-movil: en la extensión de Chrome no se activa. Dentro de @layer para ganar a los !important sin capa.
   const MOVIL_OPACIDAD_ESCRIBIENDO = 0.95; // opacidad con la que queda la caja al quitarle el blur (0.95 = casi opaca, sin salto al escribir)
-  const MOVIL_OPACIDAD_SCROLL = 0.3;      // igual, para los botones de arriba mientras se hace scroll
   (function () {
     if (typeof ES_APP_FLUTTER === 'undefined' || !ES_APP_FLUTTER) return;
     if (document.getElementById('tg-movil-rapido')) return; // una sola vez
@@ -420,16 +420,11 @@
     r.classList.add('tg-movil');
     const st = document.createElement('style');
     st.id = 'tg-movil-rapido';
-    const BOTONES_ARRIBA = [
-      'top-bar-actions button.mat-mdc-icon-button', '.side-nav-menu-button button.mat-mdc-icon-button',
-      'chat-app-side-nav-menu-button button.mat-mdc-icon-button', 'top-bar-actions .left-section button.mat-mdc-button',
-      'top-bar-actions .center-section button.mat-mdc-button', 'bard-mode-switcher:not(:is(input-area-v2 *)) button'
-    ].map((x) => 'html.tg-movil.tg-scrolleando ' + x).join(',\n');
     st.textContent = `
       @layer tg-blur {
         html.tg-movil { --tg-bf14: 9px; }
         html.tg-movil user-query, html.tg-movil model-response { content-visibility: auto; contain-intrinsic-size: auto 400px; }
-        html.tg-movil.tg-blur-media :is(input-area-v2, top-bar-actions, bard-sidenav) { will-change: auto !important; }
+        html.tg-movil.tg-blur-media :is(input-area-v2, bard-sidenav) { will-change: auto !important; }
         html.tg-movil :is(button, [role="button"], [role="menuitem"], a, summary, label, input, textarea, select) {
           touch-action: manipulation !important; -webkit-tap-highlight-color: transparent !important;
         }
@@ -446,29 +441,8 @@
         html[data-tema="claro"].tg-movil:not(.tg-blur-baja) input-area-v2 .input-area-fieldset > .text-input-field:focus-within {
           box-shadow: inset 0 0 0 100vmax rgba(255, 255, 255, ${MOVIL_OPACIDAD_ESCRIBIENDO}) !important;
         }
-        ${BOTONES_ARRIBA.replace(/html\.tg-movil\.tg-scrolleando/g, 'html.tg-movil:not(.tg-blur-baja).tg-scrolleando')} {
-          -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
-          box-shadow: inset 0 0 0 100vmax rgba(0, 0, 0, ${MOVIL_OPACIDAD_SCROLL}) !important;
-        }
-        ${BOTONES_ARRIBA.replace(/html\.tg-movil\.tg-scrolleando/g, 'html[data-tema="claro"].tg-movil:not(.tg-blur-baja).tg-scrolleando')} {
-          box-shadow: inset 0 0 0 100vmax rgba(255, 255, 255, ${MOVIL_OPACIDAD_SCROLL}) !important;
-        }
       }`;
     (document.head || document.documentElement).appendChild(st); // a document_start aún puede no existir <head>
-    // clase tg-scrolleando mientras el chat se desplaza (un solo temporizador; solo toca el DOM al empezar y al terminar)
-    let activo = false, ultimo = 0, timer = null;
-    const FIN_MS = 180;
-    function revisar() {
-      timer = null;
-      const falta = FIN_MS - (performance.now() - ultimo);
-      if (falta > 10) { timer = setTimeout(revisar, falta); return; }
-      activo = false; r.classList.remove('tg-scrolleando');
-    }
-    document.addEventListener('scroll', () => {
-      ultimo = performance.now();
-      if (!activo) { activo = true; r.classList.add('tg-scrolleando'); }
-      if (!timer) timer = setTimeout(revisar, FIN_MS);
-    }, { capture: true, passive: true });
   })();
   function esTactil() { return !!(window.matchMedia && window.matchMedia('(hover: none)').matches); }
   // LENIS (scroll suave): se puede apagar del todo desde Personalizar > Rendimiento (clave geminiLenis; por defecto encendido)
