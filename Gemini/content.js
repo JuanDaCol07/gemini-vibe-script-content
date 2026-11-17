@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 17; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 19; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -41,7 +41,8 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
-• Los botones de arriba conservan siempre su blur (niveles Media y Alta) y ya no cambian de opacidad al hacer scroll.
+• Fondos en video (móvil): el video ya no se recrea si la app reenvía las preferencias (evita reinicios, tirones y cierres) y el fade de arriba/abajo con video se redibuja como máximo ~30 veces por segundo.
+• En nivel Medio los botones de arriba y las notificaciones también llevan blur. Los botones de arriba conservan siempre su blur (niveles Media y Alta) y ya no cambian de opacidad al hacer scroll.
 • Rendimiento en móvil: el «modo táctil rápido» (toque inmediato, caja de escribir y botones de arriba sin blur mientras escribes o haces scroll, mensajes fuera de pantalla omitidos del render) ahora se activa siempre al abrir la app y no solo al cambiar el nivel de blur. Además, los ajustes de posición de la pantalla «¿Por dónde empezamos?» solo escriben estilos cuando algo cambió y se pausan con la página oculta. No cambia ningún efecto visual.
 • Nueva tarjeta «Borradores» en «¿Por dónde empezamos?»: accesos directos a los chats con texto sin enviar (se ven 3 y puedes deslizar para ver más; se guardan hasta 20). El borrador se guarda al salir de la caja de escribir. Al abrir uno, la caja se bloquea en gris oscuro («Esperando a que la página responda…») hasta que el chat carga y el texto queda puesto. Los borradores también guardan los archivos adjuntos (sin límite de peso) y los vuelven a adjuntar al abrirlos. El título ahora se anima letra por letra en una sola línea y con sombra.
 • Menús interactivos (cuestionarios): botones con fondo blur estilo burbuja que entran uno a uno desde la izquierda, la opción correcta se ilumina con el color de tu burbuja, textos sin halo, botones del toolbar redondos y pequeños y nueva barra de progreso translúcida.
@@ -472,6 +473,16 @@
       'input-area-v2 .text-input-field',
       'input-area-v2 .input-area-fieldset > .text-input-field',
       'immersive-panel button.option',
+      // botones de arriba (pantalla): conservan el blur en Media
+      'top-bar-actions button.mat-mdc-icon-button',
+      '.side-nav-menu-button button.mat-mdc-icon-button',
+      'chat-app-side-nav-menu-button button.mat-mdc-icon-button',
+      'top-bar-actions .left-section button.mat-mdc-button',
+      'top-bar-actions .center-section button.mat-mdc-button',
+      'bard-mode-switcher:not(:is(input-area-v2 *)) button',
+      // notificaciones (tarjeta y botón X): conservan el blur en Media
+      '#tg-notis .tg-noti',
+      '#tg-notis .tg-notis-x',
     ].join(', ');
     const est = document.createElement('style');
     est.id = 'tg-blur-style'; // no está en VIBES_ESTILOS: funciona con Vibes encendido o apagado
@@ -1288,16 +1299,23 @@
   const bdBorrar = (clave) => bdOperacion('readwrite', (a) => a.delete(clave));
 
   const urlsVideo = {}; // clave -> blob URL vigente
-  function nuevaUrlVideo(clave, blob) {
+  const sellosVideo = {}; // clave -> "tamaño|tipo" del blob de esa url (para reconocer el mismo archivo leído otra vez de IndexedDB)
+  // Cada lectura de IndexedDB devuelve un Blob NUEVO; si aplicarPreferencias se ejecuta más de una vez, una url nueva hacía que ponerMedio
+  // destruyera y recreara el <video> (reinicio del video + decodificador nuevo + url vieja viva 2 s): tirones y presión de memoria en móvil.
+  // Mismo archivo (mismo tamaño y tipo) = se reutiliza la url y el video no se toca. "forzar" = el usuario eligió un archivo nuevo.
+  function nuevaUrlVideo(clave, blob, forzar) {
+    const sello = blob.size + '|' + (blob.type || '');
+    if (!forzar && urlsVideo[clave] && sellosVideo[clave] === sello) return urlsVideo[clave];
     const vieja = urlsVideo[clave];
     const nueva = URL.createObjectURL(blob);
     urlsVideo[clave] = nueva;
+    sellosVideo[clave] = sello;
     if (vieja) setTimeout(() => URL.revokeObjectURL(vieja), 2000);
     return nueva;
   }
   function liberarUrlVideo(clave) {
     const vieja = urlsVideo[clave];
-    delete urlsVideo[clave];
+    delete urlsVideo[clave]; delete sellosVideo[clave];
     if (vieja) setTimeout(() => URL.revokeObjectURL(vieja), 2000);
   }
 
@@ -1382,7 +1400,7 @@
       const v = document.createElement('video');
       v.className = 'tg-medio-video';
       v.muted = true; v.defaultMuted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
-      v.disablePictureInPicture = true;
+      v.disablePictureInPicture = true; v.disableRemotePlayback = true;
       v.setAttribute('aria-hidden', 'true');
       // OPTIMIZACIÓN: un video que no es del bloqueo (el fondo de Gemini) y nace con la pantalla bloqueada (bienvenida) ni siquiera arranca: se queda
       // cargado en su primer fotograma y sincronizarVideos lo reproduce al desbloquear (justo antes de la transición de escala del fondo).
@@ -4369,7 +4387,7 @@ p.gds-body-s.ng-star-inserted {
       avisarTg('No se pudo guardar el video (¿falta espacio en el navegador?).');
       return;
     }
-    const url = nuevaUrlVideo(destino, file);
+    const url = nuevaUrlVideo(destino, file, true); // forzar: es un archivo nuevo elegido por el usuario
     const alm = almacenLocal();
     if (destino === 'gemini') {
       aplicarFondo(url, 'video');
@@ -6369,10 +6387,10 @@ p.gds-body-s.ng-star-inserted {
       'position:fixed;left:0;right:0;top:var(--n-top);z-index:2147483000;display:flex;flex-direction:column;align-items:center;pointer-events:none;' +
       'max-height:calc(100vh - var(--n-top) - 10px);max-height:calc(100dvh - var(--n-top) - 10px);}' +
       'html[data-tema="oscuro"] #tg-notis{--n-bg:rgba(0,0,0,0.55);--n-t1:#fff;--n-t2:rgba(235,235,245,0.62);--n-ic:#1c1c1e;--n-sh:0 8px 30px rgba(0,0,0,0.5);--n-bd:rgba(255,255,255,0.12);--n-acc:rgba(235,235,245,0.16);}' +
-      // nivel de blur MEDIA o BAJA: totalmente opacas, sin desenfoque
-      'html.tg-blur-media #tg-notis,html.tg-blur-baja #tg-notis{--n-bg:#000;--n-t1:#fff;--n-t2:rgba(235,235,245,0.62);--n-ic:#1c1c1e;--n-acc:rgba(235,235,245,0.16);--n-bd:rgba(255,255,255,0.14);--n-sh:0 8px 30px rgba(0,0,0,0.5);}' +
-      'html.tg-blur-media[data-tema="oscuro"] #tg-notis,html.tg-blur-baja[data-tema="oscuro"] #tg-notis{--n-bg:#000;}' +
-      'html.tg-blur-media #tg-notis .tg-noti,html.tg-blur-media #tg-notis .tg-notis-x,html.tg-blur-baja #tg-notis .tg-noti,html.tg-blur-baja #tg-notis .tg-notis-x{-webkit-backdrop-filter:none;backdrop-filter:none;}' +
+      // nivel de blur BAJA: totalmente opacas, sin desenfoque (en MEDIA la tarjeta y la X conservan el blur)
+      'html.tg-blur-baja #tg-notis{--n-bg:#000;--n-t1:#fff;--n-t2:rgba(235,235,245,0.62);--n-ic:#1c1c1e;--n-acc:rgba(235,235,245,0.16);--n-bd:rgba(255,255,255,0.14);--n-sh:0 8px 30px rgba(0,0,0,0.5);}' +
+      'html.tg-blur-baja[data-tema="oscuro"] #tg-notis{--n-bg:#000;}' +
+      'html.tg-blur-baja #tg-notis .tg-noti,html.tg-blur-baja #tg-notis .tg-notis-x{-webkit-backdrop-filter:none;backdrop-filter:none;}' +
       // fondo de toda la pantalla con la pila expandida: blur 10px en blur ALTA; negro 0.6 en MEDIA o BAJA
       '#tg-notis::before{content:"";position:fixed;top:0;right:0;bottom:0;left:0;z-index:-1;pointer-events:none;opacity:0;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);transition:opacity 0.3s;}' +
       '#tg-notis.tg-exp::before{opacity:1;}' +
@@ -7759,7 +7777,7 @@ p.gds-body-s.ng-star-inserted {
     const ox = (W - vw * esc) / 2, oy = (H - vh * esc) / 2;
     raiz.querySelectorAll('.tg-fade-canvas').forEach((lz) => {
       const r = lz._r; if (!r) return;
-      const ctx = lz.getContext('2d'); if (!ctx) return;
+      const ctx = lz._ctx || (lz._ctx = lz.getContext('2d')); if (!ctx) return;
       try { ctx.drawImage(v, (r.left - ox) / esc, (r.top - oy) / esc, r.width / esc, r.height / esc, 0, 0, r.width, r.height); } catch (e) { /* cuadro no disponible */ }
     });
   }
@@ -7769,7 +7787,9 @@ p.gds-body-s.ng-star-inserted {
     const paso = () => {
       const v = videoFondoGemini();
       if (!raiz.isConnected || !raiz.classList.contains('tg-fade-video') || !v) { raiz._tgVideoFade = false; return; }
-      if (!document.hidden) pintarVideoFade(raiz, v);
+      // móvil: tope ~30 redibujos/s (28 ms): un video de 60 fps pinta cada 2 cuadros; uno de 30 fps o menos se pinta en todos (sin pérdida visible)
+      const ahoraFade = performance.now();
+      if (!document.hidden && (!ES_APP_FLUTTER || ahoraFade - (raiz._tgVfT || 0) >= 28)) { raiz._tgVfT = ahoraFade; pintarVideoFade(raiz, v); }
       if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(paso); else requestAnimationFrame(paso);
     };
     paso();
