@@ -704,6 +704,12 @@ class _ContentScreenState extends State<ContentScreen>
   void didChangeMetrics() {
     if (!mounted) return;
     final vista = View.of(context);
+    final size = vista.physicalSize / vista.devicePixelRatio;
+    // Si la pantalla realmente cambió de orientación o ancho/alto total, actualizamos la referencia fija
+    if (_refAncho > 0 && (_refAncho - size.width).abs() > 1 && (_refAlto - size.height).abs() > 1) {
+      _refAncho = size.width;
+      _refAlto = size.height;
+    }
     _tecladoObjetivo = (vista.viewInsets.bottom / vista.devicePixelRatio)
         .roundToDouble();
     if (_tecladoTimer?.isActive ?? false)
@@ -1180,31 +1186,22 @@ class _ContentScreenState extends State<ContentScreen>
     );
   }
 
-  // Mantiene el WebView con el tamaño de referencia; el widget del WebView es SIEMPRE la misma instancia, así que no se reconstruye.
+  // Mantiene el WebView con el tamaño fijo de la pantalla física;
+  // NUNCA se reconstruye ni se reajusta con el teclado, insets o rebuilds para evitar lag y saltos en el WebView.
   Widget _conTamanoFijo(Widget web) {
     if (!(Platform.isAndroid || Platform.isIOS)) {
       return web; // escritorio: se adapta a la ventana normalmente
     }
-    return LayoutBuilder(
-      builder: (context, c) {
-        final tecladoAbierto = MediaQuery.viewInsetsOf(context).bottom > 0;
-        if (c.maxWidth != _refAncho) {
-          _refAncho = c
-              .maxWidth; // giro de pantalla / otro ancho real: nueva referencia
-          _refAlto = c.maxHeight;
-        } else if (c.maxHeight > _refAlto || !tecladoAbierto) {
-          _refAlto = c
-              .maxHeight; // sin teclado la altura real manda; con teclado solo puede crecer
-        }
-        return OverflowBox(
-          alignment: Alignment.topCenter,
-          minWidth: c.maxWidth,
-          maxWidth: c.maxWidth,
-          minHeight: _refAlto,
-          maxHeight: _refAlto,
-          child: web,
-        );
-      },
+    final vista = View.of(context);
+    final size = vista.physicalSize / vista.devicePixelRatio;
+    if (_refAncho <= 0 || _refAlto <= 0) {
+      _refAncho = size.width;
+      _refAlto = size.height;
+    }
+    return SizedBox(
+      width: _refAncho,
+      height: _refAlto,
+      child: web,
     );
   }
 
