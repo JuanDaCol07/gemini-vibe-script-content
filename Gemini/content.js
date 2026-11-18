@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 25; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 24; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -42,7 +42,7 @@
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
 • El botón de contraer/expandir de las respuestas de Gemini ahora es solo la flechita, sin fondo (igual que el de tus burbujas), y tu burbuja y la respuesta quedan más cerca.
-• Respuestas largas de Gemini: se contraen desde 100 px, quedan a 100 px con animación de 0,7 s, y una respuesta expandida que sale por completo de la pantalla vuelve a quedar contraída al regresar. La separación entre bloques (cada consulta con su respuesta) se ajusta con --tg-sep-bloques.
+• Respuestas largas de Gemini: se contraen desde 100 px, quedan a 100 px con animación de 0,7 s, y una respuesta expandida que sale por completo de la pantalla vuelve a quedar contraída al regresar. Entre bloques (cada consulta con su respuesta) se oculta el espaciador de Gemini en los que ya tienen otro después, para acercar el hueco al de mensaje–respuesta.
 • Fondos en video (móvil): el video ya no se recrea si la app reenvía las preferencias (evita reinicios, tirones y cierres) y el fade de arriba/abajo con video se redibuja como máximo ~30 veces por segundo.
 • En nivel Medio los botones de arriba y las notificaciones también llevan blur. Los botones de arriba conservan siempre su blur (niveles Media y Alta) y ya no cambian de opacidad al hacer scroll.
 • Rendimiento en móvil: el «modo táctil rápido» (toque inmediato, caja de escribir y botones de arriba sin blur mientras escribes o haces scroll, mensajes fuera de pantalla omitidos del render) ahora se activa siempre al abrir la app y no solo al cambiar el nivel de blur. Además, los ajustes de posición de la pantalla «¿Por dónde empezamos?» solo escriben estilos cuando algo cambió y se pausan con la página oculta. No cambia ningún efecto visual.
@@ -3307,9 +3307,12 @@ logo.animate([
         display: inline-block !important;
       }
 
-      /* SEPARACIÓN ENTRE BLOQUES: el hueco entre la respuesta y tu siguiente mensaje = margen de la respuesta (16px) + este relleno.
-         8px es lo que trae Gemini; súbelo (--tg-sep-bloques) para separar más los bloques o bájalo para juntarlos. */
-      .conversation-container ~ .conversation-container user-query { padding-top: var(--tg-sep-bloques, 8px); }
+      /* SEPARACIÓN ENTRE BLOQUES: que el hueco entre una consulta y la siguiente se parezca al de tu mensaje y su respuesta.
+         Gemini deja un espaciador (.restart-chat-button-scroll-placeholder) bajo la respuesta; solo hace falta en el ÚLTIMO bloque,
+         así que en los bloques que ya tienen otro después se oculta. */
+      .conversation-container:has(~ .conversation-container) .restart-chat-button-scroll-placeholder {
+        display: none !important; height: 0 !important; min-height: 0 !important;
+      }
 
       /* MIS RESPUESTAS A LA IZQUIERDA */
       model-response, .model-response-container {
@@ -4165,7 +4168,6 @@ gem-icon-button[data-test-id="prompt-edit-button"] :where(mat-icon, gem-icon) {
   :root {
     --tg-ancho-usuario: 76%;   /* tus mensajes: % del ancho del chat */
     --tg-ancho-ia: 86%;        /* respuestas de la IA */
-    --tg-sep-bloques: 8px;     /* relleno sobre tu mensaje = espacio entre un bloque y el anterior (8px = como Gemini; hueco total = 16px + este valor) */
     --tg-sep-burbujas: -6px;   /* separación entre tu burbuja y la respuesta (más negativo = más cerca; 16px = como antes) */
   }
   .response-container {
