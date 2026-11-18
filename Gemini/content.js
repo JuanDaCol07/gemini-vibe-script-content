@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 26; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 28; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -4196,6 +4196,128 @@ p.gds-body-s.ng-star-inserted {
     text-shadow: 3px 3px 10px #000000;
     color: white;
 }
+
+/* ==========================================================================
+   LIMPIEZA Y OPTIMIZACIÓN DEL HISTORIAL DE CHATS (DOM ESENCIAL Y AJUSTABLE)
+   Oculta elementos prescindibles de Gemini para dejar solo las burbujas
+   esenciales del usuario (con multimedia) y las respuestas de la IA ajustables.
+   ========================================================================== */
+.conversation-container :is(
+  .response-container-header,
+  .response-container-footer,
+  .response-footer,
+  message-actions,
+  .restart-chat-button-scroll-placeholder,
+  model-response-disclaimers,
+  election-info-disclaimer,
+  finance-info-disclaimer,
+  freemium-rag-disclaimer,
+  sensitive-memories-banner,
+  sources-list,
+  sources-carousel-inline,
+  response-element:has(source-footnote),
+  .model-response-label-announcer,
+  thinking-overlay
+) {
+  display: none !important;
+}
+
+/* Ancho y márgenes totalmente ajustables mediante variables */
+:root {
+  --tg-chat-ancho-max: 850px;
+  --tg-chat-ancho-usuario: 80%;
+  --tg-chat-ancho-ia: 88%;
+}
+
+.conversation-container {
+  max-width: var(--tg-chat-ancho-max) !important;
+  width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+user-query .user-query-bubble-with-background {
+  max-width: var(--tg-chat-ancho-usuario, 80%) !important;
+}
+
+model-response .response-container {
+  max-width: var(--tg-chat-ancho-ia, 88%) !important;
+  width: auto !important;
+}
+
+/* ==========================================================================
+   AJUSTE DE LAYOUT PARA PANTALLAS ANCHAS / 16:9 (ESCRITORIO)
+   Alineación según imagen:
+   - Contenedor del chat expandido aprovechando el ancho entre la barra lateral
+     y el borde derecho.
+   - Respuestas de Gemini alineadas a la izquierda (línea verde izquierda).
+   - Burbujas de usuario y carruseles alineados a la derecha (línea verde derecha).
+   ========================================================================== */
+@media (min-width: 960px) {
+  :root {
+    --tg-chat-ancho-max: 100%;
+    --tg-desktop-aire-lateral: 40px;
+    --tg-desktop-ancho-resp: 640px;
+    --tg-desktop-ancho-user: 560px;
+  }
+
+  .conversation-container {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding-left: var(--tg-desktop-aire-lateral, 40px) !important;
+    padding-right: var(--tg-desktop-aire-lateral, 40px) !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+  }
+
+  /* Respuestas a la izquierda */
+  model-response,
+  .model-response-container {
+    display: flex !important;
+    justify-content: flex-start !important;
+    align-items: flex-start !important;
+    width: 100% !important;
+    margin-right: auto !important;
+    margin-left: 0 !important;
+  }
+
+  model-response .response-container {
+    max-width: var(--tg-desktop-ancho-resp, 640px) !important;
+    width: 100% !important;
+    margin: 0 0 16px 0 !important;
+    align-self: flex-start !important;
+  }
+
+  /* Mensajes del usuario y multimedia pegados a la derecha */
+  user-query,
+  .user-query-container {
+    display: flex !important;
+    align-items: flex-end !important;
+    justify-content: flex-end !important;
+    width: 100% !important;
+    margin-left: auto !important;
+    margin-right: 0 !important;
+  }
+
+  user-query .user-query-bubble-with-background {
+    max-width: var(--tg-desktop-ancho-user, 560px) !important;
+    margin-left: auto !important;
+    margin-right: 0 !important;
+    align-self: flex-end !important;
+  }
+
+  user-query-file-carousel,
+  .query-file-carousel {
+    display: flex !important;
+    justify-content: flex-end !important;
+    width: 100% !important;
+    margin-left: auto !important;
+    margin-right: 0 !important;
+    align-self: flex-end !important;
+  }
+}
+
+
 
     `;
   }
