@@ -24,7 +24,7 @@
   // - Debe seguir en una sola declaración, empezando la línea con const.
   // ============================================================================================
 
-  const TG_FIX = 19; // Reiniciar a cero si yo cambio TG_KERNEL 
+  const TG_FIX = 25; // Reiniciar a cero si yo cambio TG_KERNEL 
 
 
   // ============================================================================================
@@ -41,6 +41,8 @@
 
   // NOTAS DE VERSIÓN: cada línea empieza con "•" (bullet) y un espacio; no uses comillas invertidas ni el signo de dólar seguido de llave, lo iras implementando cada vez que actualizes el codigo.
   const TG_NOTAS_VERSION = `
+• El botón de contraer/expandir de las respuestas de Gemini ahora es solo la flechita, sin fondo (igual que el de tus burbujas), y tu burbuja y la respuesta quedan más cerca.
+• Respuestas largas de Gemini: se contraen desde 100 px, quedan a 100 px con animación de 0,7 s, y una respuesta expandida que sale por completo de la pantalla vuelve a quedar contraída al regresar. La separación entre bloques (cada consulta con su respuesta) se ajusta con --tg-sep-bloques.
 • Fondos en video (móvil): el video ya no se recrea si la app reenvía las preferencias (evita reinicios, tirones y cierres) y el fade de arriba/abajo con video se redibuja como máximo ~30 veces por segundo.
 • En nivel Medio los botones de arriba y las notificaciones también llevan blur. Los botones de arriba conservan siempre su blur (niveles Media y Alta) y ya no cambian de opacidad al hacer scroll.
 • Rendimiento en móvil: el «modo táctil rápido» (toque inmediato, caja de escribir y botones de arriba sin blur mientras escribes o haces scroll, mensajes fuera de pantalla omitidos del render) ahora se activa siempre al abrir la app y no solo al cambiar el nivel de blur. Además, los ajustes de posición de la pantalla «¿Por dónde empezamos?» solo escriben estilos cuando algo cambió y se pausan con la página oculta. No cambia ningún efecto visual.
@@ -3305,6 +3307,10 @@ logo.animate([
         display: inline-block !important;
       }
 
+      /* SEPARACIÓN ENTRE BLOQUES: el hueco entre la respuesta y tu siguiente mensaje = margen de la respuesta (16px) + este relleno.
+         8px es lo que trae Gemini; súbelo (--tg-sep-bloques) para separar más los bloques o bájalo para juntarlos. */
+      .conversation-container ~ .conversation-container user-query { padding-top: var(--tg-sep-bloques, 8px); }
+
       /* MIS RESPUESTAS A LA IZQUIERDA */
       model-response, .model-response-container {
         align-items: flex-start !important;
@@ -3317,7 +3323,7 @@ logo.animate([
         -webkit-backdrop-filter: blur(8px) !important;
         border-radius: 18px 18px 18px 4px !important;
         max-width: 800px !important;
-        margin: 16px auto 16px 0 !important;
+        margin: var(--tg-sep-burbujas, -6px) auto 16px 0 !important; /* separación con TU burbuja: menor = más cerca */
         padding: 24px !important;
         box-sizing: border-box !important;
       }
@@ -4159,9 +4165,11 @@ gem-icon-button[data-test-id="prompt-edit-button"] :where(mat-icon, gem-icon) {
   :root {
     --tg-ancho-usuario: 76%;   /* tus mensajes: % del ancho del chat */
     --tg-ancho-ia: 86%;        /* respuestas de la IA */
+    --tg-sep-bloques: 8px;     /* relleno sobre tu mensaje = espacio entre un bloque y el anterior (8px = como Gemini; hueco total = 16px + este valor) */
+    --tg-sep-burbujas: -6px;   /* separación entre tu burbuja y la respuesta (más negativo = más cerca; 16px = como antes) */
   }
   .response-container {
-    margin: 16px auto 16px 12px !important; /* pegada a la izquierda con 12px de aire */
+    margin: var(--tg-sep-burbujas, -6px) auto 16px 12px !important; /* pegada a la izquierda con 12px de aire; arriba: separación con TU burbuja */
     max-width: var(--tg-ancho-ia) !important;
     padding: 18px !important;              /* un poco menos de relleno interno */
   }
@@ -7052,15 +7060,78 @@ p.gds-body-s.ng-star-inserted {
   // - las respuestas que ya estaban terminadas (historial, chat recargado) y miden más de COLAPSO_UMBRAL_PX arrancan contraídas
   // - contraída: altura COLAPSO_ALTO_PX con desvanecido abajo + botón redondo "expandir"
   // ============================================================================================
-  const COLAPSO_ALTO_PX = 250;     // alto de la respuesta contraída
-  const COLAPSO_UMBRAL_PX = 420;   // desde este alto (contenido completo) se considera "larguísima"
-  const COLAPSO_MS = 380;
+  const COLAPSO_ALTO_PX = 100;     // alto de la respuesta contraída
+  const COLAPSO_FADE_PX = 55;      // alto del desvanecido de abajo (proporcional al alto contraído)
+  const COLAPSO_UMBRAL_PX = 100;   // desde este alto (contenido completo) se considera "larguísima"
+  const COLAPSO_MS = 700;
+  // RE-CONTRAER AL SALIR DE PANTALLA: una respuesta que quedó EXPANDIDA y sale por completo de la pantalla vuelve a contraerse, para que al
+  // regresar aparezca contraída. Se hace en silencio, con el scroll quieto y compensando el cambio de alto para que nada se mueva.
+  const colapsoPend = new Set();
+  let colapsoIO = null, colapsoTimerFuera = 0, colapsoUltScroll = 0;
+  document.addEventListener('scroll', () => { colapsoUltScroll = performance.now(); }, { capture: true, passive: true });
+  const colapsoFuera = (r) => { const b = r.getBoundingClientRect(); return b.bottom < -120 || b.top > window.innerHeight + 120; };
+  function programarRecontraer(ms) { clearTimeout(colapsoTimerFuera); colapsoTimerFuera = setTimeout(recontraerPendientes, ms || 350); }
+  function vigilarExpandida(r) {
+    if (!window.IntersectionObserver) return;
+    if (!colapsoIO) {
+      colapsoIO = new IntersectionObserver((es) => {
+        for (const e of es) {
+          if (e.isIntersecting) colapsoPend.delete(e.target);
+          else if (e.target.getAttribute('data-tg-colapso') === 'expandida') colapsoPend.add(e.target);
+        }
+        if (colapsoPend.size) programarRecontraer();
+      }, { rootMargin: '120px 0px 120px 0px' }); // fuera de pantalla = a más de 120 px de verse
+    }
+    colapsoIO.observe(r);
+  }
+  function soltarVigilada(r) { colapsoPend.delete(r); if (colapsoIO) colapsoIO.unobserve(r); }
+  function recontraerPendientes() {
+    if (!colapsoPend.size) return;
+    if (document.hidden || pantallaBloqueada) { programarRecontraer(1500); return; }
+    if (performance.now() - colapsoUltScroll < 300 || enPausaColapso()) { programarRecontraer(); return; } // se espera a que el scroll pare
+    Array.from(colapsoPend).forEach((r) => {
+      colapsoPend.delete(r);
+      if (!r.isConnected || r.getAttribute('data-tg-colapso') !== 'expandida' || !colapsoFuera(r)) return;
+      try { recontraerSinAnimar(r); } catch (e) { console.warn('[tg] recontraer:', e); }
+    });
+  }
+  function recontraerSinAnimar(r) {
+    const scroller = contenedorScroll(r);
+    // referencia dentro del scroll para compensar cualquier desplazamiento: el primer mensaje visible
+    let ref = null;
+    for (const m of scroller.querySelectorAll('user-query, model-response')) {
+      if (m.contains(r) || r.contains(m)) continue;
+      const b = m.getBoundingClientRect();
+      if (b.bottom > 0 && b.top < window.innerHeight && b.height > 0) { ref = m; break; }
+    }
+    const ref0 = ref ? ref.getBoundingClientRect().top : 0;
+    const caja = r.querySelector(':scope > .tg-colapso-toggle');
+    const ancla = scroller.style.overflowAnchor;
+    scroller.style.overflowAnchor = 'none'; // el desplazamiento lo compensamos nosotros (sin doble corrección)
+    // Gemini pone content-visibility:auto en cada turno: fuera de pantalla no se maqueta; se fuerza visible un instante para que el alto cambie ya
+    const forzados = [];
+    for (let p = r.parentElement; p && p !== document.body; p = p.parentElement) {
+      if (getComputedStyle(p).contentVisibility === 'auto') { forzados.push([p, p.style.contentVisibility]); p.style.contentVisibility = 'visible'; }
+    }
+    if (caja) caja.style.transition = 'none'; // el margen del botón no se anima
+    r.setAttribute('data-tg-colapso', 'contraida');
+    const btn = caja && caja.querySelector('.tg-colapso-btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    forzados.forEach(([p, v]) => { p.style.contentVisibility = v; });
+    if (ref && ref.isConnected) {
+      const d = ref.getBoundingClientRect().top - ref0;
+      if (Math.abs(d) > 0.5) scroller.scrollTop += d;
+    }
+    scroller.style.overflowAnchor = ancla;
+    if (caja) requestAnimationFrame(() => requestAnimationFrame(() => { caja.style.transition = ''; }));
+    soltarVigilada(r);
+  }
   despuesDeBienvenida(function () {
     const est = document.createElement('style');
     est.id = 'tg-colapso-style';
     est.textContent = `
       /* alto del desvanecido: registrado como <length> para poder animarlo (el desvanecido aparece/desaparece suave) */
-      @property --tg-fade { syntax: '<length>'; inherits: false; initial-value: 110px; }
+      @property --tg-fade { syntax: '<length>'; inherits: false; initial-value: ${COLAPSO_FADE_PX}px; }
       .response-container[data-tg-colapso="contraida"] > .presented-response-container {
         max-height: ${COLAPSO_ALTO_PX}px !important;
         overflow: hidden !important;
@@ -7072,17 +7143,16 @@ p.gds-body-s.ng-star-inserted {
       }
       .tg-colapso-toggle { display: flex; justify-content: flex-end; margin: 6px 0 0; position: relative; z-index: 1; transition: margin-top ${COLAPSO_MS}ms cubic-bezier(0.22, 1, 0.36, 1); }
       .response-container[data-tg-colapso="contraida"] > .tg-colapso-toggle { margin-top: -34px; }
+      /* mismo estilo que el botón de las burbujas del usuario: sin fondo, sin texto, solo la flechita */
       .tg-colapso-btn {
-        height: 40px; padding: 0 12px 0 16px; border: 0; border-radius: 9999px; cursor: pointer;
-        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-        background: var(--tg-input-bg, rgba(0, 0, 0, 0.55)); color: var(--tg-texto, #fff);
-        font: inherit; font-size: 14px; line-height: 1; white-space: nowrap;
-        -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-        transition: transform 0.2s ease;
+        width: 40px; height: 40px; padding: 0; border: 0; border-radius: 9999px; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: transparent; color: var(--tg-texto, #fff); box-shadow: none;
+        -webkit-tap-highlight-color: transparent;
       }
-      @media (hover: hover) { .tg-colapso-btn:hover { transform: scale(1.04); } }
-      .tg-colapso-txt::before { content: 'Mostrar mensaje completo'; }
-      .response-container[data-tg-colapso="expandida"] .tg-colapso-txt::before { content: 'Mostrar menos'; }
+      .tg-colapso-btn:active { background: rgba(255, 255, 255, 0.12); }
+      @media (hover: hover) { .tg-colapso-btn:hover { background: rgba(255, 255, 255, 0.1); } }
+      .tg-colapso-txt { display: none; }
       .tg-colapso-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.3s ease; }
       .response-container[data-tg-colapso="expandida"] .tg-colapso-btn svg { transform: rotate(180deg); }
       @media (prefers-reduced-motion: reduce) { .tg-colapso-btn, .tg-colapso-btn svg, .tg-colapso-toggle { transition: none; } }
@@ -7092,6 +7162,7 @@ p.gds-body-s.ng-star-inserted {
 
   function quitarColapso(r, cont) {
     if (r.hasAttribute('data-tg-colapso')) r.removeAttribute('data-tg-colapso');
+    soltarVigilada(r);
     const t = r.querySelector(':scope > .tg-colapso-toggle');
     if (t) t.remove();
     r._tgColapsoEval = false;
@@ -7131,20 +7202,22 @@ p.gds-body-s.ng-star-inserted {
     const easing = 'cubic-bezier(0.22, 1, 0.36, 1)';
     if (expandir) {
       r.setAttribute('data-tg-colapso', 'expandida');
+      vigilarExpandida(r); // si sale de la pantalla, vuelve a contraerse
       if (anima && completo > COLAPSO_ALTO_PX) {
         cont.style.setProperty('overflow', 'hidden');
         cont.setAttribute('data-tg-fade-anim', ''); // el desvanecido se mantiene mientras crece y se va apagando
         const fin = () => { cont.style.removeProperty('overflow'); cont.removeAttribute('data-tg-fade-anim'); };
         const a = cont.animate(
-          [{ maxHeight: COLAPSO_ALTO_PX + 'px', '--tg-fade': '110px' }, { maxHeight: completo + 'px', '--tg-fade': '0px' }],
+          [{ maxHeight: COLAPSO_ALTO_PX + 'px', '--tg-fade': COLAPSO_FADE_PX + 'px' }, { maxHeight: completo + 'px', '--tg-fade': '0px' }],
           { duration: COLAPSO_MS, easing });
         a.onfinish = fin; a.oncancel = fin;
       }
     } else {
       r.setAttribute('data-tg-colapso', 'contraida');
+      soltarVigilada(r);
       if (anima) {
         cont.animate(
-          [{ maxHeight: completo + 'px', '--tg-fade': '0px' }, { maxHeight: COLAPSO_ALTO_PX + 'px', '--tg-fade': '110px' }],
+          [{ maxHeight: completo + 'px', '--tg-fade': '0px' }, { maxHeight: COLAPSO_ALTO_PX + 'px', '--tg-fade': COLAPSO_FADE_PX + 'px' }],
           { duration: COLAPSO_MS, easing });
         scrollSuaveHaciaRespuesta(r);
       } else if (r.getBoundingClientRect().top < 0) {
@@ -7184,6 +7257,7 @@ p.gds-body-s.ng-star-inserted {
         const contraer = !r._tgStreaming; // si se vio escribir en vivo, se queda extendida
         r.setAttribute('data-tg-colapso', contraer ? 'contraida' : 'expandida');
         btn.setAttribute('aria-expanded', contraer ? 'false' : 'true');
+        if (!contraer) vigilarExpandida(r); // quedó extendida (se vio escribir): si sale de la pantalla, vuelve a contraerse
       } else if ((r._tgColapsoIntentos = (r._tgColapsoIntentos || 0) + 1) >= 4) {
         r._tgColapsoEval = true; // corta y no se contrae (imágenes que cargan tarde pueden cambiar el alto: se reintenta unas veces)
       }
